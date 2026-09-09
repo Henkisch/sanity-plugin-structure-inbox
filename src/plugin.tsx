@@ -20,7 +20,7 @@ import {warnOnce} from './warnOnce'
  * export default defineConfig({
  *   plugins: [
  *     structureTool(),
- *     structureInbox({widgets: [recentlyEdited()]}),
+ *     structureInbox({sources: [unpublishedDrafts()]}),
  *   ],
  * })
  * ```

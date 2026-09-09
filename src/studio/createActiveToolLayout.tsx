@@ -24,7 +24,7 @@ import {shouldRedirectToInbox} from './shouldRedirectToInbox'
  * override is the right seam and `layout` is not.
  */
 export function createActiveToolLayout(config: ResolvedStructureInboxConfig) {
-  return function StructureHomeActiveToolLayout(props: ActiveToolLayoutProps) {
+  return function StructureInboxActiveToolLayout(props: ActiveToolLayoutProps) {
     const {activeTool} = props
     const {navigate} = useRouter()
 
@@ -39,7 +39,7 @@ export function createActiveToolLayout(config: ResolvedStructureInboxConfig) {
         // Read at effect time, not render time: the structure resolver runs
         // during the render of the tool this component wraps, so by the time
         // effects flush it has already reported whether injection worked.
-        homeAvailable: isInboxAvailable(config.toolName),
+        inboxAvailable: isInboxAvailable(config.toolName),
         activeToolName,
         targetToolName: config.toolName,
         panes,

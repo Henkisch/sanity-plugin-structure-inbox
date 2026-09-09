@@ -3,7 +3,7 @@ export interface RedirectDecision {
   /** Whether the plugin is configured to redirect at all. */
   redirectOnLanding: boolean
   /** Whether the Inbox pane can actually be resolved for this tool. */
-  homeAvailable: boolean
+  inboxAvailable: boolean
   /** The tool the editor is currently in. */
   activeToolName: string
   /** The tool this plugin instance is attached to. */
@@ -28,7 +28,7 @@ export function shouldRedirectToInbox(decision: RedirectDecision): boolean {
   if (!decision.redirectOnLanding) return false
 
   // Injection failed, so `/structure/structure-inbox` would resolve to nothing.
-  if (!decision.homeAvailable) return false
+  if (!decision.inboxAvailable) return false
 
   // `activeToolLayout` wraps whichever tool is open, not just ours.
   if (decision.activeToolName !== decision.targetToolName) return false

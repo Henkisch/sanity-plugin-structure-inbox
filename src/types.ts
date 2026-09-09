@@ -20,7 +20,7 @@ export interface StructureInboxConfig {
 
   /**
    * Title shown on the Inbox pane and on its item in the root list.
-   * Defaults to the localized `home.title`.
+   * Defaults to the localized `inbox.title`.
    */
   title?: string
 
