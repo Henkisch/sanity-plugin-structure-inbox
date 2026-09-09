@@ -1,6 +1,7 @@
 import {
   createStructureBuilder,
-  type ListBuilder,
+  type PaneNode,
+  type RouterPaneSiblingContext,
   type StructureBuilder,
   type StructureResolverContext,
 } from 'sanity/structure'
@@ -13,14 +14,13 @@ import {resolveConfig} from './resolveConfig'
 import {wrapStructure} from './wrapStructure'
 
 /**
- * A real `StructureBuilder`, so these tests exercise the actual `ListBuilder`
- * that `wrapStructure` branches on rather than a stub that agrees with it.
+ * A real `StructureBuilder`, so these tests exercise the actual builders
+ * `wrapStructure` wraps rather than stubs that agree with it.
  *
  * `createStructureBuilder` wants a Studio `Source`, which is far too large to
- * construct here. Building and inspecting nodes only reaches for three pieces
- * of it — the schema, i18n, and new-document options — and most of that only
- * when a node is serialized. Nothing here serializes, so those three stubs are
- * the whole of the fixture.
+ * construct here. Building and serializing the nodes below only reaches for
+ * three pieces of it — the schema, i18n, and new-document options — so those
+ * three stubs are the whole of the fixture.
  */
 const S: StructureBuilder = createStructureBuilder({
   source: {
@@ -32,15 +32,24 @@ const S: StructureBuilder = createStructureBuilder({
 
 const context = {} as StructureResolverContext
 
-/** Reads a node's id without caring which kind of builder it is. */
-function idOf(node: unknown): string | undefined {
-  const id: unknown = (node as {getId?: () => unknown}).getId?.()
-  return typeof id === 'string' ? id : undefined
+/** Serializes whatever a wrapped resolver returned, builder or plain node. */
+function serialize(root: unknown): PaneNode {
+  const node = root as {serialize?: (options?: unknown) => PaneNode}
+  return typeof node.serialize === 'function' ? node.serialize({path: []}) : (root as PaneNode)
 }
 
-function isDivider(node: unknown): boolean {
-  const type: unknown = (node as {spec?: {type?: unknown}})?.spec?.type
-  return type === 'divider'
+/** The ids and types of a serialized list's items, in order. */
+function itemsOf(root: unknown): {id: string; type: string}[] {
+  const {items} = serialize(root) as unknown as {items?: {id: string; type: string}[]}
+  return items ?? []
+}
+
+function resolveChild(root: unknown, itemId: string): unknown {
+  const node = serialize(root)
+  // A list's default child resolver looks the item up on its parent, so the
+  // serialized node has to be passed back in the way real resolution does.
+  const options = {parent: node} as RouterPaneSiblingContext
+  return typeof node.child === 'function' ? node.child(itemId, options) : node.child
 }
 
 beforeEach(() => {
@@ -49,55 +58,108 @@ beforeEach(() => {
 })
 
 describe('wrapStructure', () => {
-  it('puts the Home item first, above a divider, keeping the original items', () => {
-    const existing = S.listItem().id('post').title('Posts')
-    const wrapped = wrapStructure(() => S.list().id('content').items([existing]), resolveConfig())
+  it('resolves the Home id without touching the list the developer wrote', () => {
+    const posts = S.listItem().id('post').title('Posts')
+    const wrapped = wrapStructure(() => S.list().id('content').items([posts]), resolveConfig())
 
-    const items = (wrapped(S, context) as ListBuilder).getItems() ?? []
+    const root = wrapped(S, context)
+    const home = resolveChild(root, HOME_PANE_ID) as {getId: () => string}
 
-    expect(items).toHaveLength(3)
-    expect(idOf(items[0])).toBe(HOME_PANE_ID)
-    expect(isDivider(items[1])).toBe(true)
-    expect(items[2]).toBe(existing)
+    expect(home.getId()).toBe(HOME_PANE_ID)
+    // The whole point: no Home entry appears in the editor's list.
+    expect(itemsOf(root).map((item) => item.id)).toEqual(['post'])
+  })
+
+  it('leaves every other id to the structure it wrapped', () => {
+    const wrapped = wrapStructure(
+      () =>
+        S.list()
+          .id('content')
+          .items([
+            S.listItem()
+              .title('Posts')
+              .id('post')
+              .child(
+                S.documentList().id('posts').apiVersion('2024-01-01').filter('_type == "post"'),
+              ),
+          ]),
+      resolveConfig(),
+    )
+
+    // Serializing the list serializes its items too, so this is the developer's
+    // own child arriving through the untouched default resolver.
+    const child = resolveChild(wrapped(S, context), 'post') as {id: string; type: string}
+
+    expect(child.type).toBe('documentList')
+    expect(child.id).toBe('posts')
+  })
+
+  it('works when the root is not a list at all', () => {
+    // The case that used to be unsupported: there is no list to add an item to,
+    // but a child resolver does not need one.
+    const wrapped = wrapStructure(
+      () => S.documentList().id('posts').apiVersion('2024-01-01').filter('_type == "post"'),
+      resolveConfig(),
+    )
+
+    const home = resolveChild(wrapped(S, context), HOME_PANE_ID) as {getId: () => string}
+
+    expect(home.getId()).toBe(HOME_PANE_ID)
+    expect(isHomeAvailable('structure')).toBe(true)
   })
 
   it('falls back to S.defaults() when no structure was configured', () => {
-    const wrapped = wrapStructure(undefined, resolveConfig())
+    const home = resolveChild(wrapStructure(undefined, resolveConfig())(S, context), HOME_PANE_ID)
 
-    const items = (wrapped(S, context) as ListBuilder).getItems() ?? []
-
-    expect(idOf(items[0])).toBe(HOME_PANE_ID)
-    expect(isDivider(items[1])).toBe(true)
+    expect((home as {getId: () => string}).getId()).toBe(HOME_PANE_ID)
   })
 
-  it('reports the tool as available once injection succeeds', () => {
-    wrapStructure(() => S.list().id('content'), resolveConfig())(S, context)
+  it('awaits an async structure resolver', async () => {
+    const wrapped = wrapStructure(() => Promise.resolve(S.list().id('content')), resolveConfig())
 
-    expect(isHomeAvailable('structure')).toBe(true)
+    const home = resolveChild(await wrapped(S, context), HOME_PANE_ID)
+
+    expect((home as {getId: () => string}).getId()).toBe(HOME_PANE_ID)
   })
 
-  it('warns and leaves the structure untouched when the root is not a list', () => {
+  it('adds a visible list item above a divider when showInList is on', () => {
+    const wrapped = wrapStructure(
+      () =>
+        S.list()
+          .id('content')
+          .items([S.listItem().id('post').title('Posts')]),
+      resolveConfig({showInList: true}),
+    )
+
+    const items = itemsOf(wrapped(S, context))
+
+    expect(items.map((item) => item.id)).toEqual([HOME_PANE_ID, items[1].id, 'post'])
+    expect(items[1].type).toBe('divider')
+  })
+
+  it('warns but keeps the pane reachable when showInList has no list to add to', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    // A document list is the shape this degrades on: real structures written as
-    // `S.documentTypeList('post')` have no root list to add an item to.
-    const notAList = S.documentList().id('posts').filter('_type == "post"')
 
-    const result = wrapStructure(() => notAList, resolveConfig())(S, context)
+    const wrapped = wrapStructure(
+      () => S.documentList().id('posts').apiVersion('2024-01-01').filter('_type == "post"'),
+      resolveConfig({showInList: true}),
+    )
+    const home = resolveChild(wrapped(S, context), HOME_PANE_ID)
 
-    expect(result).toBe(notAList)
-    expect(warn).toHaveBeenCalledOnce()
-    // The redirect has to stay off, or editors land on a pane that cannot resolve.
-    expect(isHomeAvailable('structure')).toBe(false)
+    expect(warn.mock.calls.flat().join(' ')).toContain('showInList')
+    expect((home as {getId: () => string}).getId()).toBe(HOME_PANE_ID)
   })
 
-  it('leaves the structure untouched when autoInject is off, but keeps the pane reachable', () => {
-    const base = S.list().id('content')
+  it('disables the redirect when the root cannot be extended', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // An observable root — the one shape there is no way to extend from here.
+    const observable = {subscribe: () => ({unsubscribe: () => {}})}
 
-    const result = wrapStructure(() => base, resolveConfig({autoInject: false}))(S, context)
+    const result = wrapStructure(() => observable, resolveConfig())(S, context)
 
-    expect(result).toBe(base)
-    // The developer places `homeListItem` themselves, so the URL still resolves.
-    expect(isHomeAvailable('structure')).toBe(true)
+    expect(result).toBe(observable)
+    expect(warn).toHaveBeenCalledOnce()
+    expect(isHomeAvailable('structure')).toBe(false)
   })
 
   it('tracks availability per tool name', () => {
@@ -107,18 +169,15 @@ describe('wrapStructure', () => {
     expect(isHomeAvailable('structure')).toBe(false)
   })
 
-  it('builds a Home item that opens the Home pane and refuses intents', () => {
-    const items = (wrapStructure(undefined, resolveConfig())(S, context) as ListBuilder).getItems()
-    const home = items?.[0] as {getChild?: () => unknown}
-    const child = home.getChild?.() as {
-      getId: () => string
+  it('builds a Home pane that carries its widgets and refuses intents', () => {
+    const wrapped = wrapStructure(() => S.list().id('content'), resolveConfig())
+    const home = resolveChild(wrapped(S, context), HOME_PANE_ID) as {
       getOptions: () => Record<string, unknown>
-      spec: {canHandleIntent?: (...args: never[]) => boolean}
+      spec: {canHandleIntent?: () => boolean}
     }
 
-    expect(child.getId()).toBe(HOME_PANE_ID)
-    expect(child.getOptions()).toEqual({widgets: []})
+    expect(home.getOptions()).toEqual({widgets: []})
     // A dashboard pane must never win the race to handle an `edit` intent.
-    expect(child.spec.canHandleIntent?.()).toBe(false)
+    expect(home.spec.canHandleIntent?.()).toBe(false)
   })
 })

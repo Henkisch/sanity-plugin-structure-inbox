@@ -10,7 +10,7 @@ import {type ResolvedStructureHomeConfig, type StructureHomeConfig} from '../typ
 export function resolveConfig(config: StructureHomeConfig = {}): ResolvedStructureHomeConfig {
   return {
     toolName: config.toolName ?? DEFAULT_TOOL_NAME,
-    autoInject: config.autoInject ?? true,
+    showInList: config.showInList ?? false,
     redirectOnLanding: config.redirectOnLanding ?? true,
     widgets: config.widgets ?? [],
     title: config.title,

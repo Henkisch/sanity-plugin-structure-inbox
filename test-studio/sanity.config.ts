@@ -36,7 +36,9 @@ export default defineConfig([
     dataset,
     plugins: [
       structureTool({structure}),
-      structureHome(),
+      // `showInList` is off by default; this workspace turns it on so both the
+      // visible entry and the invisible resolution get exercised somewhere.
+      structureHome({showInList: true}),
       // Stacked on purpose — see the probe's own comment.
       activeToolLayoutProbe(),
       visionTool(),
@@ -44,9 +46,8 @@ export default defineConfig([
     schema: {types: schemaTypes},
   },
   {
-    // Covers the degradation path: a root that is not a list, so the Home item
-    // cannot be injected. Expect a console warning, a working Studio, and no
-    // redirect.
+    // A root that is not a list at all. Home is reached through the root's
+    // child resolver rather than a list item, so it resolves here too.
     name: 'noList',
     title: 'No list at root',
     basePath: '/no-list',

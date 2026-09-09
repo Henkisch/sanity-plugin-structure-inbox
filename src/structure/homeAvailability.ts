@@ -1,9 +1,9 @@
 /**
  * Whether the Home pane can actually be resolved, keyed by tool name.
  *
- * The landing redirect and the pane injection live in different parts of the
+ * The landing redirect and the pane wiring live in different parts of the
  * config — `studio.components.activeToolLayout` and `tools` — and only the
- * second one can tell whether injection succeeded, because that answer depends
+ * second one can tell whether the wiring succeeded, because that answer depends
  * on what the developer's structure resolver returns at render time.
  *
  * The ordering works out: `ActiveToolLayout` wraps the structure tool, so

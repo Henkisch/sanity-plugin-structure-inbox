@@ -40,15 +40,17 @@ export function homeComponent(
 /**
  * The Home pane's entry in the root list.
  *
- * You only need this if you set `autoInject: false` and want to place the item
- * yourself:
+ * The pane is reachable without it — the plugin teaches the root pane to
+ * resolve the Home id directly — so reach for this only when you want a
+ * visible entry in a particular place. For one at the top of the list,
+ * `showInList: true` does the same thing with no structure changes.
  *
  * ```ts
  * structureTool({
  *   structure: (S) =>
  *     S.list()
  *       .title('Content')
- *       .items([homeListItem(S), S.divider(), ...S.documentTypeListItems()]),
+ *       .items([...S.documentTypeListItems(), S.divider(), homeListItem(S)]),
  * })
  * ```
  *

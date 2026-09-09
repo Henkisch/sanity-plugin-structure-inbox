@@ -69,14 +69,17 @@ export interface StructureHomeConfig {
   title?: string
 
   /**
-   * Whether to add the Home item to the root list automatically.
+   * Whether to show a "Home" item at the top of the root list.
    *
-   * Leave this on unless you place {@link homeListItem} in your own structure.
-   * Turning it off does not disable the pane — only the automatic injection.
+   * Off by default: editors land on the Home pane without clicking anything,
+   * and clicking the tool in the navbar brings them back, so the entry mostly
+   * takes up room in a list the developer designed. Turn it on if you want an
+   * explicit way in — or place {@link homeListItem} yourself to control where
+   * it sits.
    *
-   * @defaultValue true
+   * @defaultValue false
    */
-  autoInject?: boolean
+  showInList?: boolean
 
   /**
    * Whether to send editors to the Home pane when they land on the tool with
@@ -90,6 +93,6 @@ export interface StructureHomeConfig {
 
 /** @internal */
 export type ResolvedStructureHomeConfig = Required<
-  Pick<StructureHomeConfig, 'toolName' | 'autoInject' | 'redirectOnLanding' | 'widgets'>
+  Pick<StructureHomeConfig, 'toolName' | 'showInList' | 'redirectOnLanding' | 'widgets'>
 > &
   Pick<StructureHomeConfig, 'title'>

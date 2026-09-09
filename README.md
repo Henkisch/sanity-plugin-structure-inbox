@@ -33,8 +33,10 @@ Order matters: the plugin works by extending the structure tool that is already 
 tool that has not been added yet cannot be found. If it is listed first, you get a console warning
 and no Home pane.
 
-That gives you a Home item at the top of the root list and, on landing, a Home pane in the canvas.
-It has no widgets yet — pass some to fill it:
+Editors now land on a Home pane instead of a blank canvas. Nothing is added to your structure —
+no extra menu item — because the plugin teaches the root pane to resolve the Home id directly.
+
+It has no widgets yet, so it shows an empty state. Pass some to fill it:
 
 ```ts
 structureHome({
@@ -54,9 +56,9 @@ structureHome({
 | Option              | Type                    | Default          |                                                                                 |
 | ------------------- | ----------------------- | ---------------- | ------------------------------------------------------------------------------- |
 | `widgets`           | `StructureHomeWidget[]` | `[]`             | What renders on the pane, in order.                                             |
-| `title`             | `string`                | localized `Home` | Title for the pane and its list item.                                           |
+| `title`             | `string`                | localized `Home` | Title for the pane, and for its list item when shown.                           |
 | `toolName`          | `string`                | `'structure'`    | Which structure tool to attach to. Set this when the Studio runs more than one. |
-| `autoInject`        | `boolean`               | `true`           | Whether to add the Home item to the root list for you.                          |
+| `showInList`        | `boolean`               | `false`          | Whether to show a "Home" entry at the top of the root list.                     |
 | `redirectOnLanding` | `boolean`               | `true`           | Whether to open Home when an editor lands on the tool with nothing selected.    |
 
 ### Widgets
@@ -114,13 +116,18 @@ Sanity renders inside the active tool's own router scope, and from there navigat
 pane's id. The canvas then fills through the ordinary pane-resolution path, and the redirect
 `replace`s the history entry so Back still leaves the Studio cleanly.
 
-It stands aside whenever it should: on a deep link, while an intent is still resolving, in other
-tools, and when the Home item could not be added.
+Making that id resolve is the other half. Pane resolution reaches a child purely by id — a list
+item is only the ordinary way an editor produces one — so the plugin wraps the root node and adds
+a single branch to its child resolver: the Home id resolves to the Home pane, and every other id
+goes to whatever resolved it before. That is why no menu item is needed, and why the root can be a
+list, a document list, or anything else.
 
-**Limitation:** automatic injection needs a list at the root of your structure. A structure like
-`S.documentTypeList('post')` has no list to add an item to, so the plugin warns, leaves your
-structure alone, and turns the redirect off rather than sending editors to a URL that resolves to
-nothing. Use `autoInject: false` and `homeListItem` if you need that shape.
+It stands aside whenever it should: on a deep link, while an intent is still resolving, and in
+tools it is not attached to.
+
+**Limitation:** a structure resolver that returns an _observable_ cannot be extended this way. That
+is rare — returning a node, a builder, or a promise all work — but if you do, the plugin warns and
+disables the redirect rather than sending editors to a URL that resolves to nothing.
 
 ## Localization
 
@@ -161,7 +168,7 @@ It ships three workspaces, one per behaviour worth checking by hand:
 | Workspace | Path       | What it covers                                                                                        |
 | --------- | ---------- | ----------------------------------------------------------------------------------------------------- |
 | `default` | `/default` | The happy path, plus a second plugin overriding `activeToolLayout` to prove the chain still composes. |
-| `noList`  | `/no-list` | A structure whose root is not a list: expect a console warning, a working Studio, no redirect.        |
+| `noList`  | `/no-list` | A structure whose root is a document list rather than a list — Home still resolves.                   |
 | `multi`   | `/multi`   | Two structure tools with Home attached to only one of them.                                           |
 
 Other scripts: `npm test`, `npm run lint`, `npm run format`.
