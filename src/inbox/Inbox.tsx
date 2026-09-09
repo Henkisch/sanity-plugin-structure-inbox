@@ -11,11 +11,13 @@ import {
   TabPanel,
   Text,
 } from '@sanity/ui'
-import {useCallback, useMemo, useState} from 'react'
+import {type ReactNode, useCallback, useMemo, useState} from 'react'
 import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {useDismissals} from '../store/useDismissals'
+import {SectionCard} from '../ui/SectionCard'
+import {SectionErrorBoundary} from '../ui/SectionErrorBoundary'
 import {InboxSection} from './InboxSection'
 import {type InboxSource, type InboxView} from './types'
 
@@ -33,6 +35,62 @@ const COLUMNS = [1, 1, 1, 3]
 const OPEN_TAB_ID = 'structure-inbox-open'
 const DONE_TAB_ID = 'structure-inbox-done'
 const PANEL_ID = 'structure-inbox-panel'
+
+/**
+ * A no-op: the boundary below already logs and renders the fallback card, and
+ * nothing else in the pane needs to react to one source having thrown.
+ */
+function ignoreCaughtError(): void {
+  // Intentionally empty.
+}
+
+interface BoundedSectionProps {
+  source: InboxSource
+  compact?: boolean
+  dismissals: ReturnType<typeof useDismissals>
+  onCount: (sourceName: string, count: number) => void
+  view: InboxView
+}
+
+/**
+ * One source, contained.
+ *
+ * The boundary sits outside `InboxSection` — not inside it, and not inside
+ * `SectionCard` — because `InboxSection` is what calls `source.useItems()`.
+ * A hook that throws does so while `InboxSection` is rendering, above any
+ * boundary that component itself renders, so the boundary has to be a layer
+ * further out to catch it. If `useItems()` ever moves, the boundary has to
+ * move with it.
+ */
+/**
+ * Exported for `Inbox.test.tsx`: it can render this directly without also
+ * mounting `useDismissals`' `useClient`, which needs a full Studio source
+ * context that a unit test for this boundary should not have to carry.
+ */
+export function BoundedSection(props: BoundedSectionProps) {
+  const {source, compact, dismissals, onCount, view} = props
+
+  const renderFallback = useCallback(
+    (error: Error): ReactNode => (
+      <SectionCard error={error} icon={source.icon} title={source.title}>
+        {null}
+      </SectionCard>
+    ),
+    [source],
+  )
+
+  return (
+    <SectionErrorBoundary fallback={renderFallback} onCatch={ignoreCaughtError}>
+      <InboxSection
+        compact={compact}
+        dismissals={dismissals}
+        onCount={onCount}
+        source={source}
+        view={view}
+      />
+    </SectionErrorBoundary>
+  )
+}
 
 export function Inbox({sources}: InboxProps) {
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
@@ -128,7 +186,7 @@ export function Inbox({sources}: InboxProps) {
               <Box gridColumn={aside.length > 0 ? [1, 1, 1, 2] : COLUMNS}>
                 <Stack gap={3}>
                   {main.map((source) => (
-                    <InboxSection
+                    <BoundedSection
                       dismissals={dismissals}
                       key={source.name}
                       onCount={handleCount}
@@ -143,7 +201,7 @@ export function Inbox({sources}: InboxProps) {
                 <Box gridColumn={1}>
                   <Stack gap={3}>
                     {aside.map((source) => (
-                      <InboxSection
+                      <BoundedSection
                         compact
                         dismissals={dismissals}
                         key={source.name}

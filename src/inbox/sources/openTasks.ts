@@ -58,8 +58,11 @@ function isOverdue(dueBy?: string): boolean {
  * than in the content dataset, and both `useAddonDataset` and the `tasks.task`
  * shape are marked beta in Sanity's own typings. Both are confined to this
  * file: if either moves, this one source stops working rather than the plugin.
- * A Studio with tasks disabled has no addon dataset at all, which surfaces here
- * as an empty list rather than an error.
+ * A Studio with tasks disabled has no addon dataset at all, and Sanity's
+ * `useAddonDataset` throws — `useAddonDataset: missing context value` — rather
+ * than returning an empty result. This source does not guard against that; the
+ * `SectionErrorBoundary` around `InboxSection` in `Inbox.tsx` contains the
+ * throw to this source's own card instead of taking the whole pane down.
  */
 export function openTasks(options: OpenTasksOptions = {}): InboxSource {
   const {limit = 10, title = 'Your tasks', placement = 'main', onlyMine = true} = options
