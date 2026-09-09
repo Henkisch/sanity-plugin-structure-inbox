@@ -1,6 +1,14 @@
 import {type ComponentType} from 'react'
 
 /**
+ * Which half of the inbox is on screen: the things still to do, or the things
+ * already ticked off.
+ *
+ * @public
+ */
+export type InboxView = 'open' | 'done'
+
+/**
  * One actionable thing in an editor's inbox.
  *
  * @public
@@ -77,6 +85,18 @@ export interface InboxSource {
    * @defaultValue 'main'
    */
   placement?: 'main' | 'aside'
+
+  /**
+   * Who this source's items belong to.
+   *
+   * Purely a label: `mine` says the items are personal to the editor reading
+   * them, `everyone` that the whole team sees the same list. An inbox mixing
+   * both — your tasks alongside the team's forgotten drafts — is confusing
+   * without it, because "done" means something different in each case.
+   *
+   * @defaultValue 'everyone'
+   */
+  audience?: 'mine' | 'everyone'
 
   /**
    * Returns this source's items.

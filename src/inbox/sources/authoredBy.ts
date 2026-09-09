@@ -1,0 +1,56 @@
+import {type SanityClient} from '@sanity/client'
+
+/**
+ * Keeps only the ids this user has actually touched.
+ *
+ * Sanity has no "documents I edited" query: authorship lives in the transaction
+ * log, not on the document, and the log's dataset-wide form returns nothing
+ * without document ids. What it does support is a batch — many ids in the path
+ * plus an `authors` filter — so one request can sift a page of candidates that
+ * GROQ has already narrowed.
+ *
+ * That ordering matters: this never scans the dataset, it only asks "of these
+ * ten, which are mine".
+ */
+export async function filterAuthoredBy(
+  client: SanityClient,
+  documentIds: string[],
+  userId: string,
+): Promise<Set<string>> {
+  if (documentIds.length === 0) return new Set()
+
+  const {dataset} = client.config()
+  // No `tag` here: the client adds its own, and the API rejects a duplicate
+  // with "tag can only occur once".
+  const params = new URLSearchParams({excludeContent: 'true', authors: userId})
+
+  const response = await client.request<string>({
+    url: `/data/history/${dataset}/transactions/${documentIds.join(',')}?${params.toString()}`,
+    // The endpoint answers with newline-delimited JSON, which the client would
+    // otherwise try to parse as one document and reject.
+    method: 'GET',
+    headers: {Accept: 'application/x-ndjson'},
+  })
+
+  const authored = new Set<string>()
+
+  for (const line of response.split('\n')) {
+    if (!line.trim()) continue
+
+    try {
+      const transaction: unknown = JSON.parse(line)
+      if (typeof transaction !== 'object' || transaction === null) continue
+      if (!('documentIDs' in transaction)) continue
+
+      const ids = transaction.documentIDs
+      if (!Array.isArray(ids)) continue
+      for (const id of ids) if (typeof id === 'string') authored.add(id)
+    } catch {
+      // A malformed line means one transaction is unreadable, not that the
+      // whole answer is. Skipping it costs at most one document's authorship.
+      continue
+    }
+  }
+
+  return authored
+}

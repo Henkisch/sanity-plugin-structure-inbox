@@ -5,29 +5,30 @@ import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 
 interface SelectionActionsProps {
   count: number
+  /** True when the selection is in the Done tab, so the action is the inverse. */
+  undo: boolean
   /** True when the source can complete items where they actually live. */
   resolves: boolean
-  /** How many of the selected rows are already done. */
-  doneCount: number
   busy: boolean
-  onResolve: () => void
-  onDismiss: () => void
-  onRestore: () => void
-  onClear: () => void
+  onConfirm: () => void
+  onCancel: () => void
 }
 
 /**
  * The bar that appears once rows are selected.
  *
- * Which buttons show depends on what is selected, so an editor is never offered
- * an action that would do nothing: only done rows can be put back, and only a
- * source that can complete items offers to complete them.
+ * One action, not a menu of near-synonyms: "Dismiss" and "Clear" sat side by
+ * side and both read as ways to get rid of the selection. What an editor wants
+ * to express is that a thing is done, so that is the only verb offered — and
+ * "Cancel" means what it means everywhere else, which is "never mind".
+ *
+ * Whether done also changes anything outside this editor's inbox is the
+ * source's business, so it is explained in the button's tooltip rather than
+ * split into two buttons the editor has to choose between.
  */
 export function SelectionActions(props: SelectionActionsProps) {
-  const {count, resolves, doneCount, busy, onResolve, onDismiss, onRestore, onClear} = props
+  const {count, undo, resolves, busy, onConfirm, onCancel} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
-
-  const openCount = count - doneCount
 
   return (
     <Card borderBottom padding={2} radius={0} tone="primary">
@@ -38,46 +39,25 @@ export function SelectionActions(props: SelectionActionsProps) {
           </Text>
         </Box>
 
-        {openCount > 0 && resolves && (
-          <Button
-            disabled={busy}
-            fontSize={1}
-            onClick={onResolve}
-            padding={2}
-            text={t('action.markDone')}
-            tone="positive"
-          />
-        )}
-
-        {openCount > 0 && (
-          <Button
-            disabled={busy}
-            fontSize={1}
-            mode="ghost"
-            onClick={onDismiss}
-            padding={2}
-            text={t('action.dismiss')}
-          />
-        )}
-
-        {doneCount > 0 && (
-          <Button
-            disabled={busy}
-            fontSize={1}
-            mode="ghost"
-            onClick={onRestore}
-            padding={2}
-            text={t('action.restore')}
-          />
-        )}
+        <Button
+          disabled={busy}
+          fontSize={1}
+          onClick={onConfirm}
+          padding={2}
+          text={undo ? t('action.markNotDone') : t('action.markDone')}
+          title={
+            undo ? undefined : t(resolves ? 'action.markDone.resolves' : 'action.markDone.mine')
+          }
+          tone={undo ? 'default' : 'positive'}
+        />
 
         <Button
           disabled={busy}
           fontSize={1}
           mode="bleed"
-          onClick={onClear}
+          onClick={onCancel}
           padding={2}
-          text={t('selection.clear')}
+          text={t('selection.cancel')}
         />
       </Flex>
     </Card>

@@ -1,6 +1,11 @@
 import {visionTool} from '@sanity/vision'
 import {defineConfig} from 'sanity'
-import {structureInbox, unpublishedDrafts, upcomingReleases} from 'sanity-plugin-structure-inbox'
+import {
+  openTasks,
+  structureInbox,
+  unpublishedDrafts,
+  upcomingReleases,
+} from 'sanity-plugin-structure-inbox'
 import {structureTool} from 'sanity/structure'
 import {type StructureResolver} from 'sanity/structure'
 
@@ -41,6 +46,8 @@ export default defineConfig([
       structureInbox({
         showInList: true,
         sources: [
+          // The personal list: assigned tasks, with a real "Mark as done".
+          openTasks(),
           // Zero days, so a draft made seconds ago shows up — a seven-day
           // default would make this workspace look broken while testing.
           unpublishedDrafts({olderThanDays: 0}),

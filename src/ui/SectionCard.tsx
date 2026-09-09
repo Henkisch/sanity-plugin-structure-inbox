@@ -10,8 +10,16 @@ interface SectionCardProps {
   icon?: ComponentType
   /** Rendered at the right of the header — a count, usually. */
   badge?: ReactNode
+  /** Short note beside the title saying whose items these are. */
+  note?: string
   /** Rendered under the header, above the body. Used for the selection bar. */
   toolbar?: ReactNode
+  /**
+   * An error the source reported in its result, as opposed to one it threw.
+   * Passed in rather than thrown by the caller, because a caller that throws
+   * does so *above* this component and escapes the boundary below it.
+   */
+  error?: Error
   children: ReactNode
 }
 
@@ -23,11 +31,13 @@ interface SectionCardProps {
  * inbox.
  */
 export function SectionCard(props: SectionCardProps) {
-  const {title, icon: Icon, badge, toolbar, children} = props
+  const {title, icon: Icon, badge, note, toolbar, error: reportedError, children} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
-  const [error, setError] = useState<Error | null>(null)
+  const [caughtError, setCaughtError] = useState<Error | null>(null)
 
-  const handleRetry = useCallback(() => setError(null), [])
+  const error = reportedError ?? caughtError
+
+  const handleRetry = useCallback(() => setCaughtError(null), [])
 
   return (
     // `overflow: hidden` so the header's own square-cornered background is
@@ -42,9 +52,16 @@ export function SectionCard(props: SectionCardProps) {
               </Text>
             )}
             <Box flex={1}>
-              <Text size={1} textOverflow="ellipsis" weight="semibold">
-                {title}
-              </Text>
+              <Flex align="center" gap={2}>
+                <Text size={1} textOverflow="ellipsis" weight="semibold">
+                  {title}
+                </Text>
+                {note && (
+                  <Text muted size={0}>
+                    {note}
+                  </Text>
+                )}
+              </Flex>
             </Box>
             {badge}
           </Flex>
@@ -75,7 +92,7 @@ export function SectionCard(props: SectionCardProps) {
           </Stack>
         </Box>
       ) : (
-        <SectionErrorBoundary onCatch={setError}>{children}</SectionErrorBoundary>
+        <SectionErrorBoundary onCatch={setCaughtError}>{children}</SectionErrorBoundary>
       )}
     </Card>
   )

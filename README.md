@@ -46,16 +46,36 @@ extra menu item — because the plugin teaches the root pane to resolve the Inbo
 
 A source is a feed of inbox items. Two ship with the plugin:
 
-| Source                                             | What it lists                                                                                   |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `unpublishedDrafts({olderThanDays, limit, types})` | Drafts that have sat untouched long enough to look forgotten. Plain GROQ over your own dataset. |
-| `upcomingReleases({limit})`                        | Releases that are scheduled or still being filled.                                              |
+| Source                                                       | What it lists                                                 |
+| ------------------------------------------------------------ | ------------------------------------------------------------- |
+| `unpublishedDrafts({olderThanDays, limit, types, onlyMine})` | Drafts that have sat untouched long enough to look forgotten. |
+| `upcomingReleases({limit})`                                  | Releases that are scheduled or still being filled.            |
+
+Sources choose their column with `placement`. `main` is the wide column on the
+left, for work to get through; `aside` is the narrow one on the right, for
+context worth seeing but not acting on. `upcomingReleases` defaults to `aside`,
+and only the main column counts toward the headline — "three releases are
+scheduled" is not three things asking for your attention.
+
+### Only your documents
+
+`unpublishedDrafts` lists only drafts **you** have worked on, because a pane
+headed "waiting on you" should not be showing everybody's drafts. Pass
+`onlyMine: false` for a shared queue the whole team works through.
+
+This costs one extra request per refresh. Authorship is not on the document and
+there is no dataset-wide "documents I edited" query — it lives in the
+transaction log, whose dataset-wide form returns nothing without document ids.
+What it does support is a batch: many ids plus an `authors` filter. So GROQ
+narrows to a page first, and one request then asks "of these ten, which are
+mine". Nothing ever scans the dataset.
 
 ### Writing your own
 
-`useItems` is a React hook, so a source can reach for `useClient`, `useCurrentUser`, or any Studio
-hook it needs. Each source is rendered in its own component, so its hooks get a stable call order
-and its own error boundary — one bad query costs that section, not the whole Inbox.
+`useItems` is a React hook, so a source can reach for `useClient`,
+`useCurrentUser`, or any Studio hook it needs. Each source renders in its own
+component, so its hooks get a stable call order and its own error boundary —
+one bad query costs that section, not the whole Inbox.
 
 ```tsx
 import {type InboxSource} from 'sanity-plugin-structure-inbox'
@@ -64,6 +84,7 @@ export function needsReview(): InboxSource {
   return {
     name: 'needsReview',
     title: 'Waiting for review',
+    placement: 'main',
     useItems() {
       const client = useClient({apiVersion: '2025-02-19'})
       // ...fetch, then:
@@ -81,21 +102,52 @@ export function needsReview(): InboxSource {
 }
 ```
 
-### What a tick means
+## Selecting and acting
 
-Two different things, and the source decides which:
+Ticking a checkbox **selects** a row; it does not complete it. Once something is
+selected, the actions valid for that selection appear, and the editor chooses —
+the order a mail client uses, and the reason a tick that silently acted felt
+wrong.
 
-- Return a **`resolve`** function from `useItems` and ticking completes the item where it actually
-  lives — closing a task, clearing a flag. The button is labelled "Mark as done".
-- Omit it and ticking only removes the item from **that editor's own inbox**. The button says
-  "Dismiss from your inbox", because nothing changed for anyone else.
+Which actions appear depends on the source:
 
-Neither built-in source resolves. Publishing a draft has validation, permissions and side effects
-this pane has no business performing, and running a release belongs in the Releases tool.
+- **Mark as done** — only when the source returns a `resolve` function from
+  `useItems`. It completes the item where it actually lives.
+- **Dismiss** — always available for open rows. Removes the item from _that
+  editor's own inbox_; nothing changes for anyone else.
+- **Put back** — for rows already done, so a tick is never a one-way door.
 
-Dismissals are stored per editor through Sanity's own `/users/me/keyvalue` endpoint — the same
-place the Structure tool keeps its own settings. They follow the editor across devices, need no
-schema, and write nothing to your dataset. "Show done" brings dismissed items back into view.
+Neither built-in source resolves. Publishing a draft has validation, permissions
+and side effects this pane has no business performing, and running a release
+belongs in the Releases tool.
+
+Return `resolve` to make a tick mean something real:
+
+```ts
+useItems() {
+  const client = useClient({apiVersion: '2025-02-19'})
+  return {
+    items,
+    resolve: async (item) => {
+      await client.patch(item.id).set({reviewed: true}).commit()
+    },
+  }
+}
+```
+
+### Where "done" is stored
+
+In a document scoped to the editor: `_id` is derived from their user id, and the
+type is deliberately never registered in your schema, so it stays out of the
+structure tool, search and reference pickers.
+
+Sanity's own `/users/me/keyvalue` store would be the natural home — it is where
+the Structure tool keeps its pane settings — but it accepts only an allowlist of
+Sanity's own keys and rejects anything a plugin writes.
+
+A dismissal also **expires when the item changes**. The stored timestamp doubles
+as a freshness check, so a draft edited after you ticked it comes back. Ticking
+says "I have seen this version", not "never show me this document again".
 
 ## Options
 

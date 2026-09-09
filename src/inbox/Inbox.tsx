@@ -1,11 +1,23 @@
-import {Box, Button, Card, Container, Flex, Grid, Heading, Stack, Text} from '@sanity/ui'
+import {
+  Box,
+  Card,
+  Container,
+  Flex,
+  Grid,
+  Heading,
+  Stack,
+  Tab,
+  TabList,
+  TabPanel,
+  Text,
+} from '@sanity/ui'
 import {useCallback, useMemo, useState} from 'react'
 import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {useDismissals} from '../store/useDismissals'
 import {InboxSection} from './InboxSection'
-import {type InboxSource} from './types'
+import {type InboxSource, type InboxView} from './types'
 
 interface InboxProps {
   sources: InboxSource[]
@@ -18,13 +30,18 @@ interface InboxProps {
  */
 const COLUMNS = [1, 1, 1, 3]
 
+const OPEN_TAB_ID = 'structure-inbox-open'
+const DONE_TAB_ID = 'structure-inbox-done'
+const PANEL_ID = 'structure-inbox-panel'
+
 export function Inbox({sources}: InboxProps) {
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const dismissals = useDismissals()
-  const [showDone, setShowDone] = useState(false)
+  const [view, setView] = useState<InboxView>('open')
   const [counts, setCounts] = useState<Record<string, number>>({})
 
-  const toggleDone = useCallback(() => setShowDone((shown) => !shown), [])
+  const showOpen = useCallback(() => setView('open'), [])
+  const showDone = useCallback(() => setView('done'), [])
 
   const handleCount = useCallback((sourceName: string, count: number) => {
     setCounts((current) =>
@@ -71,8 +88,8 @@ export function Inbox({sources}: InboxProps) {
     <Box padding={4}>
       <Container width={4}>
         <Stack gap={4}>
-          <Flex align="flex-end" gap={3}>
-            <Stack flex={1} gap={3}>
+          <Stack gap={4}>
+            <Stack gap={3}>
               <Heading size={1}>
                 {openCount === 0 ? t('inbox.allClear') : t('inbox.waiting', {count: openCount})}
               </Heading>
@@ -80,47 +97,66 @@ export function Inbox({sources}: InboxProps) {
                 {t('inbox.description')}
               </Text>
             </Stack>
-            <Button
-              fontSize={1}
-              mode="bleed"
-              onClick={toggleDone}
-              padding={2}
-              text={showDone ? t('inbox.hideDone') : t('inbox.showDone')}
-            />
-          </Flex>
 
-          <Grid gap={4} gridTemplateColumns={COLUMNS}>
-            <Box gridColumn={aside.length > 0 ? [1, 1, 1, 2] : COLUMNS}>
-              <Stack gap={3}>
-                {main.map((source) => (
-                  <InboxSection
-                    dismissals={dismissals}
-                    key={source.name}
-                    onCount={handleCount}
-                    showDone={showDone}
-                    source={source}
-                  />
-                ))}
-              </Stack>
-            </Box>
+            {/* Left-aligned under the heading rather than off at the right
+                edge: at this width the tabs were a screen away from the list
+                they filter. */}
+            <Flex>
+              <TabList gap={1}>
+                <Tab
+                  aria-controls={PANEL_ID}
+                  fontSize={1}
+                  id={OPEN_TAB_ID}
+                  label={t('tab.open')}
+                  onClick={showOpen}
+                  selected={view === 'open'}
+                />
+                <Tab
+                  aria-controls={PANEL_ID}
+                  fontSize={1}
+                  id={DONE_TAB_ID}
+                  label={t('tab.done')}
+                  onClick={showDone}
+                  selected={view === 'done'}
+                />
+              </TabList>
+            </Flex>
+          </Stack>
 
-            {aside.length > 0 && (
-              <Box gridColumn={1}>
+          <TabPanel aria-labelledby={view === 'open' ? OPEN_TAB_ID : DONE_TAB_ID} id={PANEL_ID}>
+            <Grid gap={4} gridTemplateColumns={COLUMNS}>
+              <Box gridColumn={aside.length > 0 ? [1, 1, 1, 2] : COLUMNS}>
                 <Stack gap={3}>
-                  {aside.map((source) => (
+                  {main.map((source) => (
                     <InboxSection
-                      compact
                       dismissals={dismissals}
                       key={source.name}
                       onCount={handleCount}
-                      showDone={showDone}
                       source={source}
+                      view={view}
                     />
                   ))}
                 </Stack>
               </Box>
-            )}
-          </Grid>
+
+              {aside.length > 0 && (
+                <Box gridColumn={1}>
+                  <Stack gap={3}>
+                    {aside.map((source) => (
+                      <InboxSection
+                        compact
+                        dismissals={dismissals}
+                        key={source.name}
+                        onCount={handleCount}
+                        source={source}
+                        view={view}
+                      />
+                    ))}
+                  </Stack>
+                </Box>
+              )}
+            </Grid>
+          </TabPanel>
         </Stack>
       </Container>
     </Box>

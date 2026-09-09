@@ -31,6 +31,8 @@ export function upcomingReleases(options: UpcomingReleasesOptions = {}): InboxSo
     title,
     icon: CalendarIcon,
     placement,
+    // A release is the same release for everybody looking at this Studio.
+    audience: 'everyone',
 
     useItems(): InboxSourceResult {
       const {data, loading, error} = useActiveReleases()
