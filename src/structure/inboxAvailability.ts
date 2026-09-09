@@ -1,5 +1,5 @@
 /**
- * Whether the Home pane can actually be resolved, keyed by tool name.
+ * Whether the Inbox pane can actually be resolved, keyed by tool name.
  *
  * The landing redirect and the pane wiring live in different parts of the
  * config — `studio.components.activeToolLayout` and `tools` — and only the
@@ -15,16 +15,16 @@
 const availability = new Map<string, boolean>()
 
 /** @internal */
-export function setHomeAvailable(toolName: string, available: boolean): void {
+export function setInboxAvailable(toolName: string, available: boolean): void {
   availability.set(toolName, available)
 }
 
 /** @internal */
-export function isHomeAvailable(toolName: string): boolean {
+export function isInboxAvailable(toolName: string): boolean {
   return availability.get(toolName) === true
 }
 
 /** @internal */
-export function resetHomeAvailability(): void {
+export function resetInboxAvailability(): void {
   availability.clear()
 }

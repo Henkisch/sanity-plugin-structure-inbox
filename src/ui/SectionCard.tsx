@@ -2,7 +2,7 @@ import {Box, Button, Card, Flex, Stack, Text} from '@sanity/ui'
 import {type ComponentType, type ReactNode, useCallback, useState} from 'react'
 import {useTranslation} from 'sanity'
 
-import {STRUCTURE_HOME_NAMESPACE} from '../constants'
+import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {SectionErrorBoundary} from './SectionErrorBoundary'
 
 interface SectionCardProps {
@@ -22,7 +22,7 @@ interface SectionCardProps {
  */
 export function SectionCard(props: SectionCardProps) {
   const {title, icon: Icon, badge, children} = props
-  const {t} = useTranslation(STRUCTURE_HOME_NAMESPACE)
+  const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const [error, setError] = useState<Error | null>(null)
 
   const handleRetry = useCallback(() => setError(null), [])

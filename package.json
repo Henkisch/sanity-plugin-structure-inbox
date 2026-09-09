@@ -1,25 +1,25 @@
 {
-  "name": "sanity-plugin-structure-home",
+  "name": "sanity-plugin-structure-inbox",
   "version": "0.0.0",
-  "description": "Fills the empty Structure tool canvas with a configurable home pane — recent documents, quick actions and pinned favorites — on the screen editors already land on.",
+  "description": "Turns the empty Structure canvas into an inbox — forgotten drafts, upcoming releases and open tasks, on the screen editors already land on.",
   "keywords": [
-    "dashboard",
-    "home",
+    "inbox",
+    "releases",
     "sanity",
     "sanity-plugin",
     "structure",
     "studio",
-    "widgets"
+    "tasks"
   ],
-  "homepage": "https://github.com/Henkisch/sanity-plugin-structure-home#readme",
+  "homepage": "https://github.com/Henkisch/sanity-plugin-structure-inbox#readme",
   "bugs": {
-    "url": "https://github.com/Henkisch/sanity-plugin-structure-home/issues"
+    "url": "https://github.com/Henkisch/sanity-plugin-structure-inbox/issues"
   },
   "license": "MIT",
   "author": "Henrik Larsson <henrik@kodamera.se>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Henkisch/sanity-plugin-structure-home.git"
+    "url": "git+https://github.com/Henkisch/sanity-plugin-structure-inbox.git"
   },
   "workspaces": [
     "test-studio"

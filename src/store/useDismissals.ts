@@ -3,7 +3,7 @@ import {useObservable} from 'react-rx'
 import {map} from 'rxjs/operators'
 import {type KeyValueStoreValue, useKeyValueStore} from 'sanity'
 
-import {STRUCTURE_HOME_NAMESPACE} from '../constants'
+import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {
   type DismissalState,
   EMPTY_DISMISSALS,
@@ -13,7 +13,7 @@ import {
   withoutDismissal,
 } from './dismissals'
 
-const DISMISSALS_KEY = `${STRUCTURE_HOME_NAMESPACE}.dismissed`
+const DISMISSALS_KEY = `${STRUCTURE_INBOX_NAMESPACE}.dismissed`
 
 export interface Dismissals {
   state: DismissalState

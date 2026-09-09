@@ -3,7 +3,7 @@ import {Button} from '@sanity/ui'
 import {useCallback, useState} from 'react'
 import {useTranslation} from 'sanity'
 
-import {STRUCTURE_HOME_NAMESPACE} from '../constants'
+import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {useDismissals} from '../store/useDismissals'
 import {InboxSection} from './InboxSection'
 import {type InboxSource} from './types'
@@ -13,7 +13,7 @@ interface InboxProps {
 }
 
 export function Inbox({sources}: InboxProps) {
-  const {t} = useTranslation(STRUCTURE_HOME_NAMESPACE)
+  const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const dismissals = useDismissals()
   const [showDismissed, setShowDismissed] = useState(false)
 

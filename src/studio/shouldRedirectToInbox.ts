@@ -2,7 +2,7 @@
 export interface RedirectDecision {
   /** Whether the plugin is configured to redirect at all. */
   redirectOnLanding: boolean
-  /** Whether the Home pane can actually be resolved for this tool. */
+  /** Whether the Inbox pane can actually be resolved for this tool. */
   homeAvailable: boolean
   /** The tool the editor is currently in. */
   activeToolName: string
@@ -15,7 +15,7 @@ export interface RedirectDecision {
 }
 
 /**
- * Whether an editor who just rendered the tool should be sent to the Home pane.
+ * Whether an editor who just rendered the tool should be sent to the Inbox pane.
  *
  * Pulled out as a pure function because every one of these conditions is a bug
  * someone will hit in the wild — an intent stolen mid-resolution, a deep link
@@ -24,10 +24,10 @@ export interface RedirectDecision {
  *
  * @internal
  */
-export function shouldRedirectToHome(decision: RedirectDecision): boolean {
+export function shouldRedirectToInbox(decision: RedirectDecision): boolean {
   if (!decision.redirectOnLanding) return false
 
-  // Injection failed, so `/structure/structure-home` would resolve to nothing.
+  // Injection failed, so `/structure/structure-inbox` would resolve to nothing.
   if (!decision.homeAvailable) return false
 
   // `activeToolLayout` wraps whichever tool is open, not just ours.

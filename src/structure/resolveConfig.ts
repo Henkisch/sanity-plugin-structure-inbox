@@ -1,5 +1,5 @@
 import {DEFAULT_TOOL_NAME} from '../constants'
-import {type ResolvedStructureHomeConfig, type StructureHomeConfig} from '../types'
+import {type ResolvedStructureInboxConfig, type StructureInboxConfig} from '../types'
 
 /**
  * Fills in the defaults once, so nothing downstream has to repeat
@@ -7,7 +7,7 @@ import {type ResolvedStructureHomeConfig, type StructureHomeConfig} from '../typ
  *
  * @internal
  */
-export function resolveConfig(config: StructureHomeConfig = {}): ResolvedStructureHomeConfig {
+export function resolveConfig(config: StructureInboxConfig = {}): ResolvedStructureInboxConfig {
   return {
     toolName: config.toolName ?? DEFAULT_TOOL_NAME,
     showInList: config.showInList ?? false,

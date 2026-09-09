@@ -17,7 +17,7 @@ interface SectionErrorBoundaryProps {
 export class SectionErrorBoundary extends Component<SectionErrorBoundaryProps> {
   componentDidCatch(error: Error, info: ErrorInfo): void {
     // Developers get the component stack; editors get the message in the card.
-    console.error('[sanity-plugin-structure-home] inbox source threw', error, info.componentStack)
+    console.error('[sanity-plugin-structure-inbox] inbox source threw', error, info.componentStack)
     this.props.onCatch(error)
   }
 

@@ -1,6 +1,6 @@
 import {visionTool} from '@sanity/vision'
 import {defineConfig} from 'sanity'
-import {structureHome, unpublishedDrafts, upcomingReleases} from 'sanity-plugin-structure-home'
+import {structureInbox, unpublishedDrafts, upcomingReleases} from 'sanity-plugin-structure-inbox'
 import {structureTool} from 'sanity/structure'
 import {type StructureResolver} from 'sanity/structure'
 
@@ -30,7 +30,7 @@ const structure: StructureResolver = (S) =>
 export default defineConfig([
   {
     name: 'default',
-    title: 'Structure Home',
+    title: 'Structure Inbox',
     basePath: '/default',
     projectId,
     dataset,
@@ -38,7 +38,7 @@ export default defineConfig([
       structureTool({structure}),
       // `showInList` is off by default; this workspace turns it on so both the
       // visible entry and the invisible resolution get exercised somewhere.
-      structureHome({
+      structureInbox({
         showInList: true,
         sources: [
           // Zero days, so a draft made seconds ago shows up — a seven-day
@@ -54,7 +54,7 @@ export default defineConfig([
     schema: {types: schemaTypes},
   },
   {
-    // A root that is not a list at all. Home is reached through the root's
+    // A root that is not a list at all. Inbox is reached through the root's
     // child resolver rather than a list item, so it resolves here too.
     name: 'noList',
     title: 'No list at root',
@@ -63,12 +63,12 @@ export default defineConfig([
     dataset,
     plugins: [
       structureTool({structure: (S) => S.documentTypeList('post')}),
-      structureHome({sources: [unpublishedDrafts({olderThanDays: 0})]}),
+      structureInbox({sources: [unpublishedDrafts({olderThanDays: 0})]}),
     ],
     schema: {types: schemaTypes},
   },
   {
-    // Two structure tools, with the Home pane attached to the second one only.
+    // Two structure tools, with the Inbox pane attached to the second one only.
     // Opening "Content" must behave exactly as it did before the plugin.
     name: 'multi',
     title: 'Two structure tools',
@@ -82,7 +82,7 @@ export default defineConfig([
         title: 'Cars',
         structure: (S) => S.list().title('Cars').items(S.documentTypeListItems()),
       }),
-      structureHome({toolName: 'cars', sources: [upcomingReleases()]}),
+      structureInbox({toolName: 'cars', sources: [upcomingReleases()]}),
     ],
     schema: {types: schemaTypes},
   },

@@ -1,17 +1,18 @@
-# sanity-plugin-structure-home
+# sanity-plugin-structure-inbox
 
-Fills the empty canvas editors land on when they open the Structure tool.
+Turns the empty Structure canvas into an inbox.
 
-Before an editor clicks anything, the right-hand side of the Structure tool is blank. This plugin
-puts a Home pane there — recent documents, quick actions, whatever you configure — so the most
-visited screen in the Studio starts with something useful on it.
+Before an editor clicks anything, the right-hand side of the Structure tool is blank — on the most
+visited screen in the Studio. This plugin fills it with the things actually waiting on them:
+drafts left unpublished, releases coming up, whatever else you feed it. Each one can be opened, or
+ticked off.
 
 > **Requires Sanity Studio v6.**
 
 ## Installation
 
 ```sh
-npm install sanity-plugin-structure-home
+npm install sanity-plugin-structure-inbox
 ```
 
 ## Usage
@@ -21,88 +22,108 @@ Add it to `plugins` in `sanity.config.ts`, **after** `structureTool()`:
 ```ts
 import {defineConfig} from 'sanity'
 import {structureTool} from 'sanity/structure'
-import {structureHome} from 'sanity-plugin-structure-home'
+import {structureInbox, unpublishedDrafts, upcomingReleases} from 'sanity-plugin-structure-inbox'
 
 export default defineConfig({
   // ...
-  plugins: [structureTool(), structureHome()],
+  plugins: [
+    structureTool(),
+    structureInbox({
+      sources: [unpublishedDrafts({olderThanDays: 7}), upcomingReleases()],
+    }),
+  ],
 })
 ```
 
 Order matters: the plugin works by extending the structure tool that is already in the array, so a
 tool that has not been added yet cannot be found. If it is listed first, you get a console warning
-and no Home pane.
+and no Inbox.
 
-Editors now land on a Home pane instead of a blank canvas. Nothing is added to your structure —
-no extra menu item — because the plugin teaches the root pane to resolve the Home id directly.
+Editors now land on the Inbox instead of a blank canvas. Nothing is added to your structure — no
+extra menu item — because the plugin teaches the root pane to resolve the Inbox id directly.
 
-It has no widgets yet, so it shows an empty state. Pass some to fill it:
+## Sources
 
-```ts
-structureHome({
-  widgets: [
-    {
-      name: 'welcome',
-      title: 'Welcome',
-      layout: {width: 'full'},
-      component: () => <Text>Anything you like.</Text>,
-    },
-  ],
-})
-```
+A source is a feed of inbox items. Two ship with the plugin:
 
-## Options
+| Source                                             | What it lists                                                                                   |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `unpublishedDrafts({olderThanDays, limit, types})` | Drafts that have sat untouched long enough to look forgotten. Plain GROQ over your own dataset. |
+| `upcomingReleases({limit})`                        | Releases that are scheduled or still being filled.                                              |
 
-| Option              | Type                    | Default          |                                                                                 |
-| ------------------- | ----------------------- | ---------------- | ------------------------------------------------------------------------------- |
-| `widgets`           | `StructureHomeWidget[]` | `[]`             | What renders on the pane, in order.                                             |
-| `title`             | `string`                | localized `Home` | Title for the pane, and for its list item when shown.                           |
-| `toolName`          | `string`                | `'structure'`    | Which structure tool to attach to. Set this when the Studio runs more than one. |
-| `showInList`        | `boolean`               | `false`          | Whether to show a "Home" entry at the top of the root list.                     |
-| `redirectOnLanding` | `boolean`               | `true`           | Whether to open Home when an editor lands on the tool with nothing selected.    |
+### Writing your own
 
-### Widgets
+`useItems` is a React hook, so a source can reach for `useClient`, `useCurrentUser`, or any Studio
+hook it needs. Each source is rendered in its own component, so its hooks get a stable call order
+and its own error boundary — one bad query costs that section, not the whole Inbox.
 
-A widget is a plain object. Write a factory when it takes options:
+```tsx
+import {type InboxSource} from 'sanity-plugin-structure-inbox'
 
-```ts
-import {type StructureHomeWidget} from 'sanity-plugin-structure-home'
-
-export function greeting(config: {name: string}): StructureHomeWidget {
+export function needsReview(): InboxSource {
   return {
-    name: 'greeting',
-    title: 'Hello',
-    layout: {width: 'medium'},
-    component: () => <Text>Hi, {config.name}</Text>,
+    name: 'needsReview',
+    title: 'Waiting for review',
+    useItems() {
+      const client = useClient({apiVersion: '2025-02-19'})
+      // ...fetch, then:
+      return {
+        items: rows.map((row) => ({
+          id: row._id,
+          title: row.title,
+          subtitle: 'Submitted for review',
+          timestamp: row._updatedAt,
+          intent: {type: 'edit', params: {id: row._id, type: row._type}},
+        })),
+      }
+    },
   }
 }
 ```
 
-`layout.width` is `small` | `medium` | `large` | `full`, mapped onto a four-column grid that
-collapses to one column on narrow screens. Widgets render inside a card the plugin draws, so don't
-draw your own — and build the inside with [`@sanity/ui`](https://www.sanity.io/ui) so the pane
-follows the editor's theme.
+### What a tick means
 
-The widget shape mirrors `@sanity/dashboard`'s `DashboardWidget` deliberately, so a widget written
-for one surface can move to the other without a rewrite.
+Two different things, and the source decides which:
 
-## Placing the Home item yourself
+- Return a **`resolve`** function from `useItems` and ticking completes the item where it actually
+  lives — closing a task, clearing a flag. The button is labelled "Mark as done".
+- Omit it and ticking only removes the item from **that editor's own inbox**. The button says
+  "Dismiss from your inbox", because nothing changed for anyone else.
 
-By default the plugin adds the Home item to the top of your root list. If you want it somewhere
-else — or your structure's root is not a list — turn the injection off and place it yourself:
+Neither built-in source resolves. Publishing a draft has validation, permissions and side effects
+this pane has no business performing, and running a release belongs in the Releases tool.
+
+Dismissals are stored per editor through Sanity's own `/users/me/keyvalue` endpoint — the same
+place the Structure tool keeps its own settings. They follow the editor across devices, need no
+schema, and write nothing to your dataset. "Show done" brings dismissed items back into view.
+
+## Options
+
+| Option              | Type            | Default           |                                                                                   |
+| ------------------- | --------------- | ----------------- | --------------------------------------------------------------------------------- |
+| `sources`           | `InboxSource[]` | `[]`              | The feeds that fill the inbox, in order.                                          |
+| `title`             | `string`        | localized `Inbox` | Title for the pane, and for its list item when shown.                             |
+| `toolName`          | `string`        | `'structure'`     | Which structure tool to attach to. Set this when the Studio runs more than one.   |
+| `showInList`        | `boolean`       | `false`           | Whether to show an "Inbox" entry at the top of the root list.                     |
+| `redirectOnLanding` | `boolean`       | `true`            | Whether to open the Inbox when an editor lands on the tool with nothing selected. |
+
+## Getting back to the Inbox
+
+Editors land on it, and clicking the tool in the navbar returns them to it, so most Studios need
+nothing else.
+
+If you want a visible entry too, `showInList: true` puts one at the top of the root list. To place
+it somewhere specific instead, use `inboxListItem`:
 
 ```ts
-import {homeListItem} from 'sanity-plugin-structure-home'
+import {inboxListItem} from 'sanity-plugin-structure-inbox'
 
 structureTool({
   structure: (S) =>
     S.list()
       .title('Content')
-      .items([...S.documentTypeListItems(), S.divider(), homeListItem(S)]),
+      .items([...S.documentTypeListItems(), S.divider(), inboxListItem(S)]),
 })
-
-// and
-structureHome({autoInject: false})
 ```
 
 ## How it works
@@ -112,13 +133,13 @@ Worth knowing, because it explains the one limitation below.
 At `/structure`, the Structure tool resolves exactly one pane — the root list. The root's `child`
 resolver is never called, so there is no "default child" to render into the empty canvas. What
 there is, is a URL. The plugin registers a `studio.components.activeToolLayout` override, which
-Sanity renders inside the active tool's own router scope, and from there navigates to the Home
+Sanity renders inside the active tool's own router scope, and from there navigates to the Inbox
 pane's id. The canvas then fills through the ordinary pane-resolution path, and the redirect
 `replace`s the history entry so Back still leaves the Studio cleanly.
 
 Making that id resolve is the other half. Pane resolution reaches a child purely by id — a list
 item is only the ordinary way an editor produces one — so the plugin wraps the root node and adds
-a single branch to its child resolver: the Home id resolves to the Home pane, and every other id
+a single branch to its child resolver: the Inbox id resolves to the Inbox pane, and every other id
 goes to whatever resolved it before. That is why no menu item is needed, and why the root can be a
 list, a document list, or anything else.
 
@@ -131,7 +152,7 @@ disables the redirect rather than sending editors to a URL that resolves to noth
 
 ## Localization
 
-Strings live under the `structureHome` i18n namespace. Override any of them by registering a bundle
+Strings live under the `structureInbox` i18n namespace. Override any of them by registering a bundle
 with that namespace in your own `sanity.config.ts`:
 
 ```ts
@@ -141,8 +162,8 @@ i18n: {
   bundles: [
     defineLocaleResourceBundle({
       locale: 'sv-SE',
-      namespace: 'structureHome',
-      resources: {'home.title': 'Start'},
+      namespace: 'structureInbox',
+      resources: {'inbox.title': 'Start'},
     }),
   ],
 }
@@ -168,8 +189,8 @@ It ships three workspaces, one per behaviour worth checking by hand:
 | Workspace | Path       | What it covers                                                                                        |
 | --------- | ---------- | ----------------------------------------------------------------------------------------------------- |
 | `default` | `/default` | The happy path, plus a second plugin overriding `activeToolLayout` to prove the chain still composes. |
-| `noList`  | `/no-list` | A structure whose root is a document list rather than a list — Home still resolves.                   |
-| `multi`   | `/multi`   | Two structure tools with Home attached to only one of them.                                           |
+| `noList`  | `/no-list` | A structure whose root is a document list rather than a list — the Inbox still resolves.              |
+| `multi`   | `/multi`   | Two structure tools with the Inbox attached to only one of them.                                      |
 
 Other scripts: `npm test`, `npm run lint`, `npm run format`.
 

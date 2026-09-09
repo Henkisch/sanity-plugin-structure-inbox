@@ -7,9 +7,9 @@ import {
 } from 'sanity/structure'
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 
-import {HOME_PANE_ID} from '../constants'
+import {INBOX_PANE_ID} from '../constants'
 import {resetWarnings} from '../warnOnce'
-import {isHomeAvailable, resetHomeAvailability} from './homeAvailability'
+import {isInboxAvailable, resetInboxAvailability} from './inboxAvailability'
 import {resolveConfig} from './resolveConfig'
 import {wrapStructure} from './wrapStructure'
 
@@ -53,20 +53,20 @@ function resolveChild(root: unknown, itemId: string): unknown {
 }
 
 beforeEach(() => {
-  resetHomeAvailability()
+  resetInboxAvailability()
   resetWarnings()
 })
 
 describe('wrapStructure', () => {
-  it('resolves the Home id without touching the list the developer wrote', () => {
+  it('resolves the Inbox id without touching the list the developer wrote', () => {
     const posts = S.listItem().id('post').title('Posts')
     const wrapped = wrapStructure(() => S.list().id('content').items([posts]), resolveConfig())
 
     const root = wrapped(S, context)
-    const home = resolveChild(root, HOME_PANE_ID) as {getId: () => string}
+    const home = resolveChild(root, INBOX_PANE_ID) as {getId: () => string}
 
-    expect(home.getId()).toBe(HOME_PANE_ID)
-    // The whole point: no Home entry appears in the editor's list.
+    expect(home.getId()).toBe(INBOX_PANE_ID)
+    // The whole point: no Inbox entry appears in the editor's list.
     expect(itemsOf(root).map((item) => item.id)).toEqual(['post'])
   })
 
@@ -102,24 +102,24 @@ describe('wrapStructure', () => {
       resolveConfig(),
     )
 
-    const home = resolveChild(wrapped(S, context), HOME_PANE_ID) as {getId: () => string}
+    const home = resolveChild(wrapped(S, context), INBOX_PANE_ID) as {getId: () => string}
 
-    expect(home.getId()).toBe(HOME_PANE_ID)
-    expect(isHomeAvailable('structure')).toBe(true)
+    expect(home.getId()).toBe(INBOX_PANE_ID)
+    expect(isInboxAvailable('structure')).toBe(true)
   })
 
   it('falls back to S.defaults() when no structure was configured', () => {
-    const home = resolveChild(wrapStructure(undefined, resolveConfig())(S, context), HOME_PANE_ID)
+    const home = resolveChild(wrapStructure(undefined, resolveConfig())(S, context), INBOX_PANE_ID)
 
-    expect((home as {getId: () => string}).getId()).toBe(HOME_PANE_ID)
+    expect((home as {getId: () => string}).getId()).toBe(INBOX_PANE_ID)
   })
 
   it('awaits an async structure resolver', async () => {
     const wrapped = wrapStructure(() => Promise.resolve(S.list().id('content')), resolveConfig())
 
-    const home = resolveChild(await wrapped(S, context), HOME_PANE_ID)
+    const home = resolveChild(await wrapped(S, context), INBOX_PANE_ID)
 
-    expect((home as {getId: () => string}).getId()).toBe(HOME_PANE_ID)
+    expect((home as {getId: () => string}).getId()).toBe(INBOX_PANE_ID)
   })
 
   it('adds a visible list item above a divider when showInList is on', () => {
@@ -133,7 +133,7 @@ describe('wrapStructure', () => {
 
     const items = itemsOf(wrapped(S, context))
 
-    expect(items.map((item) => item.id)).toEqual([HOME_PANE_ID, items[1].id, 'post'])
+    expect(items.map((item) => item.id)).toEqual([INBOX_PANE_ID, items[1].id, 'post'])
     expect(items[1].type).toBe('divider')
   })
 
@@ -144,10 +144,10 @@ describe('wrapStructure', () => {
       () => S.documentList().id('posts').apiVersion('2024-01-01').filter('_type == "post"'),
       resolveConfig({showInList: true}),
     )
-    const home = resolveChild(wrapped(S, context), HOME_PANE_ID)
+    const home = resolveChild(wrapped(S, context), INBOX_PANE_ID)
 
     expect(warn.mock.calls.flat().join(' ')).toContain('showInList')
-    expect((home as {getId: () => string}).getId()).toBe(HOME_PANE_ID)
+    expect((home as {getId: () => string}).getId()).toBe(INBOX_PANE_ID)
   })
 
   it('disables the redirect when the root cannot be extended', () => {
@@ -159,19 +159,19 @@ describe('wrapStructure', () => {
 
     expect(result).toBe(observable)
     expect(warn).toHaveBeenCalledOnce()
-    expect(isHomeAvailable('structure')).toBe(false)
+    expect(isInboxAvailable('structure')).toBe(false)
   })
 
   it('tracks availability per tool name', () => {
     wrapStructure(() => S.list().id('content'), resolveConfig({toolName: 'cars'}))(S, context)
 
-    expect(isHomeAvailable('cars')).toBe(true)
-    expect(isHomeAvailable('structure')).toBe(false)
+    expect(isInboxAvailable('cars')).toBe(true)
+    expect(isInboxAvailable('structure')).toBe(false)
   })
 
-  it('builds a Home pane that carries its sources and refuses intents', () => {
+  it('builds a Inbox pane that carries its sources and refuses intents', () => {
     const wrapped = wrapStructure(() => S.list().id('content'), resolveConfig())
-    const home = resolveChild(wrapped(S, context), HOME_PANE_ID) as {
+    const home = resolveChild(wrapped(S, context), INBOX_PANE_ID) as {
       getOptions: () => Record<string, unknown>
       spec: {canHandleIntent?: () => boolean}
     }

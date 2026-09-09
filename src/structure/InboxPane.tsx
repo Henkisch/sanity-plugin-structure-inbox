@@ -6,7 +6,7 @@ import {type InboxSource} from '../inbox/types'
  * here — the rest (pane keys, selection state, split-view indexes) is chrome
  * the pane itself already handles.
  */
-interface HomePaneProps {
+interface InboxPaneProps {
   options?: {sources?: InboxSource[]}
 }
 
@@ -16,6 +16,6 @@ interface HomePaneProps {
  * `UserComponentPaneContent` already provides full height and scrolling, so
  * this only has to render the inbox.
  */
-export function HomePane(props: HomePaneProps) {
+export function InboxPane(props: InboxPaneProps) {
   return <Inbox sources={props.options?.sources ?? []} />
 }

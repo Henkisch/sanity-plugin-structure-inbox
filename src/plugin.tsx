@@ -2,15 +2,15 @@ import {definePlugin, type Tool} from 'sanity'
 import {type StructureToolOptions} from 'sanity/structure'
 
 import {PLUGIN_NAME} from './constants'
-import {structureHomeLocaleBundles} from './i18n'
+import {structureInboxLocaleBundles} from './i18n'
 import {resolveConfig} from './structure/resolveConfig'
 import {wrapStructure} from './structure/wrapStructure'
 import {createActiveToolLayout} from './studio/createActiveToolLayout'
-import {type StructureHomeConfig} from './types'
+import {type StructureInboxConfig} from './types'
 import {warnOnce} from './warnOnce'
 
 /**
- * Fills the Structure tool's empty canvas with a Home pane.
+ * Fills the Structure tool's empty canvas with a Inbox pane.
  *
  * List this **after** `structureTool()` in `plugins`: the plugin works by
  * wrapping the structure tool that is already in the array, so a tool that has
@@ -20,14 +20,14 @@ import {warnOnce} from './warnOnce'
  * export default defineConfig({
  *   plugins: [
  *     structureTool(),
- *     structureHome({widgets: [recentlyEdited()]}),
+ *     structureInbox({widgets: [recentlyEdited()]}),
  *   ],
  * })
  * ```
  *
  * @public
  */
-export const structureHome = definePlugin<StructureHomeConfig | void>((options) => {
+export const structureInbox = definePlugin<StructureInboxConfig | void>((options) => {
   const config = resolveConfig(options || undefined)
 
   return {
@@ -44,8 +44,8 @@ export const structureHome = definePlugin<StructureHomeConfig | void>((options) 
 
       if (!target) {
         warnOnce(
-          `No tool named "${config.toolName}" was found, so no Home pane was added. ` +
-            `List structureHome() after structureTool() in your plugins array, or pass toolName if your structure tool is named something else.`,
+          `No tool named "${config.toolName}" was found, so no Inbox pane was added. ` +
+            `List structureInbox() after structureTool() in your plugins array, or pass toolName if your structure tool is named something else.`,
         )
         return prev
       }
@@ -66,7 +66,7 @@ export const structureHome = definePlugin<StructureHomeConfig | void>((options) 
     },
 
     i18n: {
-      bundles: structureHomeLocaleBundles,
+      bundles: structureInboxLocaleBundles,
     },
   }
 })

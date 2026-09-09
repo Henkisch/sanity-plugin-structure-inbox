@@ -2,7 +2,7 @@ import {Badge, Box, Stack, Text} from '@sanity/ui'
 import {useCallback, useMemo} from 'react'
 import {useTranslation} from 'sanity'
 
-import {STRUCTURE_HOME_NAMESPACE} from '../constants'
+import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {isDismissed} from '../store/dismissals'
 import {type Dismissals} from '../store/useDismissals'
 import {SectionCard} from '../ui/SectionCard'
@@ -24,7 +24,7 @@ interface InboxSectionProps {
  */
 export function InboxSection(props: InboxSectionProps) {
   const {source, dismissals, showDismissed} = props
-  const {t} = useTranslation(STRUCTURE_HOME_NAMESPACE)
+  const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
   const {items, loading, error, resolve} = source.useItems()
 

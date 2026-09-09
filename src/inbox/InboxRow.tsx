@@ -4,7 +4,7 @@ import {useCallback, useState} from 'react'
 import {useTranslation} from 'sanity'
 import {useRouter} from 'sanity/router'
 
-import {STRUCTURE_HOME_NAMESPACE} from '../constants'
+import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {RelativeTime} from './RelativeTime'
 import {type InboxItem} from './types'
 
@@ -17,7 +17,7 @@ interface InboxRowProps {
 
 export function InboxRow(props: InboxRowProps) {
   const {item, resolves, onTick} = props
-  const {t} = useTranslation(STRUCTURE_HOME_NAMESPACE)
+  const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const {navigateIntent} = useRouter()
   const [busy, setBusy] = useState(false)
 

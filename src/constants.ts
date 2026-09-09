@@ -1,15 +1,15 @@
 /**
- * The id the Home pane is registered under, in the root list and in the URL
- * (`/structure/structure-home`).
+ * The id the Inbox pane is registered under, in the root list and in the URL
+ * (`/structure/structure-inbox`).
  *
- * Deliberately verbose rather than the nicer-reading `home`: a singleton with
- * the id `home` is one of the most common things in a real Sanity structure,
- * and a collision would either shadow the editor's home page or throw
- * `List items with same ID found`.
+ * Deliberately verbose rather than the nicer-reading `inbox`: a singleton with
+ * a short, generic id is one of the most common things in a real Sanity
+ * structure, and a collision would either shadow the editor's own document or
+ * throw `List items with same ID found`.
  *
  * @public
  */
-export const HOME_PANE_ID = 'structure-home'
+export const INBOX_PANE_ID = 'structure-inbox'
 
 /**
  * The tool this plugin attaches to unless `toolName` says otherwise. Matches
@@ -25,10 +25,10 @@ export const DEFAULT_TOOL_NAME = 'structure'
  *
  * @public
  */
-export const STRUCTURE_HOME_NAMESPACE = 'structureHome'
+export const STRUCTURE_INBOX_NAMESPACE = 'structureInbox'
 
 /** @internal */
-export const PLUGIN_NAME = 'sanity-plugin-structure-home'
+export const PLUGIN_NAME = 'sanity-plugin-structure-inbox'
 
 /**
  * API version used for this plugin's own queries.

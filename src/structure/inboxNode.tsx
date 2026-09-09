@@ -1,24 +1,24 @@
-import {HomeIcon} from '@sanity/icons/Home'
+import {InboxIcon} from '@sanity/icons/Inbox'
 import {type ComponentBuilder, type ListItemBuilder, type StructureBuilder} from 'sanity/structure'
 
-import {HOME_PANE_ID, STRUCTURE_HOME_NAMESPACE} from '../constants'
-import {type ResolvedStructureHomeConfig, type StructureHomeConfig} from '../types'
-import {HomePane} from './HomePane'
+import {INBOX_PANE_ID, STRUCTURE_INBOX_NAMESPACE} from '../constants'
+import {type ResolvedStructureInboxConfig, type StructureInboxConfig} from '../types'
+import {InboxPane} from './InboxPane'
 import {resolveConfig} from './resolveConfig'
 
 /** Applies the title the same way to the pane and to its list item. */
 function withTitle<
   T extends {title(t: string): T; i18n(i18n: {title: {key: string; ns: string}}): T},
->(builder: T, config: ResolvedStructureHomeConfig): T {
+>(builder: T, config: ResolvedStructureInboxConfig): T {
   if (config.title) return builder.title(config.title)
   // No explicit title, so follow the editor's Studio language. `useI18nText`
   // gives the i18n key precedence over `title`, which stays as the fallback for
   // a Studio that somehow has no bundle loaded.
-  return builder.title('Home').i18n({title: {key: 'home.title', ns: STRUCTURE_HOME_NAMESPACE}})
+  return builder.title('Inbox').i18n({title: {key: 'inbox.title', ns: STRUCTURE_INBOX_NAMESPACE}})
 }
 
 /**
- * The Home pane itself, as a structure node.
+ * The Inbox pane itself, as a structure node.
  *
  * `canHandleIntent` is pinned to `false` rather than left undefined: intent
  * resolution walks every node in the root list looking for something that can
@@ -28,20 +28,20 @@ function withTitle<
  *
  * @internal
  */
-export function homeComponent(
+export function inboxComponent(
   S: StructureBuilder,
-  config: ResolvedStructureHomeConfig,
+  config: ResolvedStructureInboxConfig,
 ): ComponentBuilder {
-  return withTitle(S.component(HomePane).id(HOME_PANE_ID), config)
+  return withTitle(S.component(InboxPane).id(INBOX_PANE_ID), config)
     .canHandleIntent(() => false)
     .options({sources: config.sources})
 }
 
 /**
- * The Home pane's entry in the root list.
+ * The Inbox pane's entry in the root list.
  *
  * The pane is reachable without it — the plugin teaches the root pane to
- * resolve the Home id directly — so reach for this only when you want a
+ * resolve the Inbox id directly — so reach for this only when you want a
  * visible entry in a particular place. For one at the top of the list,
  * `showInList: true` does the same thing with no structure changes.
  *
@@ -50,18 +50,18 @@ export function homeComponent(
  *   structure: (S) =>
  *     S.list()
  *       .title('Content')
- *       .items([...S.documentTypeListItems(), S.divider(), homeListItem(S)]),
+ *       .items([...S.documentTypeListItems(), S.divider(), inboxListItem(S)]),
  * })
  * ```
  *
  * @public
  */
-export function homeListItem(
+export function inboxListItem(
   S: StructureBuilder,
-  config: StructureHomeConfig = {},
+  config: StructureInboxConfig = {},
 ): ListItemBuilder {
   const resolved = resolveConfig(config)
-  return withTitle(S.listItem().id(HOME_PANE_ID), resolved)
-    .icon(HomeIcon)
-    .child(homeComponent(S, resolved))
+  return withTitle(S.listItem().id(INBOX_PANE_ID), resolved)
+    .icon(InboxIcon)
+    .child(inboxComponent(S, resolved))
 }

@@ -1,7 +1,7 @@
-export {DEFAULT_TOOL_NAME, HOME_PANE_ID, STRUCTURE_HOME_NAMESPACE} from './constants'
-export {structureHome} from './plugin'
-export {homeListItem} from './structure/homeNode'
-export type {StructureHomeConfig} from './types'
+export {DEFAULT_TOOL_NAME, INBOX_PANE_ID, STRUCTURE_INBOX_NAMESPACE} from './constants'
+export {structureInbox} from './plugin'
+export {inboxListItem} from './structure/inboxNode'
+export type {StructureInboxConfig} from './types'
 
 export type {InboxItem, InboxSource, InboxSourceResult} from './inbox/types'
 export {unpublishedDrafts, type UnpublishedDraftsOptions} from './inbox/sources/unpublishedDrafts'
