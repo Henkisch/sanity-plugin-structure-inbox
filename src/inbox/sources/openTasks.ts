@@ -3,9 +3,36 @@ import {useMemo} from 'react'
 import {useObservable} from 'react-rx'
 import {of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
-import {useAddonDataset, useCurrentUser} from 'sanity'
+// `useAddonDataset` stays out of this named import — see `optionalHook` below.
+// `useCurrentUser` is public and stable, so it is imported normally.
+import {type AddonDatasetContextValue, useCurrentUser} from 'sanity'
 
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
+import {optionalHook} from './capability'
+
+/**
+ * Stands in for `useAddonDataset` when Sanity does not export it. A hook in
+ * name only — it calls no hooks of its own — so it can substitute directly
+ * for the real thing below, and `useItems` can tell the two apart by
+ * identity.
+ */
+function useUnavailableAddonDataset(): AddonDatasetContextValue {
+  return {
+    client: null,
+    isCreatingDataset: false,
+    createAddonDataset: async () => null,
+    ready: false,
+    error: null,
+  }
+}
+
+// Resolved once at module scope, not inside the component: `useAddonDataset`
+// is either present for the whole life of the process or absent for the whole
+// life of it. `useAddonDataset` below therefore names exactly one function —
+// the real hook or the fallback — for the life of the module, so `useItems`
+// can call it unconditionally on every render, which is what the rules of
+// hooks require.
+const useAddonDataset = optionalHook('useAddonDataset', useUnavailableAddonDataset)
 
 export interface OpenTasksOptions {
   /** Cap on rows. Defaults to 10. */
@@ -56,13 +83,19 @@ function isOverdue(dueBy?: string): boolean {
  *
  * Tasks live in the Studio's addon dataset — the same one comments use — rather
  * than in the content dataset, and both `useAddonDataset` and the `tasks.task`
- * shape are marked beta in Sanity's own typings. Both are confined to this
- * file: if either moves, this one source stops working rather than the plugin.
- * A Studio with tasks disabled has no addon dataset at all, and Sanity's
- * `useAddonDataset` throws — `useAddonDataset: missing context value` — rather
- * than returning an empty result. This source does not guard against that; the
- * `SectionErrorBoundary` around `InboxSection` in `Inbox.tsx` contains the
- * throw to this source's own card instead of taking the whole pane down.
+ * shape are marked beta in Sanity's own typings.
+ *
+ * `useAddonDataset` is reached only through `optionalHook` (see
+ * `capability.ts`), never a static import, so a Sanity release that removes it
+ * degrades this source to an error result instead of throwing while the
+ * barrel is evaluated and taking every consumer down with it. That is a
+ * different failure from a Studio with tasks disabled: there the export still
+ * exists but there is no addon dataset to provide it, and Sanity's
+ * `useAddonDataset` throws — `useAddonDataset: missing context value` —
+ * rather than returning an empty result. This source does not guard against
+ * that throw; the `SectionErrorBoundary` around `InboxSection` in `Inbox.tsx`
+ * contains it to this source's own card instead of taking the whole pane
+ * down.
  */
 export function openTasks(options: OpenTasksOptions = {}): InboxSource {
   const {limit = 10, title = 'Your tasks', placement = 'main', onlyMine = true} = options
@@ -80,6 +113,13 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
       const userId = currentUser?.id
 
       const result$ = useMemo(() => {
+        if (useAddonDataset === useUnavailableAddonDataset) {
+          return of<InboxSourceResult>({
+            items: [],
+            error: new Error('Open tasks are unavailable: Sanity no longer exports useAddonDataset.'),
+          })
+        }
+
         // No addon dataset means tasks have never been used in this Studio.
         // That is not a failure, it is simply nothing to show.
         if (!client || !ready) return of<InboxSourceResult>({items: [], loading: !ready})
