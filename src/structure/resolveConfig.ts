@@ -12,7 +12,7 @@ export function resolveConfig(config: StructureHomeConfig = {}): ResolvedStructu
     toolName: config.toolName ?? DEFAULT_TOOL_NAME,
     showInList: config.showInList ?? false,
     redirectOnLanding: config.redirectOnLanding ?? true,
-    widgets: config.widgets ?? [],
+    sources: config.sources ?? [],
     title: config.title,
   }
 }

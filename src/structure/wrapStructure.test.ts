@@ -169,14 +169,14 @@ describe('wrapStructure', () => {
     expect(isHomeAvailable('structure')).toBe(false)
   })
 
-  it('builds a Home pane that carries its widgets and refuses intents', () => {
+  it('builds a Home pane that carries its sources and refuses intents', () => {
     const wrapped = wrapStructure(() => S.list().id('content'), resolveConfig())
     const home = resolveChild(wrapped(S, context), HOME_PANE_ID) as {
       getOptions: () => Record<string, unknown>
       spec: {canHandleIntent?: () => boolean}
     }
 
-    expect(home.getOptions()).toEqual({widgets: []})
+    expect(home.getOptions()).toEqual({sources: []})
     // A dashboard pane must never win the race to handle an `edit` intent.
     expect(home.spec.canHandleIntent?.()).toBe(false)
   })

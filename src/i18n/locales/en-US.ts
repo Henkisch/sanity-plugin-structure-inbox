@@ -4,11 +4,22 @@
  */
 const enUS = {
   'home.title': 'Home',
-  'home.empty.title': 'Nothing here yet',
-  'home.empty.description':
-    'Pass widgets to structureHome() to fill this pane, or open a document type from the list.',
-  'widget.error.title': 'This widget failed to render',
-  'widget.error.retry': 'Try again',
+
+  'inbox.description': 'Things waiting on you.',
+  'inbox.showDone': 'Show done',
+  'inbox.hideDone': 'Hide done',
+  'inbox.unconfigured.title': 'Nothing in your inbox yet',
+  'inbox.unconfigured.description':
+    'Pass sources to structureHome() to fill this pane — open tasks, upcoming releases, forgotten drafts.',
+
+  'source.empty': 'All clear.',
+  'source.loading': 'Loading…',
+  'source.error.title': 'This section could not load',
+  'source.error.retry': 'Try again',
+
+  'item.open': 'Open',
+  'item.resolve': 'Mark as done',
+  'item.dismiss': 'Dismiss from your inbox',
 }
 
 export default enUS

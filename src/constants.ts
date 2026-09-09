@@ -29,3 +29,13 @@ export const STRUCTURE_HOME_NAMESPACE = 'structureHome'
 
 /** @internal */
 export const PLUGIN_NAME = 'sanity-plugin-structure-home'
+
+/**
+ * API version used for this plugin's own queries.
+ *
+ * Pinned rather than tracking "latest": a query written against today's
+ * semantics should not change meaning when Sanity ships a new API version.
+ *
+ * @internal
+ */
+export const API_VERSION = '2025-02-19'

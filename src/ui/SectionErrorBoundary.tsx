@@ -1,6 +1,6 @@
 import {Component, type ErrorInfo, type ReactNode} from 'react'
 
-interface WidgetErrorBoundaryProps {
+interface SectionErrorBoundaryProps {
   children: ReactNode
   onCatch: (error: Error) => void
 }
@@ -14,10 +14,10 @@ interface WidgetErrorBoundaryProps {
  * renders no markup of its own, so the Sanity-UI-only rule for this pane is
  * untouched.
  */
-export class WidgetErrorBoundary extends Component<WidgetErrorBoundaryProps> {
+export class SectionErrorBoundary extends Component<SectionErrorBoundaryProps> {
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    // Developers get the component stack; editors get the card in `WidgetCard`.
-    console.error('[sanity-plugin-structure-home] widget threw', error, info.componentStack)
+    // Developers get the component stack; editors get the message in the card.
+    console.error('[sanity-plugin-structure-home] inbox source threw', error, info.componentStack)
     this.props.onCatch(error)
   }
 

@@ -1,6 +1,6 @@
 import {visionTool} from '@sanity/vision'
 import {defineConfig} from 'sanity'
-import {structureHome} from 'sanity-plugin-structure-home'
+import {structureHome, unpublishedDrafts, upcomingReleases} from 'sanity-plugin-structure-home'
 import {structureTool} from 'sanity/structure'
 import {type StructureResolver} from 'sanity/structure'
 
@@ -38,7 +38,15 @@ export default defineConfig([
       structureTool({structure}),
       // `showInList` is off by default; this workspace turns it on so both the
       // visible entry and the invisible resolution get exercised somewhere.
-      structureHome({showInList: true}),
+      structureHome({
+        showInList: true,
+        sources: [
+          // Zero days, so a draft made seconds ago shows up — a seven-day
+          // default would make this workspace look broken while testing.
+          unpublishedDrafts({olderThanDays: 0}),
+          upcomingReleases(),
+        ],
+      }),
       // Stacked on purpose — see the probe's own comment.
       activeToolLayoutProbe(),
       visionTool(),
@@ -53,7 +61,10 @@ export default defineConfig([
     basePath: '/no-list',
     projectId,
     dataset,
-    plugins: [structureTool({structure: (S) => S.documentTypeList('post')}), structureHome()],
+    plugins: [
+      structureTool({structure: (S) => S.documentTypeList('post')}),
+      structureHome({sources: [unpublishedDrafts({olderThanDays: 0})]}),
+    ],
     schema: {types: schemaTypes},
   },
   {
@@ -71,7 +82,7 @@ export default defineConfig([
         title: 'Cars',
         structure: (S) => S.list().title('Cars').items(S.documentTypeListItems()),
       }),
-      structureHome({toolName: 'cars'}),
+      structureHome({toolName: 'cars', sources: [upcomingReleases()]}),
     ],
     schema: {types: schemaTypes},
   },

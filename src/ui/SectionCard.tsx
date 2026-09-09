@@ -1,47 +1,48 @@
-import {Box, Button, Card, Flex, Heading, Stack, Text} from '@sanity/ui'
+import {Box, Button, Card, Flex, Stack, Text} from '@sanity/ui'
 import {type ComponentType, type ReactNode, useCallback, useState} from 'react'
 import {useTranslation} from 'sanity'
 
 import {STRUCTURE_HOME_NAMESPACE} from '../constants'
-import {WidgetErrorBoundary} from './WidgetErrorBoundary'
+import {SectionErrorBoundary} from './SectionErrorBoundary'
 
-interface WidgetCardProps {
+interface SectionCardProps {
   title?: string
   icon?: ComponentType
+  /** Rendered at the right of the header — a count, usually. */
+  badge?: ReactNode
   children: ReactNode
 }
 
 /**
- * The chrome every widget renders inside — the analogue of
- * `@sanity/dashboard`'s `DashboardWidgetContainer`.
+ * The card one inbox source's items live in.
  *
- * Widgets render their body here and never draw their own outer card, so the
- * pane stays visually consistent no matter who wrote the widget.
- *
- * The error boundary is per widget rather than per pane on purpose: one widget
- * with a bad GROQ query should cost the editor that one card, not the whole
- * Home screen.
+ * The error boundary is per source rather than per pane on purpose: one source
+ * with a bad query should cost the editor that one group, not their whole
+ * inbox.
  */
-export function WidgetCard(props: WidgetCardProps) {
-  const {title, icon: Icon, children} = props
+export function SectionCard(props: SectionCardProps) {
+  const {title, icon: Icon, badge, children} = props
   const {t} = useTranslation(STRUCTURE_HOME_NAMESPACE)
   const [error, setError] = useState<Error | null>(null)
 
   const handleRetry = useCallback(() => setError(null), [])
 
   return (
-    <Card border radius={3} shadow={0} height="fill">
+    <Card border radius={3} shadow={0}>
       {title && (
-        <Card borderBottom padding={3} radius={0}>
+        <Card borderBottom padding={3} radius={0} tone="transparent">
           <Flex align="center" gap={2}>
             {Icon && (
               <Text muted size={1}>
                 <Icon />
               </Text>
             )}
-            <Heading size={0} textOverflow="ellipsis">
-              {title}
-            </Heading>
+            <Box flex={1}>
+              <Text size={1} textOverflow="ellipsis" weight="semibold">
+                {title}
+              </Text>
+            </Box>
+            {badge}
           </Flex>
         </Card>
       )}
@@ -49,10 +50,10 @@ export function WidgetCard(props: WidgetCardProps) {
       {error ? (
         <Box padding={3}>
           <Stack gap={3}>
-            <Text muted size={1}>
-              {t('widget.error.title')}
+            <Text size={1} weight="medium">
+              {t('source.error.title')}
             </Text>
-            <Text muted size={0}>
+            <Text muted size={1}>
               {error.message}
             </Text>
             <Flex>
@@ -62,15 +63,13 @@ export function WidgetCard(props: WidgetCardProps) {
                 fontSize={1}
                 mode="ghost"
                 onClick={handleRetry}
-                text={t('widget.error.retry')}
+                text={t('source.error.retry')}
               />
             </Flex>
           </Stack>
         </Box>
       ) : (
-        <WidgetErrorBoundary onCatch={setError}>
-          <Box padding={3}>{children}</Box>
-        </WidgetErrorBoundary>
+        <SectionErrorBoundary onCatch={setError}>{children}</SectionErrorBoundary>
       )}
     </Card>
   )

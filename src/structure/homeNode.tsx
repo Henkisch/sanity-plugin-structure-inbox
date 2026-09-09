@@ -34,7 +34,7 @@ export function homeComponent(
 ): ComponentBuilder {
   return withTitle(S.component(HomePane).id(HOME_PANE_ID), config)
     .canHandleIntent(() => false)
-    .options({widgets: config.widgets})
+    .options({sources: config.sources})
 }
 
 /**

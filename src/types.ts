@@ -1,48 +1,4 @@
-import {type ComponentType} from 'react'
-
-/**
- * How much of the Home pane's width a widget asks for.
- *
- * The names mirror `@sanity/dashboard`'s `LayoutSize` so a widget written for
- * one surface can move to the other without a rewrite.
- *
- * @public
- */
-export type WidgetWidth = 'small' | 'medium' | 'large' | 'full'
-
-/**
- * Props every widget receives.
- *
- * @public
- */
-export interface StructureHomeWidgetProps {
-  /** The widget's own `name`, useful for keying persisted state. */
-  name: string
-}
-
-/**
- * A single block of content on the Home pane.
- *
- * Shaped after `@sanity/dashboard`'s `DashboardWidget` on purpose: the same
- * widget should be droppable into either surface once both plugins have proven
- * themselves. Widgets are produced by factory functions — `recentlyEdited()`,
- * `quickCreate()` — rather than written as object literals, so their options
- * are typed at the call site.
- *
- * @public
- */
-export interface StructureHomeWidget {
-  /** Stable identifier. Used as a React key and as the key for persisted editor preferences. */
-  name: string
-  /** Rendered inside the widget card. Must not draw its own outer card. */
-  component: ComponentType<StructureHomeWidgetProps>
-  /** Heading shown in the widget card's header. Omit for a card with no header. */
-  title?: string
-  /** Icon shown next to the title. */
-  icon?: ComponentType
-  /** Layout hints. `width` maps onto the Home pane's grid. */
-  layout?: {width?: WidgetWidth}
-}
+import {type InboxSource} from './inbox/types'
 
 /**
  * Options for {@link structureHome}.
@@ -58,9 +14,9 @@ export interface StructureHomeConfig {
   toolName?: string
 
   /**
-   * Widgets to render, in order.
+   * The feeds that fill the inbox, in the order they appear.
    */
-  widgets?: StructureHomeWidget[]
+  sources?: InboxSource[]
 
   /**
    * Title shown on the Home pane and on its item in the root list.
@@ -93,6 +49,6 @@ export interface StructureHomeConfig {
 
 /** @internal */
 export type ResolvedStructureHomeConfig = Required<
-  Pick<StructureHomeConfig, 'toolName' | 'showInList' | 'redirectOnLanding' | 'widgets'>
+  Pick<StructureHomeConfig, 'toolName' | 'showInList' | 'redirectOnLanding' | 'sources'>
 > &
   Pick<StructureHomeConfig, 'title'>
