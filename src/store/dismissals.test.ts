@@ -4,6 +4,7 @@ import {
   DISMISSAL_TTL_DAYS,
   EMPTY_DISMISSALS,
   isDismissed,
+  mergeDismissals,
   parseDismissals,
   pruneDismissals,
   withDismissal,
@@ -114,5 +115,65 @@ describe('dismiss and restore', () => {
     const restored = withoutDismissal(state, 'drafts', 'doc-1')
 
     expect(isDismissed(restored, 'drafts', 'doc-2')).toBe(true)
+  })
+})
+
+describe('mergeDismissals', () => {
+  it('unions two disjoint sources', () => {
+    const a = withDismissal(EMPTY_DISMISSALS, 'drafts', 'doc-1', '2026-01-01T00:00:00.000Z')
+    const b = withDismissal(EMPTY_DISMISSALS, 'releases', 'rel-1', '2026-01-02T00:00:00.000Z')
+
+    expect(mergeDismissals(a, b)).toEqual({
+      version: 1,
+      dismissed: {
+        drafts: {'doc-1': '2026-01-01T00:00:00.000Z'},
+        releases: {'rel-1': '2026-01-02T00:00:00.000Z'},
+      },
+    })
+  })
+
+  it('keeps both items when the same source has different item ids', () => {
+    const a = withDismissal(EMPTY_DISMISSALS, 'drafts', 'doc-1', '2026-01-01T00:00:00.000Z')
+    const b = withDismissal(EMPTY_DISMISSALS, 'drafts', 'doc-2', '2026-01-02T00:00:00.000Z')
+
+    expect(mergeDismissals(a, b)).toEqual({
+      version: 1,
+      dismissed: {
+        drafts: {'doc-1': '2026-01-01T00:00:00.000Z', 'doc-2': '2026-01-02T00:00:00.000Z'},
+      },
+    })
+  })
+
+  it('keeps the later timestamp when the same source and item appear in both, whichever side it is on', () => {
+    const earlier = withDismissal(EMPTY_DISMISSALS, 'drafts', 'doc-1', '2026-01-01T00:00:00.000Z')
+    const later = withDismissal(EMPTY_DISMISSALS, 'drafts', 'doc-1', '2026-01-02T00:00:00.000Z')
+
+    // Later timestamp on the second argument.
+    expect(mergeDismissals(earlier, later).dismissed.drafts['doc-1']).toBe(
+      '2026-01-02T00:00:00.000Z',
+    )
+    // Later timestamp on the first argument.
+    expect(mergeDismissals(later, earlier).dismissed.drafts['doc-1']).toBe(
+      '2026-01-02T00:00:00.000Z',
+    )
+  })
+
+  it('an unparseable timestamp loses to a parseable one on either side', () => {
+    const broken = withDismissal(EMPTY_DISMISSALS, 'drafts', 'doc-1', 'not a date')
+    const parseable = withDismissal(EMPTY_DISMISSALS, 'drafts', 'doc-1', '2026-01-01T00:00:00.000Z')
+
+    expect(mergeDismissals(broken, parseable).dismissed.drafts['doc-1']).toBe(
+      '2026-01-01T00:00:00.000Z',
+    )
+    expect(mergeDismissals(parseable, broken).dismissed.drafts['doc-1']).toBe(
+      '2026-01-01T00:00:00.000Z',
+    )
+  })
+
+  it('returns the other side unchanged when merging with EMPTY_DISMISSALS', () => {
+    const state = withDismissal(EMPTY_DISMISSALS, 'drafts', 'doc-1', '2026-01-01T00:00:00.000Z')
+
+    expect(mergeDismissals(EMPTY_DISMISSALS, state)).toEqual(state)
+    expect(mergeDismissals(state, EMPTY_DISMISSALS)).toEqual(state)
   })
 })

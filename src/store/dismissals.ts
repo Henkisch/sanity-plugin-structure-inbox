@@ -118,3 +118,47 @@ export function withoutDismissal(
 
   return {version: DISMISSAL_VERSION, dismissed}
 }
+
+/**
+ * Unions two dismissal states, keeping the later timestamp when the same
+ * source and item appear in both.
+ *
+ * Exists for the case where a load from the server resolves after the editor
+ * has already ticked something locally: replacing state with the server
+ * value would silently discard that tick, so the two are merged instead. An
+ * unparseable timestamp loses to a parseable one, since it cannot be compared
+ * and a change we can date is more trustworthy than one we cannot.
+ */
+export function mergeDismissals(a: DismissalState, b: DismissalState): DismissalState {
+  const dismissed: DismissalState['dismissed'] = {}
+  const sources = new Set([...Object.keys(a.dismissed), ...Object.keys(b.dismissed)])
+
+  for (const source of sources) {
+    const itemsA = a.dismissed[source] ?? {}
+    const itemsB = b.dismissed[source] ?? {}
+    const items: Record<string, string> = {...itemsA}
+
+    for (const [itemId, atB] of Object.entries(itemsB)) {
+      const atA = items[itemId]
+      if (atA === undefined) {
+        items[itemId] = atB
+        continue
+      }
+
+      const timeA = Date.parse(atA)
+      const timeB = Date.parse(atB)
+
+      if (!Number.isFinite(timeA) && Number.isFinite(timeB)) {
+        items[itemId] = atB
+      } else if (Number.isFinite(timeA) && Number.isFinite(timeB) && timeB > timeA) {
+        items[itemId] = atB
+      }
+      // Otherwise `atA` already stands: either it is the later/only-parseable
+      // timestamp, or neither side parses and the existing value is kept.
+    }
+
+    if (Object.keys(items).length > 0) dismissed[source] = items
+  }
+
+  return {version: DISMISSAL_VERSION, dismissed}
+}
