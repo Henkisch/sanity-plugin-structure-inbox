@@ -1,0 +1,18 @@
+import {DEFAULT_TOOL_NAME} from '../constants'
+import {type ResolvedStructureHomeConfig, type StructureHomeConfig} from '../types'
+
+/**
+ * Fills in the defaults once, so nothing downstream has to repeat
+ * `config.autoInject ?? true`.
+ *
+ * @internal
+ */
+export function resolveConfig(config: StructureHomeConfig = {}): ResolvedStructureHomeConfig {
+  return {
+    toolName: config.toolName ?? DEFAULT_TOOL_NAME,
+    autoInject: config.autoInject ?? true,
+    redirectOnLanding: config.redirectOnLanding ?? true,
+    widgets: config.widgets ?? [],
+    title: config.title,
+  }
+}
