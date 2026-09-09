@@ -1,9 +1,9 @@
-import {useCallback, useEffect} from 'react'
+import {useCallback, useEffect, useSyncExternalStore} from 'react'
 import {type ActiveToolLayoutProps} from 'sanity'
 import {useRouter, useRouterState} from 'sanity/router'
 
 import {INBOX_PANE_ID} from '../constants'
-import {isInboxAvailable} from '../structure/inboxAvailability'
+import {isInboxAvailable, subscribeInboxAvailability} from '../structure/inboxAvailability'
 import {type ResolvedStructureInboxConfig} from '../types'
 import {shouldRedirectToInbox} from './shouldRedirectToInbox'
 
@@ -33,13 +33,21 @@ export function createActiveToolLayout(config: ResolvedStructureInboxConfig) {
 
     const activeToolName = activeTool.name
 
+    // A synchronous structure resolver has already reported whether injection
+    // worked by the time this component's effects flush — the resolver runs
+    // during the render of the tool this component wraps, which commits first.
+    // An async resolver has not: it can still be pending on that first effect
+    // run, and nothing else would re-trigger it once the promise settles. This
+    // subscription is what makes a late `true` re-render and re-run the effect
+    // below, instead of the redirect being silently missed.
+    const inboxAvailable = useSyncExternalStore(subscribeInboxAvailability, () =>
+      isInboxAvailable(config.toolName),
+    )
+
     useEffect(() => {
       const redirect = shouldRedirectToInbox({
         redirectOnLanding: config.redirectOnLanding,
-        // Read at effect time, not render time: the structure resolver runs
-        // during the render of the tool this component wraps, so by the time
-        // effects flush it has already reported whether injection worked.
-        inboxAvailable: isInboxAvailable(config.toolName),
+        inboxAvailable,
         activeToolName,
         targetToolName: config.toolName,
         panes,
@@ -52,7 +60,7 @@ export function createActiveToolLayout(config: ResolvedStructureInboxConfig) {
       // out of Inbox would land on `/structure`, redirect again, and trap the
       // editor in the Studio.
       navigate({panes: [[{id: INBOX_PANE_ID}]]}, {replace: true})
-    }, [activeToolName, intent, navigate, panes])
+    }, [activeToolName, inboxAvailable, intent, navigate, panes])
 
     return props.renderDefault(props)
   }

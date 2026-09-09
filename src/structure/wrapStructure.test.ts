@@ -137,6 +137,34 @@ describe('wrapStructure', () => {
     expect(items[1].type).toBe('divider')
   })
 
+  it('adds a visible list item above a divider when the resolver is async and showInList is on', async () => {
+    const wrapped = wrapStructure(
+      () =>
+        Promise.resolve(
+          S.list()
+            .id('content')
+            .items([S.listItem().id('post').title('Posts')]),
+        ),
+      resolveConfig({showInList: true}),
+    )
+
+    const items = itemsOf(await wrapped(S, context))
+
+    expect(items.map((item) => item.id)).toEqual([INBOX_PANE_ID, items[1].id, 'post'])
+    expect(items[1].type).toBe('divider')
+  })
+
+  it('reports availability only once the async resolver settles', async () => {
+    const wrapped = wrapStructure(() => Promise.resolve(S.list().id('content')), resolveConfig())
+
+    const result = wrapped(S, context)
+    expect(isInboxAvailable('structure')).toBe(false)
+
+    await result
+
+    expect(isInboxAvailable('structure')).toBe(true)
+  })
+
   it('warns but keeps the pane reachable when showInList has no list to add to', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
