@@ -22,14 +22,19 @@ Add it to `plugins` in `sanity.config.ts`, **after** `structureTool()`:
 ```ts
 import {defineConfig} from 'sanity'
 import {structureTool} from 'sanity/structure'
-import {structureInbox, unpublishedDrafts, upcomingReleases} from 'sanity-plugin-structure-inbox'
+import {
+  openTasks,
+  structureInbox,
+  unpublishedDrafts,
+  upcomingReleases,
+} from 'sanity-plugin-structure-inbox'
 
 export default defineConfig({
   // ...
   plugins: [
     structureTool(),
     structureInbox({
-      sources: [unpublishedDrafts({olderThanDays: 7}), upcomingReleases()],
+      sources: [openTasks(), unpublishedDrafts({olderThanDays: 7}), upcomingReleases()],
     }),
   ],
 })
@@ -44,12 +49,13 @@ extra menu item — because the plugin teaches the root pane to resolve the Inbo
 
 ## Sources
 
-A source is a feed of inbox items. Two ship with the plugin:
+A source is a feed of inbox items. Three ship with the plugin:
 
-| Source                                                       | What it lists                                                 |
-| ------------------------------------------------------------ | ------------------------------------------------------------- |
-| `unpublishedDrafts({olderThanDays, limit, types, onlyMine})` | Drafts that have sat untouched long enough to look forgotten. |
-| `upcomingReleases({limit})`                                  | Releases that are scheduled or still being filled.            |
+| Source                                                       | What it lists                                                 | Whose      |
+| ------------------------------------------------------------ | ------------------------------------------------------------- | ---------- |
+| `openTasks({limit, onlyMine})`                               | Sanity Tasks assigned to you and still open.                  | Yours      |
+| `unpublishedDrafts({olderThanDays, limit, types, onlyMine})` | Drafts that have sat untouched long enough to look forgotten. | Everyone's |
+| `upcomingReleases({limit})`                                  | Releases that are scheduled or still being filled.            | Everyone's |
 
 Sources choose their column with `placement`. `main` is the wide column on the
 left, for work to get through; `aside` is the narrow one on the right, for
@@ -57,18 +63,36 @@ context worth seeing but not acting on. `upcomingReleases` defaults to `aside`,
 and only the main column counts toward the headline — "three releases are
 scheduled" is not three things asking for your attention.
 
-### Only your documents
+### Whose items are these
 
-`unpublishedDrafts` lists only drafts **you** have worked on, because a pane
-headed "waiting on you" should not be showing everybody's drafts. Pass
-`onlyMine: false` for a shared queue the whole team works through.
+Every section says whether its items are yours or the whole team's, because
+"done" means different things either side of that line. A source declares it
+with `audience`.
 
-This costs one extra request per refresh. Authorship is not on the document and
+- **`openTasks` is personal.** A task is assigned to someone, so `onlyMine`
+  defaults to `true`.
+- **`unpublishedDrafts` is shared.** A draft left unpublished is usually the
+  team's problem rather than one person's, and anyone can pick it up, so
+  `onlyMine` defaults to `false`.
+
+Set `onlyMine: true` on drafts to narrow the list to your own unfinished work.
+It costs one extra request per refresh: authorship is not on the document, and
 there is no dataset-wide "documents I edited" query — it lives in the
 transaction log, whose dataset-wide form returns nothing without document ids.
-What it does support is a batch: many ids plus an `authors` filter. So GROQ
-narrows to a page first, and one request then asks "of these ten, which are
+What that endpoint does support is a batch of ids plus an `authors` filter, so
+GROQ narrows to a page first and one request then asks "of these ten, which are
 mine". Nothing ever scans the dataset.
+
+### Tasks
+
+`openTasks` reads Sanity Tasks from the Studio's addon dataset — the same one
+comments use — rather than from your content dataset. A Studio that has never
+used tasks has no addon dataset at all, which shows up as an empty section
+rather than an error.
+
+Both `useAddonDataset` and the `tasks.task` document shape are marked beta in
+Sanity's own typings, so they are confined to that one source file. If either
+moves, that source stops working rather than the plugin.
 
 ### Writing your own
 
@@ -105,21 +129,24 @@ export function needsReview(): InboxSource {
 ## Selecting and acting
 
 Ticking a checkbox **selects** a row; it does not complete it. Once something is
-selected, the actions valid for that selection appear, and the editor chooses —
-the order a mail client uses, and the reason a tick that silently acted felt
-wrong.
+selected, the action bar appears and the editor chooses — the order a mail
+client uses, and the reason a tick that silently acted felt wrong.
 
-Which actions appear depends on the source:
+There is one verb, **Mark as done**, plus **Cancel**. What "done" changes
+depends on the source, and the button's tooltip says which:
 
-- **Mark as done** — only when the source returns a `resolve` function from
-  `useItems`. It completes the item where it actually lives.
-- **Dismiss** — always available for open rows. Removes the item from _that
-  editor's own inbox_; nothing changes for anyone else.
-- **Put back** — for rows already done, so a tick is never a one-way door.
+- A source that returns **`resolve`** from `useItems` completes the item where
+  it actually lives, then takes it out of the editor's inbox. `openTasks` closes
+  the task for everyone.
+- A source without `resolve` can only remove the item from **that editor's own
+  inbox**. Nothing changes for anyone else. Neither `unpublishedDrafts` nor
+  `upcomingReleases` resolves: publishing a draft has validation, permissions
+  and side effects this pane has no business performing, and running a release
+  belongs in the Releases tool.
 
-Neither built-in source resolves. Publishing a draft has validation, permissions
-and side effects this pane has no business performing, and running a release
-belongs in the Releases tool.
+**Open** and **Done** are tabs, so a finished row never sits among unfinished
+ones. In the Done tab the same control reads **Mark as not done** — a tick is
+never a one-way door.
 
 Return `resolve` to make a tick mean something real:
 
