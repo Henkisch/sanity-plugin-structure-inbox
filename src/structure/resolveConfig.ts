@@ -3,7 +3,7 @@ import {type ResolvedStructureInboxConfig, type StructureInboxConfig} from '../t
 
 /**
  * Fills in the defaults once, so nothing downstream has to repeat
- * `config.autoInject ?? true`.
+ * `config.showInList ?? false`.
  *
  * @internal
  */

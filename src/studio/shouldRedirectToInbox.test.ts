@@ -5,7 +5,7 @@ import {type RedirectDecision, shouldRedirectToInbox} from './shouldRedirectToIn
 /** A landing that should redirect. Each test spoils exactly one thing about it. */
 const landing: RedirectDecision = {
   redirectOnLanding: true,
-  homeAvailable: true,
+  inboxAvailable: true,
   activeToolName: 'structure',
   targetToolName: 'structure',
   panes: [],
@@ -23,7 +23,7 @@ describe('shouldRedirectToInbox', () => {
 
   it('stays put when the Inbox pane could not be injected', () => {
     // Redirecting here would send the editor to a URL that resolves to nothing.
-    expect(shouldRedirectToInbox({...landing, homeAvailable: false})).toBe(false)
+    expect(shouldRedirectToInbox({...landing, inboxAvailable: false})).toBe(false)
   })
 
   it('ignores tools this plugin is not attached to', () => {
