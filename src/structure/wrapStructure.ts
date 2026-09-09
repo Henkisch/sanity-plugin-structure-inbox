@@ -88,7 +88,9 @@ export function wrapStructure(
   return (S, context) => {
     const base = inner ? inner(S, context) : S.defaults()
 
-    const withInbox = (root: unknown): unknown => {
+    const withInbox = (resolved: unknown): unknown => {
+      const root = config.showInList ? addInboxListItem(S, resolved, config) : resolved
+
       if (isSerializable(root)) {
         setInboxAvailable(config.toolName, true)
         return {
@@ -112,9 +114,11 @@ export function wrapStructure(
 
     // A resolver is allowed to be async, and the common reason — awaiting a
     // client call before building the list — has nothing to do with us.
+    // `withInbox` applies `addInboxListItem` itself, so both branches funnel
+    // through the same single call site regardless of when `base` resolves.
     if (isPromiseLike(base)) return base.then(withInbox)
 
-    return withInbox(config.showInList ? addInboxListItem(S, base, config) : base)
+    return withInbox(base)
   }
 }
 

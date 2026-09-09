@@ -93,4 +93,25 @@ export default defineConfig([
     ],
     schema: {types: schemaTypes},
   },
+  {
+    // An async structure resolver, deliberately slow. Proves the list item and
+    // the landing redirect both still happen once the promise settles, well
+    // after this component's own effects have already flushed once — and that
+    // a deep link opened during the delay is not hijacked when it resolves.
+    name: 'asyncDelayed',
+    title: 'Delayed async structure',
+    basePath: '/async-delayed',
+    projectId,
+    dataset,
+    plugins: [
+      structureTool({
+        structure: async (S) => {
+          await new Promise((resolve) => setTimeout(resolve, 750))
+          return S.list().title('Content').items(S.documentTypeListItems())
+        },
+      }),
+      structureInbox({showInList: true, sources: [unpublishedDrafts({olderThanDays: 0})]}),
+    ],
+    schema: {types: schemaTypes},
+  },
 ])
