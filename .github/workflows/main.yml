@@ -54,6 +54,9 @@ jobs:
         # Linting can be skipped
       - run: npm run lint --if-present
         if: github.event.inputs.test != 'false'
+        # Typechecks src, package.config.ts, and the test files that tsconfig.dist.json excludes from the dist build
+      - run: npm run typecheck --if-present
+        if: github.event.inputs.test != 'false'
         # But not the build script, as semantic-release will crash if this command fails so it makes sense to test it early
       - run: npm run prepublishOnly --if-present
 

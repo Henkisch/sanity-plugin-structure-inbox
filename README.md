@@ -271,7 +271,7 @@ It ships three workspaces, one per behaviour worth checking by hand:
 | `noList`  | `/no-list` | A structure whose root is a document list rather than a list — the Inbox still resolves.              |
 | `multi`   | `/multi`   | Two structure tools with the Inbox attached to only one of them.                                      |
 
-Other scripts: `npm test`, `npm run lint`, `npm run format`.
+Other scripts: `npm test`, `npm run lint`, `npm run format`, `npm run typecheck`.
 
 ## License
 
