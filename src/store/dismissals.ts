@@ -64,8 +64,33 @@ export function pruneDismissals(state: DismissalState, now = Date.now()): Dismis
   return {version: DISMISSAL_VERSION, dismissed}
 }
 
-export function isDismissed(state: DismissalState, source: string, itemId: string): boolean {
-  return typeof state.dismissed[source]?.[itemId] === 'string'
+/**
+ * Whether an item counts as done for this editor.
+ *
+ * The stored value is the moment it was ticked, which doubles as a freshness
+ * check: an item that has changed since then comes back. Dismissing a draft
+ * says "I have seen this version of it", not "never show me this document
+ * again" — so someone editing it afterwards puts it back in the inbox, which is
+ * what an inbox is for.
+ *
+ * Items without a timestamp have no notion of changing, so for them a dismissal
+ * is permanent until restored.
+ */
+export function isDismissed(
+  state: DismissalState,
+  source: string,
+  itemId: string,
+  itemTimestamp?: string,
+): boolean {
+  const dismissedAt = state.dismissed[source]?.[itemId]
+  if (typeof dismissedAt !== 'string') return false
+  if (!itemTimestamp) return true
+
+  const changed = Date.parse(itemTimestamp)
+  const ticked = Date.parse(dismissedAt)
+  if (!Number.isFinite(changed) || !Number.isFinite(ticked)) return true
+
+  return changed <= ticked
 }
 
 export function withDismissal(

@@ -1,9 +1,7 @@
-import {useCallback, useMemo} from 'react'
-import {useObservable} from 'react-rx'
-import {map} from 'rxjs/operators'
-import {type KeyValueStoreValue, useKeyValueStore} from 'sanity'
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import {useClient, useCurrentUser} from 'sanity'
 
-import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
+import {API_VERSION} from '../constants'
 import {
   type DismissalState,
   EMPTY_DISMISSALS,
@@ -13,7 +11,33 @@ import {
   withoutDismissal,
 } from './dismissals'
 
-const DISMISSALS_KEY = `${STRUCTURE_INBOX_NAMESPACE}.dismissed`
+/**
+ * The document type dismissals are stored in.
+ *
+ * Deliberately never registered in the Studio schema: it is a preference, not
+ * content, and an editor should not meet it in the structure tool, in search,
+ * or in a reference picker. Writing an unregistered type through the client is
+ * supported; only the Studio's own UI cares about registration.
+ */
+const DISMISSALS_TYPE = 'structureInbox.dismissals'
+
+/**
+ * The state is stored as a JSON string in one field rather than as an object
+ * map.
+ *
+ * Patch paths cannot address keys containing hyphens or dots, and every key
+ * here is a document id or a source name — `drafts.9f2c-…` is the normal case,
+ * not the exception. One opaque field sidesteps that entirely, at the cost of
+ * last-write-wins if the same editor dismisses different items on two devices
+ * at the same moment. Losing one dismissal in that race is not worth a merge
+ * protocol.
+ */
+const DISMISSALS_FIELD = 'dismissed'
+
+/** Document ids allow a limited alphabet, and user ids are opaque strings. */
+function dismissalsDocumentId(userId: string): string {
+  return `${DISMISSALS_TYPE}.${userId.replace(/[^a-zA-Z0-9._-]/g, '-')}`
+}
 
 export interface Dismissals {
   state: DismissalState
@@ -22,50 +46,96 @@ export interface Dismissals {
 }
 
 /**
- * Per-editor dismissals, stored server-side.
+ * Per-editor dismissals, stored in the dataset.
  *
- * `useKeyValueStore` writes to Sanity's own `/users/me/keyvalue` endpoint — the
- * same one the Structure tool keeps its pane settings in. That makes this
- * per-user and per-project rather than per-browser, so an editor who ticks
- * something off at their desk does not meet it again on their laptop, and it
- * needs no schema and no dataset writes.
+ * Sanity's own `/users/me/keyvalue` store would be the natural home for a
+ * preference like this — it is where the Structure tool keeps its pane
+ * settings — but the endpoint accepts only an allowlist of Sanity's own keys
+ * and rejects anything a plugin writes with `Key '…' is not allowed`. So a
+ * user-scoped document it is: still per-user, still following the editor
+ * between devices, at the cost of one small document per editor.
  *
- * The hook is `@internal` in Sanity's own typings, which is why every use of it
- * is confined to this file: replacing it means rewriting one module.
+ * State is held locally and updated optimistically, so ticking an item is
+ * instant and a failed write costs the editor nothing beyond this session.
  */
 export function useDismissals(): Dismissals {
-  const keyValueStore = useKeyValueStore()
+  const client = useClient({apiVersion: API_VERSION})
+  const currentUser = useCurrentUser()
+  const userId = currentUser?.id
 
-  const value$ = useMemo(
-    () => keyValueStore.getKey(DISMISSALS_KEY).pipe(map((value) => parseDismissals(value))),
-    [keyValueStore],
-  )
+  const [state, setState] = useState<DismissalState>(EMPTY_DISMISSALS)
+  // Distinguishes "this is what the server had" from "the editor just changed
+  // something", so loading a value never writes it straight back. A ref rather
+  // than state: it is bookkeeping between an event and an effect, and nothing
+  // renders from it.
+  const dirtyRef = useRef(false)
 
-  const state = useObservable(value$, EMPTY_DISMISSALS)
+  const documentId = useMemo(() => (userId ? dismissalsDocumentId(userId) : null), [userId])
 
-  const write = useCallback(
-    (next: DismissalState) => {
-      // Pruning on write rather than on read: reads happen on every render, and
-      // an editor who never dismisses anything should never be made to pay for
-      // maintenance of a value they are not growing.
-      // The store's value type is structural JSON; our state is a named
-      // interface, which TypeScript will not widen to an index signature on its
-      // own. Round-tripping through JSON is both the coercion and the proof
-      // that what we store is plain data.
-      const value: KeyValueStoreValue = JSON.parse(JSON.stringify(pruneDismissals(next)))
-      void keyValueStore.setKey(DISMISSALS_KEY, value)
-    },
-    [keyValueStore],
-  )
+  useEffect(() => {
+    if (!documentId) return undefined
+
+    let cancelled = false
+
+    client
+      .fetch<string | null>(`*[_id == $id][0].${DISMISSALS_FIELD}`, {id: documentId})
+      .then((raw) => {
+        if (!cancelled && typeof raw === 'string') setState(parseDismissals(JSON.parse(raw)))
+        return undefined
+      })
+      .catch((error: unknown) => {
+        // A missing document is the normal first-run case and resolves to
+        // `null` rather than throwing, so anything landing here is a real
+        // failure — and an inbox showing everything beats one that will not
+        // render.
+        console.error('[sanity-plugin-structure-inbox] could not read dismissals', error)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [client, documentId])
+
+  // Persisting in an effect rather than inside the click handler keeps the
+  // stored value derived from the state that actually rendered. A handler
+  // would have to guess it, because a `setState` updater does not run until
+  // React re-renders.
+  useEffect(() => {
+    if (!dirtyRef.current || !documentId) return
+
+    dirtyRef.current = false
+
+    const value = JSON.stringify(state)
+
+    client
+      .transaction()
+      .createIfNotExists({_id: documentId, _type: DISMISSALS_TYPE, [DISMISSALS_FIELD]: value})
+      .patch(documentId, (patch) => patch.set({[DISMISSALS_FIELD]: value}))
+      .commit({visibility: 'async'})
+      .catch((error: unknown) => {
+        // The local state stands for this session, so the tick the editor just
+        // made still holds until they reload.
+        console.error('[sanity-plugin-structure-inbox] could not save dismissals', error)
+      })
+  }, [client, documentId, state])
+
+  const update = useCallback((next: (current: DismissalState) => DismissalState) => {
+    // Pruned on write rather than on read: reads happen on every render, and
+    // an editor who never dismisses anything should not pay for maintenance
+    // of a value they are not growing.
+    dirtyRef.current = true
+    setState((current) => pruneDismissals(next(current)))
+  }, [])
 
   const dismiss = useCallback(
-    (source: string, itemId: string) => write(withDismissal(state, source, itemId)),
-    [state, write],
+    (source: string, itemId: string) => update((current) => withDismissal(current, source, itemId)),
+    [update],
   )
 
   const restore = useCallback(
-    (source: string, itemId: string) => write(withoutDismissal(state, source, itemId)),
-    [state, write],
+    (source: string, itemId: string) =>
+      update((current) => withoutDismissal(current, source, itemId)),
+    [update],
   )
 
   return useMemo(() => ({state, dismiss, restore}), [state, dismiss, restore])

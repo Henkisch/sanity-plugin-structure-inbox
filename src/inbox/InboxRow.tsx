@@ -1,6 +1,5 @@
-import {CheckmarkIcon} from '@sanity/icons/Checkmark'
-import {Box, Button, Card, Flex, Stack, Text} from '@sanity/ui'
-import {useCallback, useState} from 'react'
+import {Box, Button, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
+import {useCallback, useId} from 'react'
 import {useTranslation} from 'sanity'
 import {useRouter} from 'sanity/router'
 
@@ -10,49 +9,86 @@ import {type InboxItem} from './types'
 
 interface InboxRowProps {
   item: InboxItem
-  /** True when ticking completes the item at its source rather than only hiding it. */
-  resolves: boolean
-  onTick: (item: InboxItem) => Promise<void> | void
+  /** Aside rows: tighter, without the leading icon and the Open button. */
+  compact?: boolean
+  /** Already ticked off. Only ever rendered while "Show done" is on. */
+  done?: boolean
+  selected: boolean
+  onSelectedChange: (item: InboxItem, selected: boolean) => void
 }
 
 export function InboxRow(props: InboxRowProps) {
-  const {item, resolves, onTick} = props
+  const {item, compact = false, done = false, selected, onSelectedChange} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const {navigateIntent} = useRouter()
-  const [busy, setBusy] = useState(false)
+  const labelId = useId()
 
   const handleOpen = useCallback(() => {
     if (!item.intent) return
     navigateIntent(item.intent.type, item.intent.params)
   }, [item.intent, navigateIntent])
 
-  const handleTick = useCallback(async () => {
-    setBusy(true)
-    try {
-      await onTick(item)
-    } finally {
-      // The row usually unmounts on success, so this only matters when the tick
-      // failed — in which case the editor needs the button back.
-      setBusy(false)
-    }
-  }, [item, onTick])
+  // Checking a box marks the row, it does not act on it. Which action follows
+  // is the editor's next decision, offered once something is selected — the
+  // same order a mail client puts them in, and the reason a tick that silently
+  // completed things felt wrong.
+  const handleSelect = useCallback(
+    () => onSelectedChange(item, !selected),
+    [item, onSelectedChange, selected],
+  )
 
   const Icon = item.icon
+  // A done row drops its own tone: the point of showing it is that it is
+  // finished, and a caution-coloured finished row still reads as urgent.
+  const tone = done || item.tone === 'default' ? undefined : item.tone
+
+  const checkbox = (
+    <Flex align="center" paddingLeft={1} paddingRight={compact ? 1 : 2}>
+      <Checkbox
+        aria-labelledby={labelId}
+        checked={selected}
+        onChange={handleSelect}
+        title={t('selection.select')}
+      />
+    </Flex>
+  )
+
+  const label = (
+    <Stack flex={1} gap={2}>
+      <Text
+        id={labelId}
+        muted={done}
+        size={1}
+        textOverflow="ellipsis"
+        weight={compact ? undefined : 'medium'}
+      >
+        {item.title}
+      </Text>
+      {(item.subtitle || item.timestamp) && (
+        <Text muted size={0} textOverflow="ellipsis">
+          {item.subtitle}
+          {item.subtitle && item.timestamp ? ' · ' : ''}
+          {item.timestamp && <RelativeTime timestamp={item.timestamp} />}
+        </Text>
+      )}
+    </Stack>
+  )
+
+  if (compact) {
+    return (
+      <Card padding={2} radius={2} tone={selected ? 'primary' : tone}>
+        <Flex align="center" gap={1}>
+          {checkbox}
+          <Box flex={1}>{label}</Box>
+        </Flex>
+      </Card>
+    )
+  }
 
   return (
-    <Card padding={2} radius={2} tone={item.tone === 'default' ? undefined : item.tone}>
+    <Card padding={2} radius={2} tone={selected ? 'primary' : tone}>
       <Flex align="center" gap={2}>
-        <Button
-          disabled={busy}
-          fontSize={1}
-          icon={CheckmarkIcon}
-          mode="bleed"
-          onClick={handleTick}
-          padding={2}
-          text=""
-          title={resolves ? t('item.resolve') : t('item.dismiss')}
-          tone={resolves ? 'positive' : 'default'}
-        />
+        {checkbox}
 
         <Box flex={1}>
           <Flex align="center" gap={2}>
@@ -61,22 +97,11 @@ export function InboxRow(props: InboxRowProps) {
                 <Icon />
               </Text>
             )}
-            <Stack flex={1} gap={2}>
-              <Text size={1} textOverflow="ellipsis" weight="medium">
-                {item.title}
-              </Text>
-              {(item.subtitle || item.timestamp) && (
-                <Text muted size={0} textOverflow="ellipsis">
-                  {item.subtitle}
-                  {item.subtitle && item.timestamp ? ' · ' : ''}
-                  {item.timestamp && <RelativeTime timestamp={item.timestamp} />}
-                </Text>
-              )}
-            </Stack>
+            {label}
           </Flex>
         </Box>
 
-        {item.intent && (
+        {item.intent && !done && (
           <Button
             fontSize={1}
             mode="bleed"

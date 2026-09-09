@@ -66,6 +66,19 @@ export interface InboxSource {
   icon?: ComponentType
 
   /**
+   * Which column this source belongs in.
+   *
+   * `main` is the wide column on the left, for the things an editor is meant to
+   * work through. `aside` is the narrow column on the right, for context they
+   * should see but not necessarily act on — what is coming up, what is running.
+   * Aside items render compactly, so put anything that needs reading room in
+   * `main`.
+   *
+   * @defaultValue 'main'
+   */
+  placement?: 'main' | 'aside'
+
+  /**
    * Returns this source's items.
    *
    * This is a React hook — it may call `useClient`, `useActiveReleases`, or any

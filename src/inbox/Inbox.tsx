@@ -1,6 +1,5 @@
-import {Box, Card, Container, Flex, Stack, Text} from '@sanity/ui'
-import {Button} from '@sanity/ui'
-import {useCallback, useState} from 'react'
+import {Box, Button, Card, Container, Flex, Grid, Heading, Stack, Text} from '@sanity/ui'
+import {useCallback, useMemo, useState} from 'react'
 import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
@@ -12,12 +11,42 @@ interface InboxProps {
   sources: InboxSource[]
 }
 
+/**
+ * Three columns, so `main` can take two thirds and `aside` one. Collapses to a
+ * single stacked column below the widest breakpoints, where a sidebar would be
+ * a sliver.
+ */
+const COLUMNS = [1, 1, 1, 3]
+
 export function Inbox({sources}: InboxProps) {
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const dismissals = useDismissals()
-  const [showDismissed, setShowDismissed] = useState(false)
+  const [showDone, setShowDone] = useState(false)
+  const [counts, setCounts] = useState<Record<string, number>>({})
 
-  const toggleDismissed = useCallback(() => setShowDismissed((shown) => !shown), [])
+  const toggleDone = useCallback(() => setShowDone((shown) => !shown), [])
+
+  const handleCount = useCallback((sourceName: string, count: number) => {
+    setCounts((current) =>
+      current[sourceName] === count ? current : {...current, [sourceName]: count},
+    )
+  }, [])
+
+  const {main, aside} = useMemo(
+    () => ({
+      main: sources.filter((source) => (source.placement ?? 'main') === 'main'),
+      aside: sources.filter((source) => source.placement === 'aside'),
+    }),
+    [sources],
+  )
+
+  // Only the main column counts toward the headline. The aside is context —
+  // "three releases are scheduled" is not three things asking for your
+  // attention, and folding it in would make the number cry wolf.
+  const openCount = useMemo(
+    () => main.reduce((total, source) => total + (counts[source.name] ?? 0), 0),
+    [counts, main],
+  )
 
   if (sources.length === 0) {
     return (
@@ -40,31 +69,58 @@ export function Inbox({sources}: InboxProps) {
 
   return (
     <Box padding={4}>
-      <Container width={1}>
+      <Container width={4}>
         <Stack gap={4}>
-          <Flex align="center" gap={3}>
-            <Box flex={1}>
+          <Flex align="flex-end" gap={3}>
+            <Stack flex={1} gap={3}>
+              <Heading size={1}>
+                {openCount === 0 ? t('inbox.allClear') : t('inbox.waiting', {count: openCount})}
+              </Heading>
               <Text muted size={1}>
                 {t('inbox.description')}
               </Text>
-            </Box>
+            </Stack>
             <Button
               fontSize={1}
               mode="bleed"
-              onClick={toggleDismissed}
+              onClick={toggleDone}
               padding={2}
-              text={showDismissed ? t('inbox.hideDone') : t('inbox.showDone')}
+              text={showDone ? t('inbox.hideDone') : t('inbox.showDone')}
             />
           </Flex>
 
-          {sources.map((source) => (
-            <InboxSection
-              dismissals={dismissals}
-              key={source.name}
-              showDismissed={showDismissed}
-              source={source}
-            />
-          ))}
+          <Grid gap={4} gridTemplateColumns={COLUMNS}>
+            <Box gridColumn={aside.length > 0 ? [1, 1, 1, 2] : COLUMNS}>
+              <Stack gap={3}>
+                {main.map((source) => (
+                  <InboxSection
+                    dismissals={dismissals}
+                    key={source.name}
+                    onCount={handleCount}
+                    showDone={showDone}
+                    source={source}
+                  />
+                ))}
+              </Stack>
+            </Box>
+
+            {aside.length > 0 && (
+              <Box gridColumn={1}>
+                <Stack gap={3}>
+                  {aside.map((source) => (
+                    <InboxSection
+                      compact
+                      dismissals={dismissals}
+                      key={source.name}
+                      onCount={handleCount}
+                      showDone={showDone}
+                      source={source}
+                    />
+                  ))}
+                </Stack>
+              </Box>
+            )}
+          </Grid>
         </Stack>
       </Container>
     </Box>

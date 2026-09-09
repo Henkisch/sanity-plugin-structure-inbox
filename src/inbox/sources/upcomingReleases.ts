@@ -8,6 +8,8 @@ export interface UpcomingReleasesOptions {
   /** Cap on rows. Defaults to 5. */
   limit?: number
   title?: string
+  /** Which column to render in. Defaults to `aside` — releases are context. */
+  placement?: InboxSource['placement']
 }
 
 /**
@@ -22,12 +24,13 @@ export interface UpcomingReleasesOptions {
  * source: if it goes away, one source stops working rather than the plugin.
  */
 export function upcomingReleases(options: UpcomingReleasesOptions = {}): InboxSource {
-  const {limit = 5, title = 'Upcoming releases'} = options
+  const {limit = 5, title = 'Upcoming releases', placement = 'aside'} = options
 
   return {
     name: 'upcomingReleases',
     title,
     icon: CalendarIcon,
+    placement,
 
     useItems(): InboxSourceResult {
       const {data, loading, error} = useActiveReleases()

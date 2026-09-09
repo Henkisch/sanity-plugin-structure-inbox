@@ -10,6 +10,8 @@ interface SectionCardProps {
   icon?: ComponentType
   /** Rendered at the right of the header — a count, usually. */
   badge?: ReactNode
+  /** Rendered under the header, above the body. Used for the selection bar. */
+  toolbar?: ReactNode
   children: ReactNode
 }
 
@@ -21,14 +23,16 @@ interface SectionCardProps {
  * inbox.
  */
 export function SectionCard(props: SectionCardProps) {
-  const {title, icon: Icon, badge, children} = props
+  const {title, icon: Icon, badge, toolbar, children} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const [error, setError] = useState<Error | null>(null)
 
   const handleRetry = useCallback(() => setError(null), [])
 
   return (
-    <Card border radius={3} shadow={0}>
+    // `overflow: hidden` so the header's own square-cornered background is
+    // clipped by this card's radius instead of bleeding past it.
+    <Card border overflow="hidden" radius={3} shadow={0}>
       {title && (
         <Card borderBottom padding={3} radius={0} tone="transparent">
           <Flex align="center" gap={2}>
@@ -46,6 +50,8 @@ export function SectionCard(props: SectionCardProps) {
           </Flex>
         </Card>
       )}
+
+      {toolbar}
 
       {error ? (
         <Box padding={3}>

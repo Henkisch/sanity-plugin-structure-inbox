@@ -68,6 +68,29 @@ describe('pruneDismissals', () => {
   })
 })
 
+describe('a dismissal expires when the item changes', () => {
+  const ticked = '2026-06-01T12:00:00.000Z'
+  const state = withDismissal(EMPTY_DISMISSALS, 'drafts', 'doc-1', ticked)
+
+  it('stays done while the item is unchanged', () => {
+    expect(isDismissed(state, 'drafts', 'doc-1', '2026-06-01T11:00:00.000Z')).toBe(true)
+  })
+
+  it('comes back when the item is touched afterwards', () => {
+    // The tick said "I have seen this version", not "hide this document
+    // forever" — editing it again is exactly what an inbox should resurface.
+    expect(isDismissed(state, 'drafts', 'doc-1', '2026-06-01T13:00:00.000Z')).toBe(false)
+  })
+
+  it('stays done forever when the item has no timestamp', () => {
+    expect(isDismissed(state, 'drafts', 'doc-1')).toBe(true)
+  })
+
+  it('stays done when the item timestamp is unreadable', () => {
+    expect(isDismissed(state, 'drafts', 'doc-1', 'not a date')).toBe(true)
+  })
+})
+
 describe('dismiss and restore', () => {
   it('round-trips a single item', () => {
     const dismissed = withDismissal(EMPTY_DISMISSALS, 'drafts', 'doc-1')

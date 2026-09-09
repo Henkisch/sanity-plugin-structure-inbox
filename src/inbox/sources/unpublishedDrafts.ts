@@ -16,6 +16,8 @@ export interface UnpublishedDraftsOptions {
   /** Restrict to these document types. Defaults to every type in the schema. */
   types?: string[]
   title?: string
+  /** Which column to render in. Defaults to `main` — these are the work. */
+  placement?: InboxSource['placement']
 }
 
 interface DraftRow {
@@ -44,12 +46,19 @@ const QUERY = `*[
  * a tick reads as "stop showing me this".
  */
 export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): InboxSource {
-  const {olderThanDays = 7, limit = 10, types, title = 'Unpublished drafts'} = options
+  const {
+    olderThanDays = 7,
+    limit = 10,
+    types,
+    title = 'Unpublished drafts',
+    placement = 'main',
+  } = options
 
   return {
     name: 'unpublishedDrafts',
     title,
     icon: DocumentsIcon,
+    placement,
 
     useItems(): InboxSourceResult {
       const client = useClient({apiVersion: API_VERSION})

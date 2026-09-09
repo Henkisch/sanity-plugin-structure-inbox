@@ -5,7 +5,10 @@
 const enUS = {
   'inbox.title': 'Inbox',
 
-  'inbox.description': 'Things waiting on you.',
+  'inbox.description': 'Everything waiting on you, in one place.',
+  'inbox.allClear': 'Nothing waiting on you',
+  'inbox.waiting_one': '{{count}} thing waiting on you',
+  'inbox.waiting_other': '{{count}} things waiting on you',
   'inbox.showDone': 'Show done',
   'inbox.hideDone': 'Hide done',
   'inbox.unconfigured.title': 'Nothing in your inbox yet',
@@ -18,8 +21,15 @@ const enUS = {
   'source.error.retry': 'Try again',
 
   'item.open': 'Open',
-  'item.resolve': 'Mark as done',
-  'item.dismiss': 'Dismiss from your inbox',
+
+  'selection.select': 'Select',
+  'selection.clear': 'Clear',
+  'selection.count_one': '{{count}} selected',
+  'selection.count_other': '{{count}} selected',
+
+  'action.markDone': 'Mark as done',
+  'action.dismiss': 'Dismiss',
+  'action.restore': 'Put back',
 }
 
 export default enUS
