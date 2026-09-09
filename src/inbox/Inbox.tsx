@@ -18,6 +18,7 @@ import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {useDismissals} from '../store/useDismissals'
 import {SectionCard} from '../ui/SectionCard'
 import {SectionErrorBoundary} from '../ui/SectionErrorBoundary'
+import {StatusDot} from '../ui/StatusDot'
 import {InboxSection} from './InboxSection'
 import {type InboxSource, type InboxView} from './types'
 
@@ -50,9 +51,6 @@ interface BoundedSectionProps {
   dismissals: ReturnType<typeof useDismissals>
   onCount: (sourceName: string, count: number) => void
   view: InboxView
-  /** Forwarded to `SectionCard` — see its docs. */
-  bordered?: boolean
-  divider?: boolean
 }
 
 /**
@@ -71,30 +69,22 @@ interface BoundedSectionProps {
  * context that a unit test for this boundary should not have to carry.
  */
 export function BoundedSection(props: BoundedSectionProps) {
-  const {source, compact, dismissals, onCount, view, bordered, divider} = props
+  const {source, compact, dismissals, onCount, view} = props
 
   const renderFallback = useCallback(
     (error: Error): ReactNode => (
-      <SectionCard
-        bordered={bordered}
-        divider={divider}
-        error={error}
-        icon={source.icon}
-        title={source.title}
-      >
+      <SectionCard error={error} icon={source.icon} title={source.title}>
         {null}
       </SectionCard>
     ),
-    [source, bordered, divider],
+    [source],
   )
 
   return (
     <SectionErrorBoundary fallback={renderFallback} onCatch={ignoreCaughtError}>
       <InboxSection
-        bordered={bordered}
         compact={compact}
         dismissals={dismissals}
-        divider={divider}
         onCount={onCount}
         source={source}
         view={view}
@@ -166,9 +156,15 @@ export function Inbox({sources}: InboxProps) {
        */}
       <Card borderBottom padding={4}>
         <Stack gap={4}>
-          <Heading size={1}>
-            {openCount === 0 ? t('inbox.allClear') : t('inbox.waiting', {count: openCount})}
-          </Heading>
+          <Flex align="center" gap={3}>
+            {/* Pulsing amber while something needs a look; a calm, static
+                green once it doesn't — pulsing green would read as urgent,
+                which contradicts "nothing waiting on you". */}
+            <StatusDot tone={openCount > 0 ? 'attention' : 'clear'} />
+            <Heading size={1}>
+              {openCount === 0 ? t('inbox.allClear') : t('inbox.waiting', {count: openCount})}
+            </Heading>
+          </Flex>
 
           {/* Left-aligned under the heading rather than off at the right
               edge: at this width the tabs were a screen away from the list
@@ -201,43 +197,33 @@ export function Inbox({sources}: InboxProps) {
           <TabPanel aria-labelledby={view === 'open' ? OPEN_TAB_ID : DONE_TAB_ID} id={PANEL_ID}>
             <Grid gap={4} gridTemplateColumns={COLUMNS}>
               <Box gridColumn={aside.length > 0 ? [1, 1, 1, 2] : COLUMNS}>
-                {/* One box per column, not one per source: each source is a
-                    header-plus-rows band inside it, separated by a hairline
-                    (`divider`) rather than by a gap between floating cards —
-                    the grouped look a native Studio list uses for sections. */}
-                {main.length > 0 && (
-                  <Card border overflow="hidden" radius={3} shadow={0}>
-                    {main.map((source, index) => (
-                      <BoundedSection
-                        bordered={false}
-                        dismissals={dismissals}
-                        divider={index > 0}
-                        key={source.name}
-                        onCount={handleCount}
-                        source={source}
-                        view={view}
-                      />
-                    ))}
-                  </Card>
-                )}
+                <Stack gap={3}>
+                  {main.map((source) => (
+                    <BoundedSection
+                      dismissals={dismissals}
+                      key={source.name}
+                      onCount={handleCount}
+                      source={source}
+                      view={view}
+                    />
+                  ))}
+                </Stack>
               </Box>
 
               {aside.length > 0 && (
                 <Box gridColumn={1}>
-                  <Card border overflow="hidden" radius={3} shadow={0}>
-                    {aside.map((source, index) => (
+                  <Stack gap={3}>
+                    {aside.map((source) => (
                       <BoundedSection
-                        bordered={false}
                         compact
                         dismissals={dismissals}
-                        divider={index > 0}
                         key={source.name}
                         onCount={handleCount}
                         source={source}
                         view={view}
                       />
                     ))}
-                  </Card>
+                  </Stack>
                 </Box>
               )}
             </Grid>
