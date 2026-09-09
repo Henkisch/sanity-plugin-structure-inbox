@@ -22,6 +22,22 @@ interface SectionCardProps {
    * caught error, as its fallback.
    */
   error?: Error
+  /**
+   * False when this section is one of several sharing a single outer box —
+   * `Inbox.tsx` groups a column's sources into one bordered container instead
+   * of stacking a separate floating card per source. The outer border,
+   * radius and shadow belong to that container in that case, not to each
+   * section.
+   *
+   * @defaultValue true
+   */
+  bordered?: boolean
+  /**
+   * Draws a line above the header, separating this section from the one
+   * before it inside a shared box. Meaningless when `bordered` is true — a
+   * standalone card already has its own top edge.
+   */
+  divider?: boolean
   children: ReactNode
 }
 
@@ -36,7 +52,17 @@ interface SectionCardProps {
  * *reports* an error in its result, rather than throwing one.
  */
 export function SectionCard(props: SectionCardProps) {
-  const {title, icon: Icon, badge, note, toolbar, error, children} = props
+  const {
+    title,
+    icon: Icon,
+    badge,
+    note,
+    toolbar,
+    error,
+    bordered = true,
+    divider = false,
+    children,
+  } = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
   // A reported error comes back from the source's own hook on every render —
@@ -44,12 +70,16 @@ export function SectionCard(props: SectionCardProps) {
   // meaningful if the source itself stops reporting one.
   const handleRetry = useCallback(() => {}, [])
 
-  return (
-    // `overflow: hidden` so the header's own square-cornered background is
-    // clipped by this card's radius instead of bleeding past it.
-    <Card border overflow="hidden" radius={3} shadow={0}>
+  const body = (
+    <>
       {title && (
-        <Card borderBottom padding={3} radius={0} tone="transparent">
+        <Card
+          borderBottom
+          borderTop={!bordered && divider}
+          padding={3}
+          radius={0}
+          tone="transparent"
+        >
           <Flex align="center" gap={2}>
             {Icon && (
               <Text muted size={1}>
@@ -99,6 +129,16 @@ export function SectionCard(props: SectionCardProps) {
       ) : (
         children
       )}
+    </>
+  )
+
+  if (!bordered) return body
+
+  return (
+    // `overflow: hidden` so the header's own square-cornered background is
+    // clipped by this card's radius instead of bleeding past it.
+    <Card border overflow="hidden" radius={3} shadow={0}>
+      {body}
     </Card>
   )
 }

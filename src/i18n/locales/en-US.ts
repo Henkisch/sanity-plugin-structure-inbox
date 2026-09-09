@@ -5,7 +5,6 @@
 const enUS = {
   'inbox.title': 'Inbox',
 
-  'inbox.description': 'Drafts, tasks and releases that need a look.',
   'inbox.allClear': 'Nothing waiting on you',
   'inbox.waiting_one': '{{count}} thing waiting on you',
   'inbox.waiting_other': '{{count}} things waiting on you',

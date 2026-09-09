@@ -50,6 +50,9 @@ interface BoundedSectionProps {
   dismissals: ReturnType<typeof useDismissals>
   onCount: (sourceName: string, count: number) => void
   view: InboxView
+  /** Forwarded to `SectionCard` — see its docs. */
+  bordered?: boolean
+  divider?: boolean
 }
 
 /**
@@ -68,22 +71,30 @@ interface BoundedSectionProps {
  * context that a unit test for this boundary should not have to carry.
  */
 export function BoundedSection(props: BoundedSectionProps) {
-  const {source, compact, dismissals, onCount, view} = props
+  const {source, compact, dismissals, onCount, view, bordered, divider} = props
 
   const renderFallback = useCallback(
     (error: Error): ReactNode => (
-      <SectionCard error={error} icon={source.icon} title={source.title}>
+      <SectionCard
+        bordered={bordered}
+        divider={divider}
+        error={error}
+        icon={source.icon}
+        title={source.title}
+      >
         {null}
       </SectionCard>
     ),
-    [source],
+    [source, bordered, divider],
   )
 
   return (
     <SectionErrorBoundary fallback={renderFallback} onCatch={ignoreCaughtError}>
       <InboxSection
+        bordered={bordered}
         compact={compact}
         dismissals={dismissals}
+        divider={divider}
         onCount={onCount}
         source={source}
         view={view}
@@ -143,80 +154,96 @@ export function Inbox({sources}: InboxProps) {
   }
 
   return (
-    <Box padding={4}>
-      <Container width={4}>
+    <Stack>
+      {/*
+       * Edge-to-edge and bordered, like every other pane's header — the flat
+       * title bar Sanity renders above this from the pane's own `.title()`
+       * carries only the static "Inbox" label, so without a border of its own
+       * this is where the pane actually reads as content that starts. Giving
+       * it the same bounded-header treatment as `SectionCard`'s title row
+       * below is what makes the two feel like one pane instead of a floating
+       * page followed by a list of cards.
+       */}
+      <Card borderBottom padding={4}>
         <Stack gap={4}>
-          <Stack gap={4}>
-            <Stack gap={3}>
-              <Heading size={1}>
-                {openCount === 0 ? t('inbox.allClear') : t('inbox.waiting', {count: openCount})}
-              </Heading>
-              <Text muted size={1}>
-                {t('inbox.description')}
-              </Text>
-            </Stack>
+          <Heading size={1}>
+            {openCount === 0 ? t('inbox.allClear') : t('inbox.waiting', {count: openCount})}
+          </Heading>
 
-            {/* Left-aligned under the heading rather than off at the right
-                edge: at this width the tabs were a screen away from the list
-                they filter. */}
-            <Flex>
-              <TabList gap={1}>
-                <Tab
-                  aria-controls={PANEL_ID}
-                  fontSize={1}
-                  id={OPEN_TAB_ID}
-                  label={t('tab.open')}
-                  onClick={showOpen}
-                  selected={view === 'open'}
-                />
-                <Tab
-                  aria-controls={PANEL_ID}
-                  fontSize={1}
-                  id={DONE_TAB_ID}
-                  label={t('tab.done')}
-                  onClick={showDone}
-                  selected={view === 'done'}
-                />
-              </TabList>
-            </Flex>
-          </Stack>
+          {/* Left-aligned under the heading rather than off at the right
+              edge: at this width the tabs were a screen away from the list
+              they filter. */}
+          <Flex>
+            <TabList gap={1}>
+              <Tab
+                aria-controls={PANEL_ID}
+                fontSize={1}
+                id={OPEN_TAB_ID}
+                label={t('tab.open')}
+                onClick={showOpen}
+                selected={view === 'open'}
+              />
+              <Tab
+                aria-controls={PANEL_ID}
+                fontSize={1}
+                id={DONE_TAB_ID}
+                label={t('tab.done')}
+                onClick={showDone}
+                selected={view === 'done'}
+              />
+            </TabList>
+          </Flex>
+        </Stack>
+      </Card>
 
+      <Box padding={4}>
+        <Container width={4}>
           <TabPanel aria-labelledby={view === 'open' ? OPEN_TAB_ID : DONE_TAB_ID} id={PANEL_ID}>
             <Grid gap={4} gridTemplateColumns={COLUMNS}>
               <Box gridColumn={aside.length > 0 ? [1, 1, 1, 2] : COLUMNS}>
-                <Stack gap={3}>
-                  {main.map((source) => (
-                    <BoundedSection
-                      dismissals={dismissals}
-                      key={source.name}
-                      onCount={handleCount}
-                      source={source}
-                      view={view}
-                    />
-                  ))}
-                </Stack>
-              </Box>
-
-              {aside.length > 0 && (
-                <Box gridColumn={1}>
-                  <Stack gap={3}>
-                    {aside.map((source) => (
+                {/* One box per column, not one per source: each source is a
+                    header-plus-rows band inside it, separated by a hairline
+                    (`divider`) rather than by a gap between floating cards —
+                    the grouped look a native Studio list uses for sections. */}
+                {main.length > 0 && (
+                  <Card border overflow="hidden" radius={3} shadow={0}>
+                    {main.map((source, index) => (
                       <BoundedSection
-                        compact
+                        bordered={false}
                         dismissals={dismissals}
+                        divider={index > 0}
                         key={source.name}
                         onCount={handleCount}
                         source={source}
                         view={view}
                       />
                     ))}
-                  </Stack>
+                  </Card>
+                )}
+              </Box>
+
+              {aside.length > 0 && (
+                <Box gridColumn={1}>
+                  <Card border overflow="hidden" radius={3} shadow={0}>
+                    {aside.map((source, index) => (
+                      <BoundedSection
+                        bordered={false}
+                        compact
+                        dismissals={dismissals}
+                        divider={index > 0}
+                        key={source.name}
+                        onCount={handleCount}
+                        source={source}
+                        view={view}
+                      />
+                    ))}
+                  </Card>
                 </Box>
               )}
             </Grid>
           </TabPanel>
-        </Stack>
-      </Container>
-    </Box>
+        </Container>
+      </Box>
+    </Stack>
   )
 }

@@ -17,6 +17,9 @@ interface InboxSectionProps {
   compact?: boolean
   /** Reports the open count so the pane can show a total. */
   onCount: (sourceName: string, count: number) => void
+  /** Forwarded to `SectionCard` — see its docs. */
+  bordered?: boolean
+  divider?: boolean
 }
 
 /**
@@ -29,7 +32,7 @@ interface InboxSectionProps {
  * selected row shares the same notion of what "done" can mean.
  */
 export function InboxSection(props: InboxSectionProps) {
-  const {source, dismissals, view, compact = false, onCount} = props
+  const {source, dismissals, view, compact = false, onCount, bordered, divider} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
   const {items, loading, error, resolve} = source.useItems()
@@ -119,6 +122,8 @@ export function InboxSection(props: InboxSectionProps) {
   return (
     <SectionCard
       badge={open.length > 0 ? <Badge fontSize={0}>{open.length}</Badge> : undefined}
+      bordered={bordered}
+      divider={divider}
       // Handed over rather than thrown: throwing here would escape the boundary
       // that this very component renders, and take the whole tool with it.
       error={error}
