@@ -91,8 +91,11 @@ used tasks has no addon dataset at all, which shows up as an empty section
 rather than an error.
 
 Both `useAddonDataset` and the `tasks.task` document shape are marked beta in
-Sanity's own typings, so they are confined to that one source file. If either
-moves, that source stops working rather than the plugin.
+Sanity's own typings. `useAddonDataset` is reached only through a lookup that
+tolerates it going away, never a static import, so if Sanity removes it that
+source's card shows an error instead of the whole Studio failing to boot. The
+`upcomingReleases` source treats `useActiveReleases`, which is `@internal`,
+the same way.
 
 ### Writing your own
 
