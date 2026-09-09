@@ -69,17 +69,21 @@ describe('pruneDismissals', () => {
 })
 
 describe('a dismissal expires when the item changes', () => {
-  const ticked = '2026-06-01T12:00:00.000Z'
+  const now = Date.parse('2026-06-01T12:00:00.000Z')
+  const ticked = new Date(now).toISOString()
   const state = withDismissal(EMPTY_DISMISSALS, 'drafts', 'doc-1', ticked)
+  const oneHourBefore = new Date(now - 60 * 60 * 1000).toISOString()
+  const oneHourAfter = new Date(now + 60 * 60 * 1000).toISOString()
+  const oneYearAfter = new Date(now + 365 * DAY).toISOString()
 
   it('stays done while the item is unchanged', () => {
-    expect(isDismissed(state, 'drafts', 'doc-1', '2026-06-01T11:00:00.000Z')).toBe(true)
+    expect(isDismissed(state, 'drafts', 'doc-1', oneHourBefore)).toBe(true)
   })
 
   it('comes back when the item is touched afterwards', () => {
     // The tick said "I have seen this version", not "hide this document
     // forever" — editing it again is exactly what an inbox should resurface.
-    expect(isDismissed(state, 'drafts', 'doc-1', '2026-06-01T13:00:00.000Z')).toBe(false)
+    expect(isDismissed(state, 'drafts', 'doc-1', oneHourAfter)).toBe(false)
   })
 
   it('stays done forever when the item has no timestamp', () => {
@@ -88,6 +92,27 @@ describe('a dismissal expires when the item changes', () => {
 
   it('stays done when the item timestamp is unreadable', () => {
     expect(isDismissed(state, 'drafts', 'doc-1', 'not a date')).toBe(true)
+  })
+
+  it('stays dismissed for an item whose due date is a year out, once ticked', () => {
+    // The regression this guards: `upcomingReleases` and `openTasks` display a
+    // future due/publish date, but that value must never reach `isDismissed`
+    // as the change-detection argument — passed here, a future value is
+    // always later than the tick and immediately resurrects the item
+    // (demonstrated below). The fix (InboxSection reading `item.changedAt`,
+    // and each source populating it from a real modification time such as
+    // `_updatedAt`, never from a due date) means the pure function is only
+    // ever called with the item's real change time, which for an untouched
+    // release stays dismissed.
+    const releaseState = withDismissal(EMPTY_DISMISSALS, 'releases', 'r1', ticked)
+    const realModificationTime = oneHourBefore // e.g. the release's `_updatedAt`
+
+    expect(isDismissed(releaseState, 'releases', 'r1', realModificationTime)).toBe(true)
+
+    // The bug in one line: feeding the future due date straight into
+    // isDismissed — which is exactly what the old `item.timestamp` call site
+    // did — reopens the item the instant it is ticked.
+    expect(isDismissed(releaseState, 'releases', 'r1', oneYearAfter)).toBe(false)
   })
 })
 

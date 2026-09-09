@@ -41,7 +41,7 @@ export function InboxSection(props: InboxSectionProps) {
     const doneItems: InboxItem[] = []
 
     for (const item of items) {
-      if (isDismissed(dismissals.state, source.name, item.id, item.timestamp)) doneItems.push(item)
+      if (isDismissed(dismissals.state, source.name, item.id, item.changedAt)) doneItems.push(item)
       else openItems.push(item)
     }
 

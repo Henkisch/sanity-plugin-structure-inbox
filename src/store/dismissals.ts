@@ -73,20 +73,23 @@ export function pruneDismissals(state: DismissalState, now = Date.now()): Dismis
  * again" — so someone editing it afterwards puts it back in the inbox, which is
  * what an inbox is for.
  *
- * Items without a timestamp have no notion of changing, so for them a dismissal
- * is permanent until restored.
+ * `itemChangedAt` is a real modification time, never a due date or other
+ * future-looking value — a future value would make the item look "changed"
+ * before it was even ticked, and resurrect it immediately. Items with no
+ * change time have no notion of changing, so for them a dismissal is
+ * permanent until restored.
  */
 export function isDismissed(
   state: DismissalState,
   source: string,
   itemId: string,
-  itemTimestamp?: string,
+  itemChangedAt?: string,
 ): boolean {
   const dismissedAt = state.dismissed[source]?.[itemId]
   if (typeof dismissedAt !== 'string') return false
-  if (!itemTimestamp) return true
+  if (!itemChangedAt) return true
 
-  const changed = Date.parse(itemTimestamp)
+  const changed = Date.parse(itemChangedAt)
   const ticked = Date.parse(dismissedAt)
   if (!Number.isFinite(changed) || !Number.isFinite(ticked)) return true
 
