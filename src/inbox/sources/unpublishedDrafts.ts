@@ -90,6 +90,7 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
           title: row.title || row._id,
           subtitle: schema.get(row._type)?.title || row._type,
           timestamp: row._updatedAt,
+          changedAt: row._updatedAt,
           intent: {
             type: 'edit',
             // The published id is what an `edit` intent expects; the draft is

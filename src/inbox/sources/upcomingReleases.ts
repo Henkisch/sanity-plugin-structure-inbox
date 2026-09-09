@@ -47,6 +47,7 @@ export function upcomingReleases(options: UpcomingReleasesOptions = {}): InboxSo
               title: release.metadata.title || release.name,
               subtitle: release.state,
               timestamp: scheduled,
+              changedAt: release._updatedAt,
               // Scheduled releases are the ones with a deadline attached, so
               // they are the ones worth colouring.
               tone: release.state === 'scheduled' ? 'primary' : 'default',

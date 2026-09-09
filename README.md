@@ -172,9 +172,14 @@ Sanity's own `/users/me/keyvalue` store would be the natural home — it is wher
 the Structure tool keeps its pane settings — but it accepts only an allowlist of
 Sanity's own keys and rejects anything a plugin writes.
 
-A dismissal also **expires when the item changes**. The stored timestamp doubles
-as a freshness check, so a draft edited after you ticked it comes back. Ticking
-says "I have seen this version", not "never show me this document again".
+A dismissal also **expires when the item changes**. An item's `changedAt` — its
+real modification time, separate from the `timestamp` shown in the row —
+doubles as a freshness check, so a draft edited after you ticked it comes back.
+Ticking says "I have seen this version", not "never show me this document
+again". Omit `changedAt` for anything whose changes your source cannot
+observe, and never set it to a future value (a due date, a publish date) — a
+future `changedAt` would look "changed" the instant it is ticked and undo the
+dismissal immediately.
 
 ## Options
 

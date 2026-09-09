@@ -25,8 +25,24 @@ export interface InboxItem {
   title: string
   /** Context under the title: who, when, which type. */
   subtitle?: string
-  /** When this became relevant. Shown as a relative time, and used to order within a group. */
+  /**
+   * When this became relevant. Shown as a relative time, and used to order
+   * within a group. May be in the future (a due date, a publish date) — this
+   * field is for display only and is never used to decide whether an item is
+   * still done.
+   */
   timestamp?: string
+  /**
+   * When the underlying thing last changed.
+   *
+   * Ticking an item records the moment; if the item changes afterwards it
+   * returns to the inbox, because the tick said "I have seen this version".
+   * Supply it only when the source can report a real modification time —
+   * omitting it makes a dismissal permanent until the editor puts the item
+   * back, which is the right default for anything whose changes cannot be
+   * observed.
+   */
+  changedAt?: string
   icon?: ComponentType
   /** Colours the row. Use sparingly — everything urgent means nothing is. */
   tone?: 'default' | 'primary' | 'positive' | 'caution' | 'critical'

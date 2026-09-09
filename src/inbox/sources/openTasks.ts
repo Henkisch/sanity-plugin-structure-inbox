@@ -90,6 +90,7 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
               title: row.title || row._id,
               subtitle: row.dueBy ? (isOverdue(row.dueBy) ? 'Overdue' : 'Due') : undefined,
               timestamp: row.dueBy || row._updatedAt,
+              changedAt: row._updatedAt,
               tone: isOverdue(row.dueBy) ? 'critical' : 'default',
             })),
           })),
