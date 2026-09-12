@@ -82,65 +82,73 @@ export function SelectionActions(props: SelectionActionsProps) {
 
   return (
     <Card borderBottom padding={2} radius={0} tone="primary">
-      <Flex align="center" gap={2}>
-        <Box flex={1} paddingLeft={2}>
+      {/* Two nested flexes, not one: the count label used to carry `flex={1}`
+          itself, which lets flexbox shrink it below its own text width once
+          Snooze and Assign are both showing — at a narrow viewport that
+          squeezed "1 selected" into a two-line wrap. The label now sizes to
+          its content and never shrinks; only the controls group grows, and
+          wraps onto its own line below the label when it doesn't fit. */}
+      <Flex align="center" gap={2} wrap="wrap">
+        <Box paddingLeft={2}>
           <Text size={1} weight="medium">
             {t('selection.count', {count})}
           </Text>
         </Box>
 
-        {onSnooze && (
-          <Box>
-            <Select fontSize={1} onChange={handleSnoozeChange} value="">
-              <option disabled value="">
-                {t('action.snooze')}
-              </option>
-              {SNOOZE_PRESETS.map((preset) => (
-                <option key={preset} value={preset}>
-                  {t(SNOOZE_PRESET_LABEL_KEYS[preset])}
+        <Flex align="center" flex={1} gap={2} justify="flex-end" wrap="wrap">
+          {onSnooze && (
+            <Box>
+              <Select fontSize={1} onChange={handleSnoozeChange} value="">
+                <option disabled value="">
+                  {t('action.snooze')}
                 </option>
-              ))}
-            </Select>
-          </Box>
-        )}
+                {SNOOZE_PRESETS.map((preset) => (
+                  <option key={preset} value={preset}>
+                    {t(SNOOZE_PRESET_LABEL_KEYS[preset])}
+                  </option>
+                ))}
+              </Select>
+            </Box>
+          )}
 
-        {onAssign && assignableUsers && assignableUsers.length > 0 && (
-          <Box>
-            <Select fontSize={1} onChange={handleAssignChange} value="">
-              <option disabled value="">
-                {t('action.assign')}
-              </option>
-              {assignableUsers.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.label}
+          {onAssign && assignableUsers && assignableUsers.length > 0 && (
+            <Box>
+              <Select fontSize={1} onChange={handleAssignChange} value="">
+                <option disabled value="">
+                  {t('action.assign')}
                 </option>
-              ))}
-            </Select>
-          </Box>
-        )}
+                {assignableUsers.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.label}
+                  </option>
+                ))}
+              </Select>
+            </Box>
+          )}
 
-        <Button
-          disabled={busy}
-          fontSize={1}
-          onClick={onConfirm}
-          padding={2}
-          text={confirmLabel}
-          title={
-            view === 'open'
-              ? t(resolves ? 'action.markDone.resolves' : 'action.markDone.mine')
-              : undefined
-          }
-          tone={view === 'open' ? 'positive' : 'default'}
-        />
+          <Button
+            disabled={busy}
+            fontSize={1}
+            onClick={onConfirm}
+            padding={2}
+            text={confirmLabel}
+            title={
+              view === 'open'
+                ? t(resolves ? 'action.markDone.resolves' : 'action.markDone.mine')
+                : undefined
+            }
+            tone={view === 'open' ? 'positive' : 'default'}
+          />
 
-        <Button
-          disabled={busy}
-          fontSize={1}
-          mode="bleed"
-          onClick={onCancel}
-          padding={2}
-          text={t('selection.cancel')}
-        />
+          <Button
+            disabled={busy}
+            fontSize={1}
+            mode="bleed"
+            onClick={onCancel}
+            padding={2}
+            text={t('selection.cancel')}
+          />
+        </Flex>
       </Flex>
     </Card>
   )

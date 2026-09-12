@@ -173,12 +173,56 @@ describe('MergedList', () => {
 
     renderList({reports, order: ['todos']})
 
+    fireEvent.click(screen.getByText('todos.addButton'))
     fireEvent.change(screen.getByPlaceholderText('todos.addPlaceholder'), {
       target: {value: 'New todo'},
     })
     fireEvent.click(screen.getByText('todos.add'))
 
-    expect(create).toHaveBeenCalledWith('New todo')
+    expect(create).toHaveBeenCalledWith({
+      title: 'New todo',
+      description: undefined,
+      dueBy: undefined,
+    })
+  })
+
+  it('includes a description and due date when filled in', () => {
+    const create = vi.fn()
+    const reports = {todos: report('todos', 'Todos', {create})}
+
+    renderList({reports, order: ['todos']})
+
+    fireEvent.click(screen.getByText('todos.addButton'))
+    fireEvent.change(screen.getByPlaceholderText('todos.addPlaceholder'), {
+      target: {value: 'New todo'},
+    })
+    fireEvent.change(screen.getByPlaceholderText('todos.descriptionPlaceholder'), {
+      target: {value: 'Some detail'},
+    })
+    fireEvent.change(screen.getByDisplayValue(''), {target: {value: '2026-02-01'}})
+    fireEvent.click(screen.getByText('todos.add'))
+
+    expect(create).toHaveBeenCalledWith({
+      title: 'New todo',
+      description: 'Some detail',
+      dueBy: '2026-02-01',
+    })
+  })
+
+  it('closes the dialog without creating anything on cancel', () => {
+    const create = vi.fn()
+    const reports = {todos: report('todos', 'Todos', {create})}
+
+    renderList({reports, order: ['todos']})
+
+    fireEvent.click(screen.getByText('todos.addButton'))
+    fireEvent.change(screen.getByPlaceholderText('todos.addPlaceholder'), {
+      target: {value: 'Abandoned'},
+    })
+    fireEvent.click(screen.getByText('selection.cancel'))
+
+    expect(screen.queryByPlaceholderText('todos.addPlaceholder')).toBeNull()
+    expect(create).not.toHaveBeenCalled()
   })
 
   it('hides create rows outside the open view', () => {
@@ -186,7 +230,7 @@ describe('MergedList', () => {
 
     renderList({reports, order: ['todos'], view: 'done'})
 
-    expect(screen.queryByPlaceholderText('todos.addPlaceholder')).toBeNull()
+    expect(screen.queryByText('todos.addButton')).toBeNull()
   })
 
   it('shows an inline error for a source that reported one, without hiding the rest', () => {

@@ -10,6 +10,12 @@ export interface TodosOptions {
   placement?: InboxSource['placement']
 }
 
+function isOverdue(dueBy?: string): boolean {
+  if (!dueBy) return false
+  const due = Date.parse(dueBy)
+  return Number.isFinite(due) && due < Date.now()
+}
+
 /**
  * A personal scratch list, kept only in this plugin's own store — nothing
  * external creates or reads these items, unlike every other built-in source.
@@ -19,8 +25,14 @@ export interface TodosOptions {
  * for a todo to complete — so ticking one off only removes it from this
  * editor's own inbox, the same as any source without `resolve`.
  *
- * `create` is what puts the inline "add one" input above the list; only a
- * source that keeps its own items can offer it meaningfully.
+ * `create` is what puts the "add one" control above the list; only a source
+ * that keeps its own items can offer it meaningfully. `remove` deletes a
+ * todo for good, once selected — separate from marking it done, which only
+ * dismisses it (see `withoutTodo` for why a todo needs both).
+ *
+ * A due date sorts and colours the row the same way `openTasks` treats one —
+ * `timestamp` prefers it over the creation time, and it goes critical once
+ * past — rather than inventing a second convention for the same idea.
  */
 export function todos(options: TodosOptions = {}): InboxSource {
   const {title = 'Your todos', placement = 'main'} = options
@@ -33,7 +45,7 @@ export function todos(options: TodosOptions = {}): InboxSource {
     audience: 'mine',
 
     useItems(): InboxSourceResult {
-      const {state, add} = useTodos()
+      const {state, add, remove} = useTodos()
 
       // Memoized on `state.items`, not recomputed fresh every render: this
       // result now feeds a reporting effect upstream (`SourceFeed`) keyed on
@@ -44,12 +56,18 @@ export function todos(options: TodosOptions = {}): InboxSource {
           state.items.map((todo): InboxItem => ({
             id: todo.id,
             title: todo.title,
-            timestamp: todo.createdAt,
+            subtitle: todo.description,
+            timestamp: todo.dueBy || todo.createdAt,
+            tone: isOverdue(todo.dueBy) ? 'critical' : 'default',
           })),
         [state.items],
       )
 
-      return {items, create: add}
+      return {
+        items,
+        create: add,
+        remove: (item) => remove(item.id),
+      }
     },
   }
 }

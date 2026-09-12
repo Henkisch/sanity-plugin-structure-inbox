@@ -284,12 +284,17 @@ describe('InboxSection', () => {
       },
     })
 
+    fireEvent.click(screen.getByText('todos.addButton'))
     fireEvent.change(screen.getByPlaceholderText('todos.addPlaceholder'), {
       target: {value: 'Write the launch email'},
     })
     fireEvent.click(screen.getByText('todos.add'))
 
-    expect(create).toHaveBeenCalledWith('Write the launch email')
+    expect(create).toHaveBeenCalledWith({
+      title: 'Write the launch email',
+      description: undefined,
+      dueBy: undefined,
+    })
   })
 
   it('hides the create row outside the open view', () => {
@@ -302,7 +307,7 @@ describe('InboxSection', () => {
       },
     })
 
-    expect(screen.queryByPlaceholderText('todos.addPlaceholder')).toBeNull()
+    expect(screen.queryByText('todos.addButton')).toBeNull()
   })
 
   it('asks AI and shows the result', async () => {
@@ -365,6 +370,25 @@ describe('InboxSection', () => {
 
     selectItem('Draft one')
     expect(screen.queryByText('assess.ask')).toBeNull()
+  })
+
+  it('deletes a selected item for good, only once selected', () => {
+    const remove = vi.fn()
+
+    renderSection({
+      source: {
+        name: 'todos',
+        title: 'Todos',
+        useItems: () => ({items: [item('1', {title: 'Todo one'})], remove}),
+      },
+    })
+
+    expect(screen.queryByText('action.delete')).toBeNull()
+
+    selectItem('Todo one')
+    fireEvent.click(screen.getByText('action.delete'))
+
+    expect(remove).toHaveBeenCalledWith(expect.objectContaining({id: '1'}))
   })
 
   it('assigns a selected item to the chosen user', async () => {

@@ -56,6 +56,18 @@ export interface InboxItem {
 }
 
 /**
+ * What the "add one" dialog collects before calling `create`.
+ *
+ * @public
+ */
+export interface CreateItemInput {
+  title: string
+  description?: string
+  /** ISO date (`yyyy-mm-dd`) — a due date, not a moment, so no time of day. */
+  dueBy?: string
+}
+
+/**
  * What a source hands back on each render.
  *
  * @public
@@ -83,7 +95,7 @@ export interface InboxSourceResult {
    * business inventing new ones. Present, it puts an inline "add" input above
    * the list, in the open view only.
    */
-  create?: (title: string) => Promise<void> | void
+  create?: (input: CreateItemInput) => Promise<void> | void
   /**
    * A one-line AI read on this item — "looks ready to publish", "still
    * missing a hero image" — via Sanity's Agent Actions. Informational only:
@@ -110,6 +122,14 @@ export interface InboxSourceResult {
     users: {id: string; label: string}[]
     toUser: (item: InboxItem, userId: string) => Promise<void>
   }
+  /**
+   * Deletes an item for good — unlike marking it done, which only removes it
+   * from this editor's own inbox while leaving it wherever it actually
+   * lives. Optional: only a source that keeps its own items, with nowhere
+   * else preserving a record of them, has a reason to offer this — `todos`
+   * does, so a finished one doesn't just sit dismissed forever.
+   */
+  remove?: (item: InboxItem) => Promise<void> | void
 }
 
 /**

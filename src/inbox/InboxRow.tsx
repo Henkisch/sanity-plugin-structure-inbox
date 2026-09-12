@@ -1,5 +1,5 @@
 import {Box, Button, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
-import {type ComponentType, useCallback, useId, useState} from 'react'
+import {useCallback, useId, useState} from 'react'
 import {useTranslation} from 'sanity'
 import {useRouter} from 'sanity/router'
 
@@ -9,7 +9,7 @@ import {type InboxItem} from './types'
 
 interface InboxRowProps {
   item: InboxItem
-  /** Aside rows: tighter, without the leading icon and the Open button. */
+  /** Aside rows: tighter, without the Open button. */
   compact?: boolean
   /** Already ticked off. Only ever rendered while "Show done" is on. */
   done?: boolean
@@ -17,16 +17,14 @@ interface InboxRowProps {
   onSelectedChange: (item: InboxItem, selected: boolean) => void
   /** The source's `assess`, if it has one — see `InboxSourceResult.assess`. */
   onAssess?: (item: InboxItem) => Promise<string>
-  /**
-   * Falls back to the source's own icon when the item sets none — the
-   * merged list has no per-source card header left to show it in instead.
-   */
-  sourceIcon?: ComponentType
+  /** The source's `remove`, if it has one — see `InboxSourceResult.remove`. */
+  onRemove?: (item: InboxItem) => Promise<void> | void
   /**
    * A small tag identifying which source this row came from, e.g.
    * "Unpublished drafts · Everyone". Only meaningful in the merged list — a
    * per-source card already says this via its own header, so it's omitted
-   * there.
+   * there. Text only, deliberately — a leading source icon next to this same
+   * label said nothing the words didn't already say, just louder.
    */
   sourceLabel?: string
 }
@@ -41,7 +39,7 @@ export function InboxRow(props: InboxRowProps) {
     selected,
     onSelectedChange,
     onAssess,
-    sourceIcon,
+    onRemove,
     sourceLabel,
   } = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
@@ -71,7 +69,17 @@ export function InboxRow(props: InboxRowProps) {
       .catch(() => setAssessment({status: 'done', message: t('assess.error')}))
   }, [onAssess, item, t])
 
-  const Icon = item.icon ?? sourceIcon
+  // No local status to track on success: the row that just deleted itself is
+  // about to unmount as the parent re-renders without it. A failure has
+  // nowhere to show itself on a row that may no longer exist, so it goes to
+  // the console instead, the same as a failed resolve or assign elsewhere in
+  // this pane.
+  const handleRemove = useCallback(() => {
+    Promise.resolve(onRemove?.(item)).catch((error: unknown) => {
+      console.error('[sanity-plugin-structure-inbox] could not remove item', error)
+    })
+  }, [onRemove, item])
+
   // A done row drops its own tone: the point of showing it is that it is
   // finished, and a caution-coloured finished row still reads as urgent.
   const tone = done || item.tone === 'default' ? undefined : item.tone
@@ -114,6 +122,19 @@ export function InboxRow(props: InboxRowProps) {
     </Box>
   )
 
+  const removeRow = onRemove && (
+    <Box>
+      <Button
+        fontSize={0}
+        mode="bleed"
+        onClick={handleRemove}
+        padding={0}
+        text={t('action.delete')}
+        tone="critical"
+      />
+    </Box>
+  )
+
   const label = (
     <Stack flex={1} gap={2}>
       <Text
@@ -134,9 +155,14 @@ export function InboxRow(props: InboxRowProps) {
           {item.timestamp && <RelativeTime timestamp={item.timestamp} />}
         </Text>
       )}
-      {/* Only once selected: a permanent "Ask AI" under every row was the
-          thing that made the list feel busy rather than clear. */}
-      {!compact && selected && assessRow}
+      {/* Only once selected: a permanent "Ask AI" (or "Delete") under every
+          row was the thing that made the list feel busy rather than clear. */}
+      {!compact && selected && (assessRow || removeRow) && (
+        <Flex gap={3}>
+          {assessRow}
+          {removeRow}
+        </Flex>
+      )}
     </Stack>
   )
 
@@ -159,16 +185,7 @@ export function InboxRow(props: InboxRowProps) {
       <Flex align="flex-start" gap={2}>
         {checkbox}
 
-        <Box flex={1}>
-          <Flex align="flex-start" gap={2}>
-            {Icon && (
-              <Text muted size={1}>
-                <Icon />
-              </Text>
-            )}
-            {label}
-          </Flex>
-        </Box>
+        <Box flex={1}>{label}</Box>
 
         {item.intent && !done && (
           <Button

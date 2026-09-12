@@ -101,17 +101,18 @@ const QUERY = `*[
  * given draft looks ready to publish. Informational only — it never writes
  * to the document, so there is nothing here to guard behind `resolve`.
  *
- * Also offers `assign`: hands a draft to someone else by creating a plain
+ * Also offers `assign`: hands a draft to someone else by creating a
  * `tasks.task` document in the addon dataset — the same store `openTasks`
- * reads from. Deliberately minimal: it sets only the fields this plugin
- * itself reads (`title`, `status`, `assignedTo`), and no `target` reference
- * back to the draft, because that field's shape is not documented anywhere
- * this plugin could confirm it against — `tasks.task` is `@beta` in Sanity's
- * own typings, same as `useAddonDataset`. The created task works fully as an
- * inbox item (appears in `openTasks`, can be closed), but will not show
- * Sanity's own "linked to this document" affordance in its native Tasks UI.
- * `useUserListWithPermissions`, which supplies who a draft can go to, is
- * `@beta` for the same reason and reached the same way.
+ * reads from — including a `target` reference to the draft's canonical
+ * (published-style) id and type, in the exact shape Sanity's own "Create new
+ * task" writes: a `_weak` `crossDatasetReference` to the content dataset,
+ * plus `documentType`. Confirmed by creating one by hand, on a draft that has
+ * never been published, and reading it back — Sanity points `target` at the
+ * canonical id regardless, which is exactly what `_weak` is for: the
+ * reference is fine to dangle until something is actually published there.
+ * `tasks.task` itself is `@beta` in Sanity's own typings, same as
+ * `useAddonDataset`. `useUserListWithPermissions`, which supplies who a
+ * draft can go to, is `@beta` for the same reason and reached the same way.
  */
 export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): InboxSource {
   const {
@@ -206,15 +207,39 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
             .filter((user) => user.granted)
             .map((user) => ({id: user.id, label: user.displayName || user.email || user.id})),
           toUser: async (item: InboxItem, assignedTo: string) => {
+            // `item.intent.params` already carries exactly what `target`
+            // needs — the canonical (published-style) id and the schema
+            // type — because `toItem` below builds it from the same row.
+            // Confirmed by creating a task by hand on a draft that has never
+            // been published and reading it back: Sanity points `target` at
+            // that same canonical id regardless, `_weak` precisely so the
+            // reference is fine to dangle until something is actually
+            // published there.
+            const targetId = item.intent?.params.id
+            const documentType = item.intent?.params.type
+
             await addonClient.create({
               _type: 'tasks.task',
               title: `Follow up: ${item.title}`,
               status: 'open',
               assignedTo,
+              ...(targetId &&
+                documentType && {
+                  target: {
+                    document: {
+                      _type: 'crossDatasetReference',
+                      _ref: targetId,
+                      _dataset: client.config().dataset,
+                      _projectId: client.config().projectId,
+                      _weak: true,
+                    },
+                    documentType,
+                  },
+                }),
             })
           },
         }
-      }, [addonClient, assignable])
+      }, [addonClient, assignable, client])
 
       return useMemo(() => ({...result, assess, assign}), [result, assess, assign])
     },

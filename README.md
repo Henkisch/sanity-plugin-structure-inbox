@@ -113,24 +113,41 @@ the same way.
 ### Todos
 
 `todos` is the one built-in source with no external system behind it: the
-items *are* the plugin's own store, added through an inline input it renders
-above its own list. It has no `resolve` — there is nowhere else for a todo to
-complete — so ticking one off only removes it from your inbox, the same as
-any other source without `resolve`.
+items *are* the plugin's own store. It has no `resolve` — there is nowhere
+else for a todo to complete — so ticking one off only removes it from your
+inbox, the same as any other source without `resolve`.
 
-A source opts into that input by returning `create` from `useItems`:
+A **+ Add todo** button sits above the list; clicking it opens a dialog for a
+title, an optional description, and an optional due date, rather than an
+inline input left open at all times. A due date sorts and colours the row the
+same way `openTasks` treats one — `timestamp` prefers it over the creation
+time, and the row goes critical once it's past.
+
+A source opts into that dialog by returning `create` from `useItems`:
 
 ```ts
 useItems() {
-  return {items, create: (title) => addMyOwnItem(title)}
+  return {
+    items,
+    create: ({title, description, dueBy}) => addMyOwnItem(title, description, dueBy),
+  }
 }
 ```
 
-Worth knowing: a todo's "done" state lives entirely in the same 90-day-aging
-dismissal record every other source uses (see below) — there is no second
-place tracking completion. A todo finished more than 90 days ago reopens, and
-the list itself only grows; neither is likely to bite in practice, but it is
-a real edge if you lean on `todos` heavily.
+`todos` also returns `remove`, so a finished one can be deleted for good —
+select it and **Delete** appears next to (or instead of) **Ask AI**. This
+matters because a todo's "done" state otherwise lives entirely in the same
+90-day-aging dismissal record every other source uses (see below): with
+nothing else tracking completion, a todo finished more than 90 days ago would
+otherwise reopen, and the list would only ever grow. `remove` is what a
+source without `resolve` uses to let an editor clear an item out for real,
+not just dismiss it:
+
+```ts
+useItems() {
+  return {items, remove: (item) => deleteMyOwnItem(item.id)}
+}
+```
 
 ### Live updates
 
@@ -176,14 +193,14 @@ the **Assign to…** picker. This creates a real Sanity Task — the same
 `tasks.task` document `openTasks` reads — with `assignedTo` set to the person
 chosen, so it shows up in their own `openTasks` list.
 
-**Known limitation:** the created task sets only `title`, `status` and
-`assignedTo` — no `target` reference back to the draft. `tasks.task` is
-`@beta` in Sanity's own typings, and the shape of that reference field is not
-documented anywhere this plugin could confirm it against, so it is left out
-rather than guessed. The task works fully as an inbox item; it just will not
-show Sanity's own "linked to this document" affordance in its native Tasks
-UI. Confirm the field name in your own Studio (create a task by hand, inspect
-it with Vision) before relying on that link.
+The task also sets `target`, so it shows Sanity's own "linked to this
+document" affordance in its native Tasks UI — a `_weak` `crossDatasetReference`
+to the draft's canonical (published-style) id, plus `documentType`, the exact
+shape Sanity's own "Create new task" writes. Confirmed by creating one by
+hand — on a draft that has never been published — and reading it back:
+Sanity points `target` at that canonical id regardless, which is exactly
+what `_weak` is for, so this plugin does the same. `tasks.task` remains
+`@beta` in Sanity's own typings regardless.
 
 Who can be assigned comes from `useUserListWithPermissions` — also `@beta` —
 filtered to whoever can update documents in this dataset.
@@ -237,8 +254,9 @@ client uses, and the reason a tick that silently acted felt wrong.
 Selection spans the whole merged list, not one source at a time: tick a task
 and a draft together, and **Mark as done** resolves each through its own
 source — one Promise per row, so one failing never strands the rest (see
-`Promise.allSettled` in `MergedList`). **Ask AI** only shows on a row once it's
-selected — asking is a per-row decision, not a permanent line under every row.
+`Promise.allSettled` in `MergedList`). **Ask AI** and **Delete** only show on a
+row once it's selected — both are per-row decisions, not a permanent line
+under every row.
 
 There is one verb, **Mark as done**, plus **Cancel**. What "done" changes
 depends on the source, and the button's tooltip says which:

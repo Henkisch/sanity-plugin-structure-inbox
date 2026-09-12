@@ -2,7 +2,15 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {useClient, useCurrentUser} from 'sanity'
 
 import {API_VERSION} from '../constants'
-import {EMPTY_TODOS, mergeTodos, parseTodos, type TodosState, withTodo} from './todos'
+import {
+  EMPTY_TODOS,
+  mergeTodos,
+  parseTodos,
+  type TodoInput,
+  type TodosState,
+  withoutTodo,
+  withTodo,
+} from './todos'
 
 /** Never registered in the Studio schema — see `useDismissals` for why. */
 const TODOS_TYPE = 'structureInbox.todos'
@@ -15,7 +23,9 @@ function todosDocumentId(userId: string): string {
 
 export interface Todos {
   state: TodosState
-  add: (title: string) => void
+  add: (input: TodoInput) => void
+  /** Removes a todo for good — see `withoutTodo`. */
+  remove: (id: string) => void
 }
 
 /**
@@ -83,11 +93,17 @@ export function useTodos(): Todos {
       })
   }, [client, documentId, state])
 
-  const add = useCallback((title: string) => {
+  const add = useCallback((input: TodoInput) => {
     dirtyRef.current = true
     hasLocalEditRef.current = true
-    setState((current) => withTodo(current, title))
+    setState((current) => withTodo(current, input))
   }, [])
 
-  return useMemo(() => ({state, add}), [state, add])
+  const remove = useCallback((id: string) => {
+    dirtyRef.current = true
+    hasLocalEditRef.current = true
+    setState((current) => withoutTodo(current, id))
+  }, [])
+
+  return useMemo(() => ({state, add, remove}), [state, add, remove])
 }

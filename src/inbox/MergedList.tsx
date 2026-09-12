@@ -212,6 +212,7 @@ export function MergedList(props: MergedListProps) {
                   item={row.item}
                   key={row.key}
                   onAssess={report?.assess}
+                  onRemove={report?.remove}
                   onSelectedChange={(item: InboxItem, isSelected: boolean) =>
                     setSelectedKeys((current) =>
                       isSelected
@@ -220,7 +221,6 @@ export function MergedList(props: MergedListProps) {
                     )
                   }
                   selected={selectedKeys.includes(row.key)}
-                  sourceIcon={report?.source.icon}
                   sourceLabel={describeSource(report)}
                 />
               )

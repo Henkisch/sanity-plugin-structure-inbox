@@ -43,9 +43,15 @@ const enUS = {
   'action.snooze.nextWeek': 'Next week',
 
   'action.assign': 'Assign to…',
+  'action.delete': 'Delete',
 
   'todos.addPlaceholder': 'Add a todo…',
+  'todos.addButton': 'Add todo',
   'todos.add': 'Add',
+  'todos.titleLabel': 'Title',
+  'todos.descriptionLabel': 'Description',
+  'todos.descriptionPlaceholder': 'Any extra detail worth remembering…',
+  'todos.dueByLabel': 'Due date',
 
   'assess.ask': 'Ask AI',
   'assess.loading': 'Asking AI…',

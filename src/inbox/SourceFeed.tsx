@@ -33,15 +33,16 @@ interface SourceFeedProps {
  */
 export function SourceFeed(props: SourceFeedProps) {
   const {source, dismissals, snoozes, now, onReport} = props
-  const {items, loading, error, resolve, create, assess, assign} = source.useItems()
+  const {items, loading, error, resolve, create, assess, assign, remove} = source.useItems()
 
   const {open, done, snoozed} = useMemo(
     () => splitItems(items, source.name, dismissals.state, snoozes.state, now),
     [items, source.name, dismissals.state, snoozes.state, now],
   )
 
-  // `resolve`/`create`/`assess`/`assign` are read through a ref rather than
-  // named directly in the effect's own dependency list below: at least one
+  // `resolve`/`create`/`assess`/`assign`/`remove` are read through a ref
+  // rather than named directly in the effect's own dependency list below:
+  // at least one
   // built-in source gets `assign` from a Sanity hook
   // (`useUserListWithPermissions`) that does not promise a stable reference
   // across renders, and depending on the object itself would report on every
@@ -56,14 +57,15 @@ export function SourceFeed(props: SourceFeedProps) {
   // holds the actual functions, updated in their own effect that (being
   // declared first) always runs before this one in the same commit, so a
   // firing report always reads the latest ones.
-  const capabilities = useRef({resolve, create, assess, assign})
+  const capabilities = useRef({resolve, create, assess, assign, remove})
   useEffect(() => {
-    capabilities.current = {resolve, create, assess, assign}
+    capabilities.current = {resolve, create, assess, assign, remove}
   })
 
   const hasResolve = Boolean(resolve)
   const hasCreate = Boolean(create)
   const hasAssess = Boolean(assess)
+  const hasRemove = Boolean(remove)
   const assignUserCount = assign?.users.length ?? -1
 
   useEffect(() => {
@@ -79,6 +81,7 @@ export function SourceFeed(props: SourceFeedProps) {
     hasResolve,
     hasCreate,
     hasAssess,
+    hasRemove,
     assignUserCount,
   ])
 

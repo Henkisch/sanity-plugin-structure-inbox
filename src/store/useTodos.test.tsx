@@ -56,7 +56,7 @@ describe('useTodos', () => {
 
     const {result} = renderHook(() => useTodos())
 
-    act(() => result.current.add('Write the launch email'))
+    act(() => result.current.add({title: 'Write the launch email'}))
     expect(result.current.state.items.map((item) => item.title)).toEqual(['Write the launch email'])
 
     fetch.resolve(null)
@@ -73,7 +73,7 @@ describe('useTodos', () => {
 
     await waitFor(() => expect(client.fetch).toHaveBeenCalled())
 
-    act(() => result.current.add('Write the launch email'))
+    act(() => result.current.add({title: 'Write the launch email'}))
 
     await waitFor(() => expect(transaction.commit).toHaveBeenCalledTimes(1))
   })
@@ -87,9 +87,23 @@ describe('useTodos', () => {
 
     await waitFor(() => expect(client.fetch).toHaveBeenCalled())
 
-    act(() => result.current.add('Write the launch email'))
+    act(() => result.current.add({title: 'Write the launch email'}))
 
     await new Promise((r) => setTimeout(r, 10))
     expect(transaction.commit).not.toHaveBeenCalled()
+  })
+
+  it('removes a todo for good', async () => {
+    const {client} = mockClient(Promise.resolve(null))
+    useClientMock.mockReturnValue(client)
+
+    const {result} = renderHook(() => useTodos())
+    await waitFor(() => expect(client.fetch).toHaveBeenCalled())
+
+    act(() => result.current.add({title: 'Write the launch email'}))
+    const id = result.current.state.items[0].id
+
+    act(() => result.current.remove(id))
+    expect(result.current.state.items).toEqual([])
   })
 })

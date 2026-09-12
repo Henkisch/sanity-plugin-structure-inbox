@@ -2,6 +2,15 @@ export interface TodoItem {
   id: string
   title: string
   createdAt: string
+  description?: string
+  /** ISO date (`yyyy-mm-dd`) — a due date, not a moment, so no time of day. */
+  dueBy?: string
+}
+
+export interface TodoInput {
+  title: string
+  description?: string
+  dueBy?: string
 }
 
 /**
@@ -18,14 +27,19 @@ export const TODOS_VERSION = 1
 
 export const EMPTY_TODOS: TodosState = {version: TODOS_VERSION, items: []}
 
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === 'string'
+}
+
 function isTodoItem(value: unknown): value is TodoItem {
   if (typeof value !== 'object' || value === null) return false
   if (!('id' in value) || !('title' in value) || !('createdAt' in value)) return false
-  return (
-    typeof value.id === 'string' &&
-    typeof value.title === 'string' &&
-    typeof value.createdAt === 'string'
-  )
+  if (typeof value.id !== 'string' || typeof value.title !== 'string') return false
+  if (typeof value.createdAt !== 'string') return false
+
+  const description = 'description' in value ? value.description : undefined
+  const dueBy = 'dueBy' in value ? value.dueBy : undefined
+  return isOptionalString(description) && isOptionalString(dueBy)
 }
 
 /** Parses a stored value, discarding anything that is not what we wrote. */
@@ -46,16 +60,31 @@ function todoId(): string {
 /** Appends a new todo. A blank (or all-whitespace) title is silently dropped. */
 export function withTodo(
   state: TodosState,
-  title: string,
+  input: TodoInput,
   createdAt = new Date().toISOString(),
 ): TodosState {
-  const trimmed = title.trim()
-  if (!trimmed) return state
+  const title = input.title.trim()
+  if (!title) return state
+
+  const description = input.description?.trim() || undefined
+  const dueBy = input.dueBy || undefined
 
   return {
     version: TODOS_VERSION,
-    items: [...state.items, {id: todoId(), title: trimmed, createdAt}],
+    items: [...state.items, {id: todoId(), title, createdAt, description, dueBy}],
   }
+}
+
+/**
+ * Removes a todo for good — not a dismissal, which only hides it while
+ * leaving it in this list forever. Marking one done still goes through the
+ * shared dismissal record like any other source; this is for clearing out
+ * ones already finished, so the list doesn't just grow, and so a todo's
+ * "done" state doesn't depend solely on a dismissal that eventually ages out
+ * (see the 90-day TTL in `dismissals.ts`).
+ */
+export function withoutTodo(state: TodosState, id: string): TodosState {
+  return {version: TODOS_VERSION, items: state.items.filter((item) => item.id !== id)}
 }
 
 /**

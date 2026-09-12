@@ -44,7 +44,7 @@ export function InboxSection(props: InboxSectionProps) {
   const {source, dismissals, snoozes, view, compact = false, onCount, onVisibleCount} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
-  const {items, loading, error, resolve, create, assess, assign} = source.useItems()
+  const {items, loading, error, resolve, create, assess, assign, remove} = source.useItems()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
 
@@ -248,6 +248,7 @@ export function InboxSection(props: InboxSectionProps) {
               item={item}
               key={item.id}
               onAssess={assess}
+              onRemove={remove}
               onSelectedChange={handleSelectedChange}
               selected={selectedIds.includes(item.id)}
             />
