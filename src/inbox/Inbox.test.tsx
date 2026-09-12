@@ -1,5 +1,6 @@
 import {ThemeProvider} from '@sanity/ui'
 import {buildTheme} from '@sanity/ui/theme'
+import {ToastProvider} from '@sanity/ui/toast'
 import {render, screen} from '@testing-library/react'
 import {describe, expect, it, vi} from 'vitest'
 
@@ -36,16 +37,18 @@ const theme = buildTheme()
 function renderSections(sources: InboxSource[]) {
   return render(
     <ThemeProvider theme={theme}>
-      {sources.map((source) => (
-        <BoundedSection
-          dismissals={dismissals}
-          key={source.name}
-          onCount={() => {}}
-          snoozes={snoozes}
-          source={source}
-          view="open"
-        />
-      ))}
+      <ToastProvider>
+        {sources.map((source) => (
+          <BoundedSection
+            dismissals={dismissals}
+            key={source.name}
+            onCount={() => {}}
+            snoozes={snoozes}
+            source={source}
+            view="open"
+          />
+        ))}
+      </ToastProvider>
     </ThemeProvider>,
   )
 }

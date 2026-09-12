@@ -1,4 +1,4 @@
-import {Badge, Box, Stack, Text} from '@sanity/ui'
+import {Badge, Box, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
 import {useCallback, useEffect, useMemo, useState} from 'react'
 import {useTranslation} from 'sanity'
 
@@ -13,6 +13,11 @@ import {CreateItemRow} from './CreateItemRow'
 import {InboxRow} from './InboxRow'
 import {SelectionActions} from './SelectionActions'
 import {type InboxItem, type InboxSource, type InboxView} from './types'
+import {EXIT_ANIMATION_MS, useUndoToast} from './useUndoToast'
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 interface InboxSectionProps {
   source: InboxSource
@@ -47,6 +52,8 @@ export function InboxSection(props: InboxSectionProps) {
   const {items, loading, error, resolve, create, assess, assign, remove} = source.useItems()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
+  const [leavingIds, setLeavingIds] = useState<ReadonlySet<string>>(new Set())
+  const showUndoToast = useUndoToast()
 
   // A snoozed item wakes on its own once `until` passes, which needs a clock
   // to notice — reading one straight in the render body would be an impure
@@ -108,6 +115,13 @@ export function InboxSection(props: InboxSectionProps) {
 
   const clearSelection = useCallback(() => setSelectedIds([]), [])
 
+  const allSelected = visible.length > 0 && selected.length === visible.length
+  const someSelected = selected.length > 0 && !allSelected
+
+  const toggleAll = useCallback(() => {
+    setSelectedIds(allSelected ? [] : visible.map((item) => item.id))
+  }, [allSelected, visible])
+
   /**
    * The primary action the selection bar offers, in whichever direction the
    * current tab implies.
@@ -130,39 +144,76 @@ export function InboxSection(props: InboxSectionProps) {
       return
     }
 
-    if (!resolve) {
-      for (const item of selected) dismissals.dismiss(source.name, item.id)
-      setSelectedIds([])
-      return
-    }
-
     const targets = [...selected]
+
+    // Cleared immediately — the bar disappearing is the confirmation the
+    // click landed; the rows themselves fade a beat longer before the
+    // mutation that actually removes them runs, see `EXIT_ANIMATION_MS`.
+    setSelectedIds([])
+    setLeavingIds((current) => new Set([...current, ...targets.map((item) => item.id)]))
+    await wait(EXIT_ANIMATION_MS)
 
     setBusy(true)
     try {
       // `allSettled` rather than `all`: one item failing should not strand the
-      // others, and each is marked done only once its own resolve succeeded.
-      const results = await Promise.allSettled(targets.map((item) => resolve(item)))
+      // others, and each is marked done only once its own resolve succeeded
+      // (or, with no `resolve` at all, unconditionally).
+      const results = await Promise.allSettled(
+        targets.map((item) => (resolve ? resolve(item) : Promise.resolve())),
+      )
 
+      let dismissedCount = 0
       results.forEach((result, index) => {
-        if (result.status === 'fulfilled') dismissals.dismiss(source.name, targets[index].id)
-        else console.error('[sanity-plugin-structure-inbox] could not resolve item', result.reason)
+        if (result.status === 'fulfilled') {
+          dismissals.dismiss(source.name, targets[index].id)
+          dismissedCount += 1
+        } else {
+          console.error('[sanity-plugin-structure-inbox] could not resolve item', result.reason)
+        }
       })
 
-      setSelectedIds([])
+      setLeavingIds((current) => {
+        const next = new Set(current)
+        targets.forEach((item) => next.delete(item.id))
+        return next
+      })
+
+      if (dismissedCount > 0) {
+        showUndoToast({
+          title: t('undo.markedDone', {count: dismissedCount}),
+          onUndo: () => targets.forEach((item) => dismissals.restore(source.name, item.id)),
+        })
+      }
     } finally {
       setBusy(false)
     }
-  }, [view, resolve, selected, dismissals, snoozes, source.name])
+  }, [view, resolve, selected, dismissals, snoozes, source.name, showUndoToast, t])
 
   /** Only reachable from the open view — see `onSnooze` on `SelectionActions`. */
   const confirmSnooze = useCallback(
     (preset: SnoozePreset) => {
       const until = resolveSnoozeUntil(preset)
-      for (const item of selected) snoozes.snooze(source.name, item.id, until)
+      const targets = [...selected]
+
       setSelectedIds([])
+      setLeavingIds((current) => new Set([...current, ...targets.map((item) => item.id)]))
+
+      setTimeout(() => {
+        for (const item of targets) snoozes.snooze(source.name, item.id, until)
+
+        setLeavingIds((current) => {
+          const next = new Set(current)
+          targets.forEach((item) => next.delete(item.id))
+          return next
+        })
+
+        showUndoToast({
+          title: t('undo.snoozed', {count: targets.length}),
+          onUndo: () => targets.forEach((item) => snoozes.wake(source.name, item.id)),
+        })
+      }, EXIT_ANIMATION_MS)
     },
-    [selected, snoozes, source.name],
+    [selected, snoozes, source.name, showUndoToast, t],
   )
 
   /**
@@ -240,19 +291,38 @@ export function InboxSection(props: InboxSectionProps) {
           </Text>
         </Box>
       ) : (
-        <Stack gap={1} padding={1}>
-          {visible.map((item) => (
-            <InboxRow
-              compact={compact}
-              done={view === 'done'}
-              item={item}
-              key={item.id}
-              onAssess={assess}
-              onRemove={remove}
-              onSelectedChange={handleSelectedChange}
-              selected={selectedIds.includes(item.id)}
-            />
-          ))}
+        <Stack>
+          <Card borderBottom padding={2}>
+            <Flex align="center">
+              <Checkbox
+                checked={allSelected}
+                indeterminate={someSelected}
+                onChange={toggleAll}
+                title={t('selection.selectAll')}
+              />
+              <Box paddingLeft={2}>
+                <Text muted size={0}>
+                  {t('selection.selectAll')}
+                </Text>
+              </Box>
+            </Flex>
+          </Card>
+          <Stack gap={1} padding={1}>
+            {visible.map((item) => (
+              <InboxRow
+                compact={compact}
+                done={view === 'done'}
+                item={item}
+                key={item.id}
+                leaving={leavingIds.has(item.id)}
+                onAssess={assess}
+                onlySelected={selected.length === 1 && selectedIds.includes(item.id)}
+                onRemove={remove}
+                onSelectedChange={handleSelectedChange}
+                selected={selectedIds.includes(item.id)}
+              />
+            ))}
+          </Stack>
         </Stack>
       )}
     </SectionCard>

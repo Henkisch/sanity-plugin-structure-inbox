@@ -135,7 +135,7 @@ describe('InboxSection', () => {
     expect(dismissals.dismiss).not.toHaveBeenCalledWith('tasks', '2')
   })
 
-  it('dismisses locally, without calling resolve, when the source has none', () => {
+  it('dismisses locally, without calling resolve, when the source has none', async () => {
     const {dismissals} = renderSection({
       source: {
         name: 'drafts',
@@ -148,7 +148,7 @@ describe('InboxSection', () => {
     selectItem('Item 2')
     fireEvent.click(markDoneButton())
 
-    expect(dismissals.dismiss).toHaveBeenCalledTimes(2)
+    await vi.waitFor(() => expect(dismissals.dismiss).toHaveBeenCalledTimes(2))
     expect(dismissals.dismiss).toHaveBeenCalledWith('drafts', '1')
     expect(dismissals.dismiss).toHaveBeenCalledWith('drafts', '2')
   })
@@ -258,7 +258,7 @@ describe('InboxSection', () => {
     expect(snoozes.wake).toHaveBeenCalledWith('drafts', '1')
   })
 
-  it('snoozes a selected item for the chosen preset', () => {
+  it('snoozes a selected item for the chosen preset', async () => {
     const {snoozes} = renderSection({
       source: {
         name: 'drafts',
@@ -270,7 +270,9 @@ describe('InboxSection', () => {
     selectItem('Snooze me')
     fireEvent.change(screen.getByDisplayValue('action.snooze'), {target: {value: 'tomorrow'}})
 
-    expect(snoozes.snooze).toHaveBeenCalledWith('drafts', '1', expect.any(String))
+    await vi.waitFor(() =>
+      expect(snoozes.snooze).toHaveBeenCalledWith('drafts', '1', expect.any(String)),
+    )
   })
 
   it('renders the create row and adds an item, only in the open view', () => {
@@ -410,6 +412,68 @@ describe('InboxSection', () => {
 
     await vi.waitFor(() => expect(toUser).toHaveBeenCalledTimes(1))
     expect(toUser).toHaveBeenCalledWith(expect.objectContaining({id: '1'}), 'user-1')
+  })
+
+  it('offers ask AI and delete for a lone selected row, but hides both once a second is selected', () => {
+    renderSection({
+      source: {
+        name: 'drafts',
+        title: 'Drafts',
+        useItems: () => ({
+          items: [item('1', {title: 'Draft one'}), item('2', {title: 'Draft two'})],
+          assess: vi.fn(),
+          remove: vi.fn(),
+        }),
+      },
+    })
+
+    selectItem('Draft one')
+    expect(screen.getByText('assess.ask')).toBeTruthy()
+    expect(screen.getByText('action.delete')).toBeTruthy()
+
+    selectItem('Draft two')
+    expect(screen.queryByText('assess.ask')).toBeNull()
+    expect(screen.queryByText('action.delete')).toBeNull()
+  })
+
+  it('selects a row by clicking anywhere on it, not just its checkbox', () => {
+    renderSection({
+      source: {
+        name: 'drafts',
+        title: 'Drafts',
+        useItems: () => ({items: [item('1', {title: 'Click me'})]}),
+      },
+    })
+
+    fireEvent.click(screen.getByText('Click me'))
+    expect(screen.getByText('selection.count')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('Click me'))
+    expect(screen.queryByText('selection.count')).toBeNull()
+  })
+
+  it('selects and clears every visible row from the select-all header', () => {
+    renderSection({
+      source: {
+        name: 'drafts',
+        title: 'Drafts',
+        useItems: () => ({
+          items: [item('1', {title: 'Draft one'}), item('2', {title: 'Draft two'})],
+        }),
+      },
+    })
+
+    const selectAll = screen.getByTitle('selection.selectAll')
+    fireEvent.click(selectAll)
+    expect(markDoneButton()).toBeTruthy()
+    // Two selected: assess/delete are per-source and absent from this
+    // source's items, but the row actions gate is exercised in the dedicated
+    // "hides ask AI and delete" test above — here it's enough to confirm the
+    // bar tracks both rows and clears them together.
+    expect(selectAll).toHaveProperty('checked', true)
+
+    fireEvent.click(selectAll)
+    expect(screen.queryByText('action.markDone')).toBeNull()
   })
 
   it('hides the assign picker when there is no one to assign to', () => {

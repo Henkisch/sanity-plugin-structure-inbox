@@ -27,9 +27,17 @@ const enUS = {
   'item.open': 'Open',
 
   'selection.select': 'Select',
+  'selection.selectAll': 'Select all',
   'selection.cancel': 'Cancel',
+  'selection.undo': 'Undo',
   'selection.count_one': '{{count}} selected',
   'selection.count_other': '{{count}} selected',
+
+  'undo.markedDone_one': '{{count}} marked as done',
+  'undo.markedDone_other': '{{count}} marked as done',
+  'undo.snoozed_one': '{{count}} snoozed',
+  'undo.snoozed_other': '{{count}} snoozed',
+  'undo.done': 'Undone',
 
   'action.markDone': 'Mark as done',
   'action.markDone.mine': 'Removes it from your inbox. Nothing changes for anyone else.',

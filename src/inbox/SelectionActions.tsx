@@ -89,7 +89,7 @@ export function SelectionActions(props: SelectionActionsProps) {
           its content and never shrinks; only the controls group grows, and
           wraps onto its own line below the label when it doesn't fit. */}
       <Flex align="center" gap={2} wrap="wrap">
-        <Box paddingLeft={2}>
+        <Box aria-live="polite" paddingLeft={2}>
           <Text size={1} weight="medium">
             {t('selection.count', {count})}
           </Text>

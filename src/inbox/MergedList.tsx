@@ -1,4 +1,4 @@
-import {Box, Card, Stack, Text} from '@sanity/ui'
+import {Box, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
 import {useCallback, useMemo, useState} from 'react'
 import {useTranslation} from 'sanity'
 
@@ -12,6 +12,11 @@ import {mergeRows} from './mergeItems'
 import {SelectionActions} from './SelectionActions'
 import {type SourceReport} from './SourceFeed'
 import {type InboxItem, type InboxView} from './types'
+import {EXIT_ANIMATION_MS, useUndoToast} from './useUndoToast'
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 interface MergedListProps {
   reports: Record<string, SourceReport>
@@ -42,6 +47,8 @@ export function MergedList(props: MergedListProps) {
 
   const [selectedKeys, setSelectedKeys] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
+  const [leavingKeys, setLeavingKeys] = useState<ReadonlySet<string>>(new Set())
+  const showUndoToast = useUndoToast()
 
   // Derived from what's on screen, same reasoning every earlier version of
   // this list used: a row can disappear — someone else finishes it, the tab
@@ -53,6 +60,17 @@ export function MergedList(props: MergedListProps) {
   )
 
   const clearSelection = useCallback(() => setSelectedKeys([]), [])
+
+  const allSelected = rows.length > 0 && selected.length === rows.length
+  const someSelected = selected.length > 0 && !allSelected
+
+  // Ticks or clears every row currently on screen — not the underlying
+  // `selectedKeys`, which may still hold a key for a row that scrolled out of
+  // this view (a different tab, say). Selecting all should only ever mean
+  // "all of what I can see."
+  const toggleAll = useCallback(() => {
+    setSelectedKeys(allSelected ? [] : rows.map((row) => row.key))
+  }, [allSelected, rows])
 
   const confirmSelection = useCallback(async () => {
     if (view === 'done') {
@@ -69,6 +87,13 @@ export function MergedList(props: MergedListProps) {
 
     const targets = [...selected]
 
+    // Cleared immediately — the bar disappearing is the confirmation the
+    // click landed; the rows themselves fade a beat longer before the
+    // mutation that actually removes them runs, see `EXIT_ANIMATION_MS`.
+    setSelectedKeys([])
+    setLeavingKeys((current) => new Set([...current, ...targets.map((row) => row.key)]))
+    await wait(EXIT_ANIMATION_MS)
+
     setBusy(true)
     try {
       // Each row resolves through its own source's `resolve` — a mixed
@@ -81,26 +106,59 @@ export function MergedList(props: MergedListProps) {
         }),
       )
 
+      let dismissedCount = 0
       results.forEach((result, index) => {
         const row = targets[index]
-        if (result.status === 'fulfilled') dismissals.dismiss(row.sourceName, row.item.id)
-        else console.error('[sanity-plugin-structure-inbox] could not resolve item', result.reason)
+        if (result.status === 'fulfilled') {
+          dismissals.dismiss(row.sourceName, row.item.id)
+          dismissedCount += 1
+        } else {
+          console.error('[sanity-plugin-structure-inbox] could not resolve item', result.reason)
+        }
       })
 
-      setSelectedKeys([])
+      setLeavingKeys((current) => {
+        const next = new Set(current)
+        targets.forEach((row) => next.delete(row.key))
+        return next
+      })
+
+      if (dismissedCount > 0) {
+        showUndoToast({
+          title: t('undo.markedDone', {count: dismissedCount}),
+          onUndo: () => targets.forEach((row) => dismissals.restore(row.sourceName, row.item.id)),
+        })
+      }
     } finally {
       setBusy(false)
     }
-  }, [view, selected, reports, dismissals, snoozes])
+  }, [view, selected, reports, dismissals, snoozes, showUndoToast, t])
 
   /** Snoozing is a plugin-level capability, not a per-source one — every item can be, regardless of where it came from. */
   const confirmSnooze = useCallback(
     (preset: SnoozePreset) => {
       const until = resolveSnoozeUntil(preset)
-      for (const row of selected) snoozes.snooze(row.sourceName, row.item.id, until)
+      const targets = [...selected]
+
       setSelectedKeys([])
+      setLeavingKeys((current) => new Set([...current, ...targets.map((row) => row.key)]))
+
+      setTimeout(() => {
+        for (const row of targets) snoozes.snooze(row.sourceName, row.item.id, until)
+
+        setLeavingKeys((current) => {
+          const next = new Set(current)
+          targets.forEach((row) => next.delete(row.key))
+          return next
+        })
+
+        showUndoToast({
+          title: t('undo.snoozed', {count: targets.length}),
+          onUndo: () => targets.forEach((row) => snoozes.wake(row.sourceName, row.item.id)),
+        })
+      }, EXIT_ANIMATION_MS)
     },
-    [selected, snoozes],
+    [selected, snoozes, showUndoToast, t],
   )
 
   // Only offered when every selected row shares one source, and that source
@@ -203,28 +261,47 @@ export function MergedList(props: MergedListProps) {
             </Text>
           </Box>
         ) : (
-          <Stack gap={1} padding={1}>
-            {rows.map((row) => {
-              const report = reports[row.sourceName]
-              return (
-                <InboxRow
-                  done={view === 'done'}
-                  item={row.item}
-                  key={row.key}
-                  onAssess={report?.assess}
-                  onRemove={report?.remove}
-                  onSelectedChange={(item: InboxItem, isSelected: boolean) =>
-                    setSelectedKeys((current) =>
-                      isSelected
-                        ? [...current, row.key]
-                        : current.filter((existing) => existing !== row.key),
-                    )
-                  }
-                  selected={selectedKeys.includes(row.key)}
-                  sourceLabel={describeSource(report)}
+          <Stack>
+            <Card borderBottom padding={2}>
+              <Flex align="center">
+                <Checkbox
+                  checked={allSelected}
+                  indeterminate={someSelected}
+                  onChange={toggleAll}
+                  title={t('selection.selectAll')}
                 />
-              )
-            })}
+                <Box paddingLeft={2}>
+                  <Text muted size={0}>
+                    {t('selection.selectAll')}
+                  </Text>
+                </Box>
+              </Flex>
+            </Card>
+            <Stack gap={1} padding={1}>
+              {rows.map((row) => {
+                const report = reports[row.sourceName]
+                return (
+                  <InboxRow
+                    done={view === 'done'}
+                    item={row.item}
+                    key={row.key}
+                    leaving={leavingKeys.has(row.key)}
+                    onAssess={report?.assess}
+                    onlySelected={selected.length === 1 && selectedKeys.includes(row.key)}
+                    onRemove={report?.remove}
+                    onSelectedChange={(item: InboxItem, isSelected: boolean) =>
+                      setSelectedKeys((current) =>
+                        isSelected
+                          ? [...current, row.key]
+                          : current.filter((existing) => existing !== row.key),
+                      )
+                    }
+                    selected={selectedKeys.includes(row.key)}
+                    sourceLabel={describeSource(report)}
+                  />
+                )
+              })}
+            </Stack>
           </Stack>
         )}
       </Card>

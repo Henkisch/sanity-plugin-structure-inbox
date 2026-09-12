@@ -129,7 +129,7 @@ describe('MergedList', () => {
     expect(dismissals.restore).toHaveBeenCalledWith('tasks', 't1')
   })
 
-  it('snoozes a selection regardless of which source it came from', () => {
+  it('snoozes a selection regardless of which source it came from', async () => {
     const reports = {
       drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]}),
       tasks: report('tasks', 'Tasks', {open: [item('t1', {title: 'Task one'})]}),
@@ -141,8 +141,113 @@ describe('MergedList', () => {
     selectItem('Task one')
     fireEvent.change(screen.getByDisplayValue('action.snooze'), {target: {value: 'tomorrow'}})
 
+    // Snoozing fades the rows out first — see `EXIT_ANIMATION_MS` — so the
+    // actual `snooze` calls land a beat after the picker fires.
+    await vi.waitFor(() => expect(snoozes.snooze).toHaveBeenCalledTimes(2))
     expect(snoozes.snooze).toHaveBeenCalledWith('drafts', 'd1', expect.any(String))
     expect(snoozes.snooze).toHaveBeenCalledWith('tasks', 't1', expect.any(String))
+  })
+
+  it('selects a row by clicking anywhere on it, not just its checkbox', () => {
+    const reports = {
+      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Click me'})]}),
+    }
+
+    renderList({reports, order: ['drafts']})
+
+    fireEvent.click(screen.getByText('Click me'))
+    expect(screen.getByText('selection.count')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('Click me'))
+    expect(screen.queryByText('selection.count')).toBeNull()
+  })
+
+  it('suppresses per-row ask AI and delete once more than one row is selected', () => {
+    const reports = {
+      drafts: report('drafts', 'Drafts', {
+        open: [item('d1', {title: 'Draft one'}), item('d2', {title: 'Draft two'})],
+        assess: vi.fn(),
+        remove: vi.fn(),
+      }),
+    }
+
+    renderList({reports, order: ['drafts']})
+
+    selectItem('Draft one')
+    expect(screen.getByText('assess.ask')).toBeTruthy()
+    expect(screen.getByText('action.delete')).toBeTruthy()
+
+    selectItem('Draft two')
+    expect(screen.queryByText('assess.ask')).toBeNull()
+    expect(screen.queryByText('action.delete')).toBeNull()
+  })
+
+  it('selects and clears every row from the select-all header', () => {
+    const reports = {
+      drafts: report('drafts', 'Drafts', {
+        open: [item('d1', {title: 'Draft one'}), item('d2', {title: 'Draft two'})],
+      }),
+    }
+
+    renderList({reports, order: ['drafts']})
+
+    const selectAll = screen.getByTitle('selection.selectAll')
+    fireEvent.click(selectAll)
+    expect(screen.getByText('action.markDone')).toBeTruthy()
+    expect(selectAll).toHaveProperty('checked', true)
+
+    fireEvent.click(selectAll)
+    expect(screen.queryByText('action.markDone')).toBeNull()
+  })
+
+  it('marks the select-all header indeterminate when only some rows are selected', () => {
+    const reports = {
+      drafts: report('drafts', 'Drafts', {
+        open: [item('d1', {title: 'Draft one'}), item('d2', {title: 'Draft two'})],
+      }),
+    }
+
+    renderList({reports, order: ['drafts']})
+
+    selectItem('Draft one')
+
+    const selectAll = screen.getByTitle<HTMLInputElement>('selection.selectAll')
+    expect(selectAll.checked).toBe(false)
+    expect(selectAll.indeterminate).toBe(true)
+  })
+
+  it('brings a mistakenly-completed selection back with undo', async () => {
+    const reports = {
+      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]}),
+    }
+
+    const {dismissals} = renderList({reports, order: ['drafts']})
+
+    selectItem('Draft one')
+    fireEvent.click(screen.getByText('action.markDone'))
+
+    await vi.waitFor(() => expect(dismissals.dismiss).toHaveBeenCalledWith('drafts', 'd1'))
+
+    fireEvent.click(await screen.findByText('selection.undo'))
+    expect(dismissals.restore).toHaveBeenCalledWith('drafts', 'd1')
+  })
+
+  it('wakes a mistakenly-snoozed selection back with undo', async () => {
+    const reports = {
+      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]}),
+    }
+
+    const {snoozes} = renderList({reports, order: ['drafts']})
+
+    selectItem('Draft one')
+    fireEvent.change(screen.getByDisplayValue('action.snooze'), {target: {value: 'tomorrow'}})
+
+    await vi.waitFor(() =>
+      expect(snoozes.snooze).toHaveBeenCalledWith('drafts', 'd1', expect.any(String)),
+    )
+
+    fireEvent.click(await screen.findByText('selection.undo'))
+    expect(snoozes.wake).toHaveBeenCalledWith('drafts', 'd1')
   })
 
   it('offers assign only when every selected row shares one source', () => {
