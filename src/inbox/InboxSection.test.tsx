@@ -304,4 +304,104 @@ describe('InboxSection', () => {
 
     expect(screen.queryByPlaceholderText('todos.addPlaceholder')).toBeNull()
   })
+
+  it('asks AI and shows the result', async () => {
+    const assess = vi.fn().mockResolvedValue('Looks ready to publish.')
+
+    renderSection({
+      source: {
+        name: 'drafts',
+        title: 'Drafts',
+        useItems: () => ({items: [item('1', {title: 'Draft one'})], assess}),
+      },
+    })
+
+    selectItem('Draft one')
+    fireEvent.click(screen.getByText('assess.ask'))
+
+    expect(screen.getByText('assess.loading')).toBeTruthy()
+    expect(assess).toHaveBeenCalledWith(expect.objectContaining({id: '1'}))
+
+    await screen.findByText('Looks ready to publish.')
+  })
+
+  it('shows a fallback message when asking AI fails', async () => {
+    const assess = vi.fn().mockRejectedValue(new Error('boom'))
+
+    renderSection({
+      source: {
+        name: 'drafts',
+        title: 'Drafts',
+        useItems: () => ({items: [item('1', {title: 'Draft one'})], assess}),
+      },
+    })
+
+    selectItem('Draft one')
+    fireEvent.click(screen.getByText('assess.ask'))
+
+    await screen.findByText('assess.error')
+  })
+
+  it('does not offer to ask AI on an unselected row, even when the source has assess', () => {
+    renderSection({
+      source: {
+        name: 'drafts',
+        title: 'Drafts',
+        useItems: () => ({items: [item('1', {title: 'Draft one'})], assess: vi.fn()}),
+      },
+    })
+
+    expect(screen.queryByText('assess.ask')).toBeNull()
+  })
+
+  it('does not offer to ask AI when the source has no assess', () => {
+    renderSection({
+      source: {
+        name: 'drafts',
+        title: 'Drafts',
+        useItems: () => ({items: [item('1', {title: 'Draft one'})]}),
+      },
+    })
+
+    selectItem('Draft one')
+    expect(screen.queryByText('assess.ask')).toBeNull()
+  })
+
+  it('assigns a selected item to the chosen user', async () => {
+    const toUser = vi.fn().mockResolvedValue(undefined)
+
+    renderSection({
+      source: {
+        name: 'drafts',
+        title: 'Drafts',
+        useItems: () => ({
+          items: [item('1', {title: 'Assign me'})],
+          assign: {users: [{id: 'user-1', label: 'Ada'}], toUser},
+        }),
+      },
+    })
+
+    selectItem('Assign me')
+    fireEvent.change(screen.getByDisplayValue('action.assign'), {target: {value: 'user-1'}})
+
+    await vi.waitFor(() => expect(toUser).toHaveBeenCalledTimes(1))
+    expect(toUser).toHaveBeenCalledWith(expect.objectContaining({id: '1'}), 'user-1')
+  })
+
+  it('hides the assign picker when there is no one to assign to', () => {
+    renderSection({
+      source: {
+        name: 'drafts',
+        title: 'Drafts',
+        useItems: () => ({
+          items: [item('1', {title: 'Assign me'})],
+          assign: {users: [], toUser: vi.fn()},
+        }),
+      },
+    })
+
+    selectItem('Assign me')
+
+    expect(screen.queryByText('action.assign')).toBeNull()
+  })
 })

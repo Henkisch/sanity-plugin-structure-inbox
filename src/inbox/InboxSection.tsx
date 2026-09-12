@@ -22,6 +22,13 @@ interface InboxSectionProps {
   compact?: boolean
   /** Reports the open count so the pane can show a total. */
   onCount: (sourceName: string, count: number) => void
+  /**
+   * Reports the count for whichever view is active — unlike `onCount`, which
+   * always means "open". Used by the aside column to hide itself when every
+   * aside source has nothing to show for the current tab; not needed by the
+   * headline, so it's optional.
+   */
+  onVisibleCount?: (sourceName: string, count: number) => void
 }
 
 /**
@@ -34,10 +41,10 @@ interface InboxSectionProps {
  * selected row shares the same notion of what "done" can mean.
  */
 export function InboxSection(props: InboxSectionProps) {
-  const {source, dismissals, snoozes, view, compact = false, onCount} = props
+  const {source, dismissals, snoozes, view, compact = false, onCount, onVisibleCount} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
-  const {items, loading, error, resolve, create} = source.useItems()
+  const {items, loading, error, resolve, create, assess, assign} = source.useItems()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
 
@@ -79,6 +86,10 @@ export function InboxSection(props: InboxSectionProps) {
   // interleaving them was what made a done or snoozed row look like an open
   // one.
   const visible = view === 'done' ? done : view === 'snoozed' ? snoozed : open
+
+  useEffect(() => {
+    onVisibleCount?.(source.name, visible.length)
+  }, [onVisibleCount, source.name, visible.length])
 
   // A row can disappear while selected — someone else publishes the draft, or
   // the editor switches tabs. Deriving the selection from what is on screen
@@ -154,6 +165,32 @@ export function InboxSection(props: InboxSectionProps) {
     [selected, snoozes, source.name],
   )
 
+  /**
+   * Only reachable from the open view — see `onAssign` on `SelectionActions`.
+   * Assigning creates a real task per item, so — like resolving — failures
+   * are per item and one does not strand the rest.
+   */
+  const confirmAssign = useCallback(
+    async (userId: string) => {
+      if (!assign) return
+      const targets = [...selected]
+
+      setBusy(true)
+      try {
+        const results = await Promise.allSettled(targets.map((item) => assign.toUser(item, userId)))
+        results.forEach((result) => {
+          if (result.status === 'rejected') {
+            console.error('[sanity-plugin-structure-inbox] could not assign item', result.reason)
+          }
+        })
+        setSelectedIds([])
+      } finally {
+        setBusy(false)
+      }
+    },
+    [assign, selected],
+  )
+
   const isEmpty = visible.length === 0
 
   return (
@@ -171,8 +208,10 @@ export function InboxSection(props: InboxSectionProps) {
       toolbar={
         selected.length > 0 ? (
           <SelectionActions
+            assignableUsers={view === 'open' ? assign?.users : undefined}
             busy={busy}
             count={selected.length}
+            onAssign={view === 'open' && assign ? confirmAssign : undefined}
             onCancel={clearSelection}
             onConfirm={confirmSelection}
             onSnooze={view === 'open' ? confirmSnooze : undefined}
@@ -208,6 +247,7 @@ export function InboxSection(props: InboxSectionProps) {
               done={view === 'done'}
               item={item}
               key={item.id}
+              onAssess={assess}
               onSelectedChange={handleSelectedChange}
               selected={selectedIds.includes(item.id)}
             />

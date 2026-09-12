@@ -59,10 +59,19 @@ A source is a feed of inbox items. Four ship with the plugin:
 | `todos({title, placement})`                                  | A personal scratch list you type into, right in the pane.     | Yours      |
 
 Sources choose their column with `placement`. `main` is the wide column on the
-left, for work to get through; `aside` is the narrow one on the right, for
-context worth seeing but not acting on. `upcomingReleases` defaults to `aside`,
-and only the main column counts toward the headline — "three releases are
-scheduled" is not three things asking for your attention.
+left, for work to get through — every `main` source's items are merged into
+**one sorted list**, tagged by source on each row, rather than one box per
+source. `aside` is the narrow column on the right, for context worth seeing
+but not acting on: each `aside` source keeps its own small card, and the whole
+column disappears when every `aside` source is currently empty — ambient
+context earns no space when there's nothing in it. `upcomingReleases` defaults
+to `aside`, and only the main column counts toward the headline — "three
+releases are scheduled" is not three things asking for your attention.
+
+Main-column rows are sorted the way an editor actually triages an inbox, not
+by which source they came from: the most urgent `tone` first, then the
+longest-waiting `timestamp` first within a tone. Two rows tied on both keep
+the order their sources were configured in.
 
 ### Whose items are these
 
@@ -123,12 +132,76 @@ place tracking completion. A todo finished more than 90 days ago reopens, and
 the list itself only grows; neither is likely to bite in practice, but it is
 a real edge if you lean on `todos` heavily.
 
+### Live updates
+
+`openTasks` and `unpublishedDrafts` re-run their query whenever a matching
+document changes — a task someone else closes, a draft someone else
+publishes, leaves or enters the list without the editor navigating away and
+back. Built on `client.listen`, the query-scoped realtime listener — not the
+newer Live Content API, which invalidates by sync tag across a whole dataset
+and is built for cached, published content rather than an arbitrary GROQ
+filter. `upcomingReleases` was already live; it reads Sanity's own release
+store, which keeps itself in sync.
+
+Writing your own source that should update itself the same way: see
+`liveQuery$` in `src/inbox/sources/liveQuery.ts` — it wraps a one-shot
+`client.observable.fetch` in exactly this listen-then-refetch shape.
+
+### Asking AI about an item
+
+`unpublishedDrafts` also offers `assess`: click **Ask AI** on a row and Sanity's
+Agent Actions gives a one-line read — "looks ready to publish", "still missing
+a hero image". Informational only; it never writes to the document, so it
+renders the same in every view (Open, Snoozed, Done).
+
+A source opts in by returning `assess` from `useItems`:
+
+```ts
+useItems() {
+  return {
+    items,
+    assess: (item) =>
+      client.agent.action.prompt({
+        instruction: 'Given the following document:\n$document\n---\nYour question here.',
+        instructionParams: {document: {type: 'document', documentId: item.id}},
+      }),
+  }
+}
+```
+
+### Assigning an item to someone else
+
+`unpublishedDrafts` also offers `assign`: select rows, then pick a name from
+the **Assign to…** picker. This creates a real Sanity Task — the same
+`tasks.task` document `openTasks` reads — with `assignedTo` set to the person
+chosen, so it shows up in their own `openTasks` list.
+
+**Known limitation:** the created task sets only `title`, `status` and
+`assignedTo` — no `target` reference back to the draft. `tasks.task` is
+`@beta` in Sanity's own typings, and the shape of that reference field is not
+documented anywhere this plugin could confirm it against, so it is left out
+rather than guessed. The task works fully as an inbox item; it just will not
+show Sanity's own "linked to this document" affordance in its native Tasks
+UI. Confirm the field name in your own Studio (create a task by hand, inspect
+it with Vision) before relying on that link.
+
+Who can be assigned comes from `useUserListWithPermissions` — also `@beta` —
+filtered to whoever can update documents in this dataset.
+
+**Assign to…** only appears when every currently selected row comes from the
+same source: assigning across sources with different assignee pools has no
+single well-defined meaning, so the picker simply doesn't offer it for a mixed
+selection.
+
 ### Writing your own
 
 `useItems` is a React hook, so a source can reach for `useClient`,
-`useCurrentUser`, or any Studio hook it needs. Each source renders in its own
-component, so its hooks get a stable call order and its own error boundary —
-one bad query costs that section, not the whole Inbox.
+`useCurrentUser`, or any Studio hook it needs. Each source still runs in its
+own component under the hood — its hooks get a stable call order and its own
+error boundary, so one bad query costs only that source's rows, surfaced as a
+small inline notice in the merged list, never the whole Inbox. What changed is
+that a `main` source no longer draws its own card: it hands its items to the
+one list that draws all of them together.
 
 ```tsx
 import {type InboxSource} from 'sanity-plugin-structure-inbox'
@@ -160,6 +233,12 @@ export function needsReview(): InboxSource {
 Ticking a checkbox **selects** a row; it does not complete it. Once something is
 selected, the action bar appears and the editor chooses — the order a mail
 client uses, and the reason a tick that silently acted felt wrong.
+
+Selection spans the whole merged list, not one source at a time: tick a task
+and a draft together, and **Mark as done** resolves each through its own
+source — one Promise per row, so one failing never strands the rest (see
+`Promise.allSettled` in `MergedList`). **Ask AI** only shows on a row once it's
+selected — asking is a per-row decision, not a permanent line under every row.
 
 There is one verb, **Mark as done**, plus **Cancel**. What "done" changes
 depends on the source, and the button's tooltip says which:
@@ -224,6 +303,25 @@ Snoozes and todos each live in a sibling document of their own — same
 per-editor, unregistered-type approach, kept apart because neither shares a
 lifecycle with a dismissal: a snooze expires on its own, and a todo has
 nowhere else to live at all.
+
+### Recipe: a digest outside the Studio
+
+Nothing this pane shows is private to it — `structureInbox.dismissals.<userId>`,
+`structureInbox.snoozes.<userId>` and `structureInbox.todos.<userId>` are
+plain, queryable documents in your dataset. That makes a scheduled digest (a
+daily "here's what's still open" email or Slack message) a job for a
+[Sanity Function](https://www.sanity.io/docs/content-lake/webhooks) — a
+separate deployable in your Studio project, not something this npm package
+ships or can install for you.
+
+Sketch of what such a Function does, run on a schedule rather than a document
+event:
+
+1. Fetch each editor's dismissals/snoozes/todos documents (`*[_type == "structureInbox.dismissals"]`, etc.) alongside whatever your sources actually query (drafts, tasks, releases).
+2. For each editor, apply `isDismissed` / `isSnoozed` — exported from `sanity-plugin-structure-inbox` for exactly this, pure and dependency-free, no Studio context required — to work out what is still genuinely open for them right now.
+3. Send whatever is left, however you'd send it — the Function is plain Node.js, so any email or chat API works.
+
+This intentionally stays a recipe rather than shipped code: a digest's cadence, channel and formatting are product decisions for your Studio, not this plugin's to make.
 
 ## Options
 

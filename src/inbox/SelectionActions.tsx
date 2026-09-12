@@ -19,6 +19,10 @@ interface SelectionActionsProps {
    * row that is already done or already asleep says nothing.
    */
   onSnooze?: (preset: SnoozePreset) => void
+  /** Who `onAssign` can hand the selection to — absent or empty hides the picker. */
+  assignableUsers?: {id: string; label: string}[]
+  /** Offers the "Assign" picker. Only meaningful in the open view, same reasoning as `onSnooze`. */
+  onAssign?: (userId: string) => void
 }
 
 const SNOOZE_PRESETS: SnoozePreset[] = ['laterToday', 'tomorrow', 'nextWeek']
@@ -51,7 +55,8 @@ function isSnoozePreset(value: string): value is SnoozePreset {
  * split into two buttons the editor has to choose between.
  */
 export function SelectionActions(props: SelectionActionsProps) {
-  const {count, view, resolves, busy, onConfirm, onCancel, onSnooze} = props
+  const {count, view, resolves, busy, onConfirm, onCancel, onSnooze, assignableUsers, onAssign} =
+    props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
   const confirmLabel =
@@ -67,6 +72,12 @@ export function SelectionActions(props: SelectionActionsProps) {
   const handleSnoozeChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const value = event.currentTarget.value
     if (isSnoozePreset(value)) onSnooze?.(value)
+  }
+
+  // Same "pinned to the placeholder" reasoning as the snooze picker above.
+  const handleAssignChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const value = event.currentTarget.value
+    if (value) onAssign?.(value)
   }
 
   return (
@@ -87,6 +98,21 @@ export function SelectionActions(props: SelectionActionsProps) {
               {SNOOZE_PRESETS.map((preset) => (
                 <option key={preset} value={preset}>
                   {t(SNOOZE_PRESET_LABEL_KEYS[preset])}
+                </option>
+              ))}
+            </Select>
+          </Box>
+        )}
+
+        {onAssign && assignableUsers && assignableUsers.length > 0 && (
+          <Box>
+            <Select fontSize={1} onChange={handleAssignChange} value="">
+              <option disabled value="">
+                {t('action.assign')}
+              </option>
+              {assignableUsers.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.label}
                 </option>
               ))}
             </Select>

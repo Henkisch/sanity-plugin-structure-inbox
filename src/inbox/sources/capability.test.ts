@@ -4,16 +4,17 @@ import {describe, expect, it, vi} from 'vitest'
  * `src/index.ts` re-exports every source unconditionally, so importing
  * anything from this package pulls the whole module graph below into scope —
  * even for a consumer who configured neither `openTasks` nor
- * `upcomingReleases`. This mock leaves out `useAddonDataset` and
- * `useActiveReleases`, the two beta/internal exports those sources reach
- * through `optionalHook`, to prove that omission no longer throws.
+ * `upcomingReleases`. This mock leaves out `useAddonDataset`,
+ * `useActiveReleases` and `useUserListWithPermissions`, the beta/internal
+ * exports those sources reach through `optionalHook`, to prove that omission
+ * no longer throws.
  *
  * Everything else here is exactly what the rest of the graph touches while
  * evaluating (`definePlugin`, called immediately in `plugin.tsx`;
  * `defineLocaleResourceBundle`, called immediately in `i18n/index.ts`) or
  * merely references as a binding (`useTranslation`, `useRelativeTime`,
  * `useClient`, `useCurrentUser`, `useSchema` — each only called from inside a
- * component body, never at import time, so a bare function stands in). Seven
+ * component body, never at import time, so a bare function stands in). Eight
  * names in total — short of the ten this plan's STOP condition warns about.
  */
 vi.mock('sanity', () => ({
@@ -30,9 +31,10 @@ vi.mock('sanity', () => ({
   // guard rail, not a stand-in for how a real ES module namespace object
   // behaves. A real namespace object returns `undefined` for a property that
   // does not exist — silently, which is exactly the case this test means to
-  // reproduce — so these two are spelled out as `undefined` on purpose.
+  // reproduce — so these three are spelled out as `undefined` on purpose.
   useAddonDataset: undefined,
   useActiveReleases: undefined,
+  useUserListWithPermissions: undefined,
 }))
 
 describe('optionalHook', () => {
@@ -62,14 +64,17 @@ describe('the barrel survives a beta export going missing', () => {
 
     expect(barrel.openTasks).toBeTypeOf('function')
     expect(barrel.upcomingReleases).toBeTypeOf('function')
+    expect(barrel.unpublishedDrafts).toBeTypeOf('function')
     expect(barrel.structureInbox).toBeTypeOf('function')
 
-    // Both sources build without their beta/internal hook present. What each
-    // one reports once rendered (an error result, per `openTasks.ts` and
-    // `upcomingReleases.ts`) is covered by their own source-level tests, not
+    // All three sources build without their beta/internal hook present. What
+    // each one reports once rendered (an error result, per `openTasks.ts` and
+    // `upcomingReleases.ts`, or a missing `assign`/`assess`, per
+    // `unpublishedDrafts.ts`) is covered by their own source-level tests, not
     // here — this test is only about the barrel surviving import.
     expect(() => barrel.openTasks()).not.toThrow()
     expect(() => barrel.upcomingReleases()).not.toThrow()
+    expect(() => barrel.unpublishedDrafts()).not.toThrow()
 
     // `structureInbox` is `definePlugin`'s factory, mocked above as the
     // identity function, so calling it runs the real plugin body.

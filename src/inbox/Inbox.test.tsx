@@ -7,7 +7,8 @@ import {EMPTY_DISMISSALS} from '../store/dismissals'
 import {EMPTY_SNOOZES} from '../store/snoozes'
 import {type Dismissals} from '../store/useDismissals'
 import {type Snoozes} from '../store/useSnoozes'
-import {BoundedSection} from './Inbox'
+import {BoundedSection, BoundedSourceFeed} from './Inbox'
+import {type SourceReport} from './SourceFeed'
 import {type InboxSource} from './types'
 
 /**
@@ -97,5 +98,47 @@ describe('BoundedSection', () => {
 
     expect(screen.getByText('Flaky Source')).toBeTruthy()
     expect(screen.getByText('flaky reported')).toBeTruthy()
+  })
+})
+
+function renderFeeds(
+  sources: InboxSource[],
+  onReport: (name: string, report: SourceReport) => void,
+) {
+  return render(
+    <ThemeProvider theme={theme}>
+      {sources.map((source) => (
+        <BoundedSourceFeed
+          dismissals={dismissals}
+          key={source.name}
+          now={Date.now()}
+          onReport={onReport}
+          snoozes={snoozes}
+          source={source}
+        />
+      ))}
+    </ThemeProvider>,
+  )
+}
+
+describe('BoundedSourceFeed', () => {
+  it('reports an error instead of throwing past the boundary, leaving its sibling reporting normally', () => {
+    // The boundary logs the caught error via console.error; expected noise.
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const onReport = vi.fn()
+
+    renderFeeds(
+      [throwingSource('bad', 'Bad Source'), workingSource('good', 'Good Source')],
+      onReport,
+    )
+
+    expect(onReport).toHaveBeenCalledWith(
+      'bad',
+      expect.objectContaining({error: expect.any(Error)}),
+    )
+    expect(onReport).toHaveBeenCalledWith(
+      'good',
+      expect.objectContaining({open: [], done: [], snoozed: []}),
+    )
   })
 })

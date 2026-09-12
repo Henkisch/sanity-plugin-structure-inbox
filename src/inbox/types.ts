@@ -84,6 +84,32 @@ export interface InboxSourceResult {
    * the list, in the open view only.
    */
   create?: (title: string) => Promise<void> | void
+  /**
+   * A one-line AI read on this item — "looks ready to publish", "still
+   * missing a hero image" — via Sanity's Agent Actions. Informational only:
+   * it changes nothing about the item, so it renders the same in every view.
+   *
+   * Optional because it needs a real document to look at; a source with
+   * nothing backing its items (`todos`) has nothing to offer here.
+   */
+  assess?: (item: InboxItem) => Promise<string>
+  /**
+   * Delegates an item to someone else by creating a real Sanity Task.
+   *
+   * `users` is who it can go to; `toUser` does the assigning. Bundled
+   * together, rather than a bare function, because the list of people to
+   * offer is the source's own concern — it knows which dataset (and which
+   * permission) makes someone a sensible assignee — not something the
+   * generic selection bar should have an opinion on.
+   *
+   * Optional: only a source with somewhere for a task to point at makes sense
+   * to delegate. `openTasks`'s own items are already tasks, and `todos` has
+   * no one else to hand a personal item to.
+   */
+  assign?: {
+    users: {id: string; label: string}[]
+    toUser: (item: InboxItem, userId: string) => Promise<void>
+  }
 }
 
 /**

@@ -1,4 +1,5 @@
 import {CheckmarkCircleIcon} from '@sanity/icons/CheckmarkCircle'
+import {useMemo} from 'react'
 
 import {useTodos} from '../../store/useTodos'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
@@ -34,11 +35,19 @@ export function todos(options: TodosOptions = {}): InboxSource {
     useItems(): InboxSourceResult {
       const {state, add} = useTodos()
 
-      const items: InboxItem[] = state.items.map((todo): InboxItem => ({
-        id: todo.id,
-        title: todo.title,
-        timestamp: todo.createdAt,
-      }))
+      // Memoized on `state.items`, not recomputed fresh every render: this
+      // result now feeds a reporting effect upstream (`SourceFeed`) keyed on
+      // referential identity, and a brand-new array every render — even with
+      // identical contents — would retrigger that effect every render too.
+      const items: InboxItem[] = useMemo(
+        () =>
+          state.items.map((todo): InboxItem => ({
+            id: todo.id,
+            title: todo.title,
+            timestamp: todo.createdAt,
+          })),
+        [state.items],
+      )
 
       return {items, create: add}
     },

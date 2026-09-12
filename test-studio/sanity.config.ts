@@ -3,6 +3,7 @@ import {defineConfig} from 'sanity'
 import {
   openTasks,
   structureInbox,
+  todos,
   unpublishedDrafts,
   upcomingReleases,
 } from 'sanity-plugin-structure-inbox'
@@ -44,7 +45,7 @@ export default defineConfig([
       // `showInList` is off by default; this workspace turns it on so both the
       // visible entry and the invisible resolution get exercised somewhere.
       structureInbox({
-        showInList: true,
+        // showInList: true,
         sources: [
           // The personal list: assigned tasks, with a real "Mark as done".
           openTasks(),
@@ -52,6 +53,7 @@ export default defineConfig([
           // default would make this workspace look broken while testing.
           unpublishedDrafts({olderThanDays: 0}),
           upcomingReleases(),
+          todos(),
         ],
       }),
       // Stacked on purpose — see the probe's own comment.

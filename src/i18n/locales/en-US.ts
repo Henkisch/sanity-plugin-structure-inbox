@@ -42,8 +42,14 @@ const enUS = {
   'action.snooze.tomorrow': 'Tomorrow',
   'action.snooze.nextWeek': 'Next week',
 
+  'action.assign': 'Assign to…',
+
   'todos.addPlaceholder': 'Add a todo…',
   'todos.add': 'Add',
+
+  'assess.ask': 'Ask AI',
+  'assess.loading': 'Asking AI…',
+  'assess.error': 'Could not reach AI.',
 }
 
 export default enUS

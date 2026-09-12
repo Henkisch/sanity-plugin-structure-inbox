@@ -9,6 +9,7 @@ import {type AddonDatasetContextValue, useCurrentUser} from 'sanity'
 
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {optionalHook} from './capability'
+import {liveQuery$} from './liveQuery'
 
 /**
  * Stands in for `useAddonDataset` when Sanity does not export it. A hook in
@@ -85,6 +86,10 @@ function isOverdue(dueBy?: string): boolean {
  * than in the content dataset, and both `useAddonDataset` and the `tasks.task`
  * shape are marked beta in Sanity's own typings.
  *
+ * Live rather than fetched once: `liveQuery$` re-runs the query whenever a
+ * matching task changes, so a task someone else closes or reassigns leaves or
+ * enters this list without the editor having to navigate away and back.
+ *
  * `useAddonDataset` is reached only through `optionalHook` (see
  * `capability.ts`), never a static import, so a Sanity release that removes it
  * degrades this source to an error result instead of throwing while the
@@ -116,7 +121,9 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
         if (useAddonDataset === useUnavailableAddonDataset) {
           return of<InboxSourceResult>({
             items: [],
-            error: new Error('Open tasks are unavailable: Sanity no longer exports useAddonDataset.'),
+            error: new Error(
+              'Open tasks are unavailable: Sanity no longer exports useAddonDataset.',
+            ),
           })
         }
 
@@ -125,8 +132,13 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
         if (!client || !ready) return of<InboxSourceResult>({items: [], loading: !ready})
 
         const assignedTo = onlyMine ? (userId ?? null) : null
+        const params = {assignedTo, limit}
+        const fetch$ = client.observable.fetch<TaskRow[]>(QUERY, params)
 
-        return client.observable.fetch<TaskRow[]>(QUERY, {assignedTo, limit}).pipe(
+        // Live rather than fetched once: a task closed, reassigned, or its due
+        // date changed by someone else used to only leave (or enter) this list
+        // once the editor navigated away and back.
+        return liveQuery$(client, QUERY, params, fetch$).pipe(
           map((rows): InboxSourceResult => ({
             items: rows.map((row): InboxItem => ({
               id: row._id,
