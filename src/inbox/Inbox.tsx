@@ -16,6 +16,7 @@ import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {useDismissals} from '../store/useDismissals'
+import {useSnoozes} from '../store/useSnoozes'
 import {SectionCard} from '../ui/SectionCard'
 import {SectionErrorBoundary} from '../ui/SectionErrorBoundary'
 import {StatusDot} from '../ui/StatusDot'
@@ -35,6 +36,7 @@ const COLUMNS = [1, 1, 1, 3]
 
 const OPEN_TAB_ID = 'structure-inbox-open'
 const DONE_TAB_ID = 'structure-inbox-done'
+const SNOOZED_TAB_ID = 'structure-inbox-snoozed'
 const PANEL_ID = 'structure-inbox-panel'
 
 /**
@@ -49,6 +51,7 @@ interface BoundedSectionProps {
   source: InboxSource
   compact?: boolean
   dismissals: ReturnType<typeof useDismissals>
+  snoozes: ReturnType<typeof useSnoozes>
   onCount: (sourceName: string, count: number) => void
   view: InboxView
 }
@@ -69,7 +72,7 @@ interface BoundedSectionProps {
  * context that a unit test for this boundary should not have to carry.
  */
 export function BoundedSection(props: BoundedSectionProps) {
-  const {source, compact, dismissals, onCount, view} = props
+  const {source, compact, dismissals, snoozes, onCount, view} = props
 
   const renderFallback = useCallback(
     (error: Error): ReactNode => (
@@ -86,6 +89,7 @@ export function BoundedSection(props: BoundedSectionProps) {
         compact={compact}
         dismissals={dismissals}
         onCount={onCount}
+        snoozes={snoozes}
         source={source}
         view={view}
       />
@@ -96,11 +100,13 @@ export function BoundedSection(props: BoundedSectionProps) {
 export function Inbox({sources}: InboxProps) {
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const dismissals = useDismissals()
+  const snoozes = useSnoozes()
   const [view, setView] = useState<InboxView>('open')
   const [counts, setCounts] = useState<Record<string, number>>({})
 
   const showOpen = useCallback(() => setView('open'), [])
   const showDone = useCallback(() => setView('done'), [])
+  const showSnoozed = useCallback(() => setView('snoozed'), [])
 
   const handleCount = useCallback((sourceName: string, count: number) => {
     setCounts((current) =>
@@ -187,6 +193,14 @@ export function Inbox({sources}: InboxProps) {
                 onClick={showDone}
                 selected={view === 'done'}
               />
+              <Tab
+                aria-controls={PANEL_ID}
+                fontSize={1}
+                id={SNOOZED_TAB_ID}
+                label={t('tab.snoozed')}
+                onClick={showSnoozed}
+                selected={view === 'snoozed'}
+              />
             </TabList>
           </Flex>
         </Stack>
@@ -194,7 +208,12 @@ export function Inbox({sources}: InboxProps) {
 
       <Box padding={4}>
         <Container width={4}>
-          <TabPanel aria-labelledby={view === 'open' ? OPEN_TAB_ID : DONE_TAB_ID} id={PANEL_ID}>
+          <TabPanel
+            aria-labelledby={
+              view === 'open' ? OPEN_TAB_ID : view === 'done' ? DONE_TAB_ID : SNOOZED_TAB_ID
+            }
+            id={PANEL_ID}
+          >
             <Grid gap={4} gridTemplateColumns={COLUMNS}>
               <Box gridColumn={aside.length > 0 ? [1, 1, 1, 2] : COLUMNS}>
                 <Stack gap={3}>
@@ -203,6 +222,7 @@ export function Inbox({sources}: InboxProps) {
                       dismissals={dismissals}
                       key={source.name}
                       onCount={handleCount}
+                      snoozes={snoozes}
                       source={source}
                       view={view}
                     />
@@ -219,6 +239,7 @@ export function Inbox({sources}: InboxProps) {
                         dismissals={dismissals}
                         key={source.name}
                         onCount={handleCount}
+                        snoozes={snoozes}
                         source={source}
                         view={view}
                       />

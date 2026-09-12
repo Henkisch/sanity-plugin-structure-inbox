@@ -1,12 +1,12 @@
 import {type ComponentType} from 'react'
 
 /**
- * Which half of the inbox is on screen: the things still to do, or the things
- * already ticked off.
+ * Which slice of the inbox is on screen: the things still to do, the things
+ * already ticked off, or the things put off until later.
  *
  * @public
  */
-export type InboxView = 'open' | 'done'
+export type InboxView = 'open' | 'done' | 'snoozed'
 
 /**
  * One actionable thing in an editor's inbox.
@@ -75,6 +75,15 @@ export interface InboxSourceResult {
    * and the UI says so rather than implying something changed for everyone.
    */
   resolve?: (item: InboxItem) => Promise<void>
+  /**
+   * Adds a brand-new item to this source's own list.
+   *
+   * Only a source that keeps its items itself — nothing external creates
+   * them — can offer this meaningfully; a feed of drafts or tasks has no
+   * business inventing new ones. Present, it puts an inline "add" input above
+   * the list, in the open view only.
+   */
+  create?: (title: string) => Promise<void> | void
 }
 
 /**

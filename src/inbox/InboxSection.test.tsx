@@ -2,7 +2,9 @@ import {cleanup, fireEvent, screen} from '@testing-library/react'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {EMPTY_DISMISSALS} from '../store/dismissals'
+import {EMPTY_SNOOZES} from '../store/snoozes'
 import {type Dismissals} from '../store/useDismissals'
+import {type Snoozes} from '../store/useSnoozes'
 import {renderWithTheme} from '../test/renderWithTheme'
 import {InboxSection} from './InboxSection'
 import {type InboxItem, type InboxSource} from './types'
@@ -36,6 +38,10 @@ function markNotDoneButton() {
   return screen.getByText('action.markNotDone')
 }
 
+function wakeNowButton() {
+  return screen.getByText('action.wakeNow')
+}
+
 /**
  * The checkbox has no visible label of its own — it points at the row's title
  * text via `aria-labelledby` — so the click has to land on the input itself,
@@ -59,23 +65,30 @@ function fakeDismissals(): Dismissals {
   return {state: EMPTY_DISMISSALS, dismiss: vi.fn(), restore: vi.fn()}
 }
 
+function fakeSnoozes(): Snoozes {
+  return {state: EMPTY_SNOOZES, snooze: vi.fn(), wake: vi.fn()}
+}
+
 function renderSection(props: {
   source: InboxSource
   dismissals?: Dismissals
-  view?: 'open' | 'done'
+  snoozes?: Snoozes
+  view?: 'open' | 'done' | 'snoozed'
 }) {
   const dismissals = props.dismissals ?? fakeDismissals()
+  const snoozes = props.snoozes ?? fakeSnoozes()
 
   renderWithTheme(
     <InboxSection
       dismissals={dismissals}
       onCount={() => {}}
+      snoozes={snoozes}
       source={props.source}
       view={props.view ?? 'open'}
     />,
   )
 
-  return dismissals
+  return {dismissals, snoozes}
 }
 
 describe('InboxSection', () => {
@@ -101,7 +114,7 @@ describe('InboxSection', () => {
       target.id === '2' ? Promise.reject(new Error('boom')) : Promise.resolve(undefined),
     )
 
-    const dismissals = renderSection({
+    const {dismissals} = renderSection({
       source: {
         name: 'tasks',
         title: 'Tasks',
@@ -123,7 +136,7 @@ describe('InboxSection', () => {
   })
 
   it('dismisses locally, without calling resolve, when the source has none', () => {
-    const dismissals = renderSection({
+    const {dismissals} = renderSection({
       source: {
         name: 'drafts',
         title: 'Drafts',
@@ -141,7 +154,7 @@ describe('InboxSection', () => {
   })
 
   it('restores rather than dismisses on the done tab, and never calls dismiss', () => {
-    const dismissals = renderSection({
+    const {dismissals} = renderSection({
       view: 'done',
       source: {
         name: 'drafts',
@@ -149,7 +162,10 @@ describe('InboxSection', () => {
         useItems: () => ({items: [item('1'), item('2')]}),
       },
       dismissals: {
-        state: {version: 1, dismissed: {drafts: {'1': '2026-01-01T00:00:00.000Z', '2': '2026-01-01T00:00:00.000Z'}}},
+        state: {
+          version: 1,
+          dismissed: {drafts: {'1': '2026-01-01T00:00:00.000Z', '2': '2026-01-01T00:00:00.000Z'}},
+        },
         dismiss: vi.fn(),
         restore: vi.fn(),
       },
@@ -192,5 +208,100 @@ describe('InboxSection', () => {
     })
 
     expect(screen.getByText('Ticked release')).toBeTruthy()
+  })
+
+  it('hides a snoozed item from Open and lists it in Snoozed', () => {
+    const future = '2027-01-01T00:00:00.000Z'
+
+    renderSection({
+      source: {
+        name: 'drafts',
+        title: 'Drafts',
+        useItems: () => ({items: [item('1', {title: 'Asleep for now'})]}),
+      },
+      snoozes: {
+        state: {
+          version: 1,
+          snoozed: {drafts: {'1': {at: '2026-01-01T00:00:00.000Z', until: future}}},
+        },
+        snooze: vi.fn(),
+        wake: vi.fn(),
+      },
+    })
+
+    expect(screen.queryByText('Asleep for now')).toBeNull()
+  })
+
+  it('wakes rather than dismisses on the snoozed tab', () => {
+    const future = '2027-01-01T00:00:00.000Z'
+
+    const {snoozes} = renderSection({
+      view: 'snoozed',
+      source: {
+        name: 'drafts',
+        title: 'Drafts',
+        useItems: () => ({items: [item('1', {title: 'Asleep for now'})]}),
+      },
+      snoozes: {
+        state: {
+          version: 1,
+          snoozed: {drafts: {'1': {at: '2026-01-01T00:00:00.000Z', until: future}}},
+        },
+        snooze: vi.fn(),
+        wake: vi.fn(),
+      },
+    })
+
+    selectItem('Asleep for now')
+    fireEvent.click(wakeNowButton())
+
+    expect(snoozes.wake).toHaveBeenCalledWith('drafts', '1')
+  })
+
+  it('snoozes a selected item for the chosen preset', () => {
+    const {snoozes} = renderSection({
+      source: {
+        name: 'drafts',
+        title: 'Drafts',
+        useItems: () => ({items: [item('1', {title: 'Snooze me'})]}),
+      },
+    })
+
+    selectItem('Snooze me')
+    fireEvent.change(screen.getByDisplayValue('action.snooze'), {target: {value: 'tomorrow'}})
+
+    expect(snoozes.snooze).toHaveBeenCalledWith('drafts', '1', expect.any(String))
+  })
+
+  it('renders the create row and adds an item, only in the open view', () => {
+    const create = vi.fn()
+
+    renderSection({
+      source: {
+        name: 'todos',
+        title: 'Todos',
+        useItems: () => ({items: [], create}),
+      },
+    })
+
+    fireEvent.change(screen.getByPlaceholderText('todos.addPlaceholder'), {
+      target: {value: 'Write the launch email'},
+    })
+    fireEvent.click(screen.getByText('todos.add'))
+
+    expect(create).toHaveBeenCalledWith('Write the launch email')
+  })
+
+  it('hides the create row outside the open view', () => {
+    renderSection({
+      view: 'done',
+      source: {
+        name: 'todos',
+        title: 'Todos',
+        useItems: () => ({items: [], create: vi.fn()}),
+      },
+    })
+
+    expect(screen.queryByPlaceholderText('todos.addPlaceholder')).toBeNull()
   })
 })

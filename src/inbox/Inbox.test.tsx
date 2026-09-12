@@ -4,7 +4,9 @@ import {render, screen} from '@testing-library/react'
 import {describe, expect, it, vi} from 'vitest'
 
 import {EMPTY_DISMISSALS} from '../store/dismissals'
+import {EMPTY_SNOOZES} from '../store/snoozes'
 import {type Dismissals} from '../store/useDismissals'
+import {type Snoozes} from '../store/useSnoozes'
 import {BoundedSection} from './Inbox'
 import {type InboxSource} from './types'
 
@@ -22,6 +24,12 @@ const dismissals: Dismissals = {
   restore: () => {},
 }
 
+const snoozes: Snoozes = {
+  state: EMPTY_SNOOZES,
+  snooze: () => {},
+  wake: () => {},
+}
+
 const theme = buildTheme()
 
 function renderSections(sources: InboxSource[]) {
@@ -32,6 +40,7 @@ function renderSections(sources: InboxSource[]) {
           dismissals={dismissals}
           key={source.name}
           onCount={() => {}}
+          snoozes={snoozes}
           source={source}
           view="open"
         />

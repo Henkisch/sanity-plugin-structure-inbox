@@ -49,13 +49,14 @@ extra menu item — because the plugin teaches the root pane to resolve the Inbo
 
 ## Sources
 
-A source is a feed of inbox items. Three ship with the plugin:
+A source is a feed of inbox items. Four ship with the plugin:
 
 | Source                                                       | What it lists                                                 | Whose      |
 | ------------------------------------------------------------ | ------------------------------------------------------------- | ---------- |
 | `openTasks({limit, onlyMine})`                               | Sanity Tasks assigned to you and still open.                  | Yours      |
 | `unpublishedDrafts({olderThanDays, limit, types, onlyMine})` | Drafts that have sat untouched long enough to look forgotten. | Everyone's |
 | `upcomingReleases({limit})`                                  | Releases that are scheduled or still being filled.            | Everyone's |
+| `todos({title, placement})`                                  | A personal scratch list you type into, right in the pane.     | Yours      |
 
 Sources choose their column with `placement`. `main` is the wide column on the
 left, for work to get through; `aside` is the narrow one on the right, for
@@ -74,6 +75,9 @@ with `audience`.
 - **`unpublishedDrafts` is shared.** A draft left unpublished is usually the
   team's problem rather than one person's, and anyone can pick it up, so
   `onlyMine` defaults to `false`.
+
+- **`todos` is always yours.** There is no "everyone's" reading of a todo you
+  typed for yourself, so `audience` is not configurable.
 
 Set `onlyMine: true` on drafts to narrow the list to your own unfinished work.
 It costs one extra request per refresh: authorship is not on the document, and
@@ -96,6 +100,28 @@ tolerates it going away, never a static import, so if Sanity removes it that
 source's card shows an error instead of the whole Studio failing to boot. The
 `upcomingReleases` source treats `useActiveReleases`, which is `@internal`,
 the same way.
+
+### Todos
+
+`todos` is the one built-in source with no external system behind it: the
+items *are* the plugin's own store, added through an inline input it renders
+above its own list. It has no `resolve` — there is nowhere else for a todo to
+complete — so ticking one off only removes it from your inbox, the same as
+any other source without `resolve`.
+
+A source opts into that input by returning `create` from `useItems`:
+
+```ts
+useItems() {
+  return {items, create: (title) => addMyOwnItem(title)}
+}
+```
+
+Worth knowing: a todo's "done" state lives entirely in the same 90-day-aging
+dismissal record every other source uses (see below) — there is no second
+place tracking completion. A todo finished more than 90 days ago reopens, and
+the list itself only grows; neither is likely to bite in practice, but it is
+a real edge if you lean on `todos` heavily.
 
 ### Writing your own
 
@@ -147,9 +173,19 @@ depends on the source, and the button's tooltip says which:
   and side effects this pane has no business performing, and running a release
   belongs in the Releases tool.
 
-**Open** and **Done** are tabs, so a finished row never sits among unfinished
-ones. In the Done tab the same control reads **Mark as not done** — a tick is
-never a one-way door.
+**Open**, **Snoozed** and **Done** are tabs, so a finished or sleeping row never
+sits among unfinished ones. In the Done tab the same control reads **Mark as
+not done** — a tick is never a one-way door.
+
+Selecting rows in the Open tab also offers **Snooze**, a picker with three
+presets — *later today*, *tomorrow*, *next week*. A snoozed item leaves Open
+for the Snoozed tab, where **Wake now** brings it back early. Left alone, it
+wakes on its own once the chosen time passes — no source involvement, and
+nothing changes anywhere outside this editor's own inbox.
+
+A snooze also **wakes early when the item changes** — the same rule a
+dismissal follows, and for the same reason: a snooze says "not now, I've seen
+this version", not "hide it no matter what happens to it".
 
 Return `resolve` to make a tick mean something real:
 
@@ -183,6 +219,11 @@ again". Omit `changedAt` for anything whose changes your source cannot
 observe, and never set it to a future value (a due date, a publish date) — a
 future `changedAt` would look "changed" the instant it is ticked and undo the
 dismissal immediately.
+
+Snoozes and todos each live in a sibling document of their own — same
+per-editor, unregistered-type approach, kept apart because neither shares a
+lifecycle with a dismissal: a snooze expires on its own, and a todo has
+nowhere else to live at all.
 
 ## Options
 

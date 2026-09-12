@@ -4,8 +4,12 @@ import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {isDismissed} from '../store/dismissals'
+import {resolveSnoozeUntil, type SnoozePreset} from '../store/snoozePresets'
+import {isSnoozed} from '../store/snoozes'
 import {type Dismissals} from '../store/useDismissals'
+import {type Snoozes} from '../store/useSnoozes'
 import {SectionCard} from '../ui/SectionCard'
+import {CreateItemRow} from './CreateItemRow'
 import {InboxRow} from './InboxRow'
 import {SelectionActions} from './SelectionActions'
 import {type InboxItem, type InboxSource, type InboxView} from './types'
@@ -13,6 +17,7 @@ import {type InboxItem, type InboxSource, type InboxView} from './types'
 interface InboxSectionProps {
   source: InboxSource
   dismissals: Dismissals
+  snoozes: Snoozes
   view: InboxView
   compact?: boolean
   /** Reports the open count so the pane can show a total. */
@@ -29,32 +34,51 @@ interface InboxSectionProps {
  * selected row shares the same notion of what "done" can mean.
  */
 export function InboxSection(props: InboxSectionProps) {
-  const {source, dismissals, view, compact = false, onCount} = props
+  const {source, dismissals, snoozes, view, compact = false, onCount} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
-  const {items, loading, error, resolve} = source.useItems()
+  const {items, loading, error, resolve, create} = source.useItems()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
 
-  const {open, done} = useMemo(() => {
+  // A snoozed item wakes on its own once `until` passes, which needs a clock
+  // to notice — reading one straight in the render body would be an impure
+  // render (React may call render more than once for the same commit). A
+  // once-a-minute tick is coarse enough for "wakes up at 08:00", and is the
+  // only thing that has to be fresh; every other read of `now` below reuses
+  // this same state.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
+  const {open, done, snoozed} = useMemo(() => {
     const openItems: InboxItem[] = []
     const doneItems: InboxItem[] = []
+    const snoozedItems: InboxItem[] = []
 
     for (const item of items) {
-      if (isDismissed(dismissals.state, source.name, item.id, item.changedAt)) doneItems.push(item)
-      else openItems.push(item)
+      if (isDismissed(dismissals.state, source.name, item.id, item.changedAt)) {
+        doneItems.push(item)
+      } else if (isSnoozed(snoozes.state, source.name, item.id, now, item.changedAt)) {
+        snoozedItems.push(item)
+      } else {
+        openItems.push(item)
+      }
     }
 
-    return {open: openItems, done: doneItems}
-  }, [items, dismissals.state, source.name])
+    return {open: openItems, done: doneItems, snoozed: snoozedItems}
+  }, [items, dismissals.state, snoozes.state, source.name, now])
 
   useEffect(() => {
     onCount(source.name, open.length)
   }, [onCount, source.name, open.length])
 
-  // One tab or the other, never both: the two lists mean different things, and
-  // interleaving them was what made a done row look like an open one.
-  const visible = view === 'done' ? done : open
+  // Exactly one of the three at a time: the tabs mean different things, and
+  // interleaving them was what made a done or snoozed row look like an open
+  // one.
+  const visible = view === 'done' ? done : view === 'snoozed' ? snoozed : open
 
   // A row can disappear while selected — someone else publishes the draft, or
   // the editor switches tabs. Deriving the selection from what is on screen
@@ -74,8 +98,8 @@ export function InboxSection(props: InboxSectionProps) {
   const clearSelection = useCallback(() => setSelectedIds([]), [])
 
   /**
-   * The one action the selection bar offers, in whichever direction the current
-   * tab implies.
+   * The primary action the selection bar offers, in whichever direction the
+   * current tab implies.
    *
    * Marking done means two things at once when the source supports it: complete
    * the item where it lives, then take it out of this editor's inbox. The order
@@ -85,6 +109,12 @@ export function InboxSection(props: InboxSectionProps) {
   const confirmSelection = useCallback(async () => {
     if (view === 'done') {
       for (const item of selected) dismissals.restore(source.name, item.id)
+      setSelectedIds([])
+      return
+    }
+
+    if (view === 'snoozed') {
+      for (const item of selected) snoozes.wake(source.name, item.id)
       setSelectedIds([])
       return
     }
@@ -112,7 +142,17 @@ export function InboxSection(props: InboxSectionProps) {
     } finally {
       setBusy(false)
     }
-  }, [view, resolve, selected, dismissals, source.name])
+  }, [view, resolve, selected, dismissals, snoozes, source.name])
+
+  /** Only reachable from the open view — see `onSnooze` on `SelectionActions`. */
+  const confirmSnooze = useCallback(
+    (preset: SnoozePreset) => {
+      const until = resolveSnoozeUntil(preset)
+      for (const item of selected) snoozes.snooze(source.name, item.id, until)
+      setSelectedIds([])
+    },
+    [selected, snoozes, source.name],
+  )
 
   const isEmpty = visible.length === 0
 
@@ -135,12 +175,15 @@ export function InboxSection(props: InboxSectionProps) {
             count={selected.length}
             onCancel={clearSelection}
             onConfirm={confirmSelection}
+            onSnooze={view === 'open' ? confirmSnooze : undefined}
             resolves={Boolean(resolve)}
-            undo={view === 'done'}
+            view={view}
           />
         ) : undefined
       }
     >
+      {view === 'open' && create && <CreateItemRow onCreate={create} />}
+
       {loading && isEmpty ? (
         <Box padding={3}>
           <Text muted size={1}>
@@ -150,7 +193,11 @@ export function InboxSection(props: InboxSectionProps) {
       ) : isEmpty ? (
         <Box padding={3}>
           <Text muted size={1}>
-            {view === 'done' ? t('source.noneDone') : t('source.empty')}
+            {view === 'done'
+              ? t('source.noneDone')
+              : view === 'snoozed'
+                ? t('source.noneSnoozed')
+                : t('source.empty')}
           </Text>
         </Box>
       ) : (

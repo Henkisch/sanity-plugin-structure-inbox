@@ -10,12 +10,14 @@ const enUS = {
   'inbox.waiting_other': '{{count}} things waiting on you',
   'tab.open': 'Open',
   'tab.done': 'Done',
+  'tab.snoozed': 'Snoozed',
   'inbox.unconfigured.title': 'Nothing in your inbox yet',
   'inbox.unconfigured.description':
     'Pass sources to structureInbox() to fill this pane — open tasks, upcoming releases, forgotten drafts.',
 
   'source.empty': 'All clear.',
   'source.noneDone': 'Nothing ticked off yet.',
+  'source.noneSnoozed': 'Nothing snoozed.',
   'audience.mine': 'Assigned to you',
   'audience.everyone': 'Everyone',
   'source.loading': 'Loading…',
@@ -33,6 +35,15 @@ const enUS = {
   'action.markDone.mine': 'Removes it from your inbox. Nothing changes for anyone else.',
   'action.markDone.resolves': 'Completes it for everyone, and removes it from your inbox.',
   'action.markNotDone': 'Mark as not done',
+  'action.wakeNow': 'Wake now',
+
+  'action.snooze': 'Snooze',
+  'action.snooze.laterToday': 'Later today',
+  'action.snooze.tomorrow': 'Tomorrow',
+  'action.snooze.nextWeek': 'Next week',
+
+  'todos.addPlaceholder': 'Add a todo…',
+  'todos.add': 'Add',
 }
 
 export default enUS
