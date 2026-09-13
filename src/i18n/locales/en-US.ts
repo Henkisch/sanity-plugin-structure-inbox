@@ -41,6 +41,8 @@ const enUS = {
   'undo.snoozed_other': '{{count}} snoozed',
   'undo.assigned_one': '{{count}} assigned to {{name}}',
   'undo.assigned_other': '{{count}} assigned to {{name}}',
+  'undo.savedToTodos_one': '{{count}} saved to your todos',
+  'undo.savedToTodos_other': '{{count}} saved to your todos',
   'undo.unassigned': 'Unassigned',
   'undo.done': 'Undone',
 
@@ -56,6 +58,7 @@ const enUS = {
   'action.snooze.nextWeek': 'Next week',
 
   'action.assign': 'Assign to…',
+  'action.saveToTodos': 'Save to todos',
   'action.delete': 'Delete',
 
   'todos.addPlaceholder': 'Add a todo…',
