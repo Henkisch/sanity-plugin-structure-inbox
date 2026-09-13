@@ -351,6 +351,35 @@ const digests = buildDigest(sources, editors)
 
 This intentionally stays a recipe rather than shipped code: a digest's cadence, channel and formatting are product decisions for your Studio, not this plugin's to make.
 
+### Recipe: cleaning up after a departed editor
+
+`structureInbox.dismissals.<userId>`, `.snoozes.<userId>` and
+`.todos.<userId>` persist forever once created — nothing in this plugin ever
+deletes one, even for an editor no longer on the project. Over a project's
+life this adds up to real, if small, unbounded storage growth with no
+built-in way to find or reclaim it.
+
+`findStaleEditorDocuments`, exported for exactly this, is the diff — you
+supply both lists, it tells you which documents are now orphaned:
+
+```ts
+import {EDITOR_DOC_TYPES, findStaleEditorDocuments} from 'sanity-plugin-structure-inbox'
+
+const docs = await client.fetch(`*[_type in $types]{_id, _type}`, {types: EDITOR_DOC_TYPES})
+const activeUserIds = await fetchCurrentProjectMemberIds() // your own fetch, e.g. Sanity's project members API
+
+const staleIds = findStaleEditorDocuments(docs, activeUserIds)
+// staleIds: string[] — delete however and whenever you like, e.g.:
+// await client.delete({query: '*[_id in $ids]', params: {ids: staleIds}})
+```
+
+Run this whenever suits your project — a one-off cleanup, or a scheduled
+Sanity Function alongside the digest recipe above. This stays a recipe, not
+automated behavior, deliberately: this plugin has no independent way to
+verify your project's current membership, so it should never delete a
+document on your behalf without you supplying and reviewing that list
+yourself.
+
 ## Options
 
 | Option              | Type            | Default           |                                                                                   |
