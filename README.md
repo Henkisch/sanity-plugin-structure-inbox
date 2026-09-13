@@ -320,7 +320,9 @@ dismissal immediately.
 Snoozes and todos each live in a sibling document of their own — same
 per-editor, unregistered-type approach, kept apart because neither shares a
 lifecycle with a dismissal: a snooze expires on its own, and a todo has
-nowhere else to live at all.
+nowhere else to live at all — which is also why a dismissed todo, alone
+among built-in sources, never ages back out of "done" the way every other
+source's dismissals do after 90 days.
 
 ### Recipe: a digest outside the Studio
 
