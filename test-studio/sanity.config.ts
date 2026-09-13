@@ -11,6 +11,8 @@ import {structureTool} from 'sanity/structure'
 import {type StructureResolver} from 'sanity/structure'
 
 import {activeToolLayoutProbe} from './plugins/activeToolLayoutProbe'
+import {navBadgeSpike} from './plugins/navBadgeSpike'
+import {navbarBadgeSpike} from './plugins/navbarBadgeSpike'
 import {schemaTypes} from './schemaTypes'
 
 const projectId = process.env.SANITY_STUDIO_PROJECT_ID!
@@ -113,6 +115,24 @@ export default defineConfig([
         },
       }),
       structureInbox({showInList: true, sources: [unpublishedDrafts({olderThanDays: 0})]}),
+    ],
+    schema: {types: schemaTypes},
+  },
+  {
+    // Plan 011 spike: a live badge on the Structure tool's own nav icon, via
+    // `Tool.icon` as a React component rather than a `studio.components.navbar`
+    // override — see `plans/011-investigate-nav-badge.md` and
+    // `./plugins/navBadgeSpike.tsx`.
+    name: 'badgeSpike',
+    title: 'Nav badge spike',
+    basePath: '/badge-spike',
+    projectId,
+    dataset,
+    plugins: [
+      structureTool({structure}),
+      structureInbox({sources: [unpublishedDrafts({olderThanDays: 0})]}),
+      navBadgeSpike(),
+      navbarBadgeSpike(),
     ],
     schema: {types: schemaTypes},
   },
