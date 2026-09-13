@@ -10,6 +10,7 @@ import {
   type TodosState,
   withoutTodo,
   withTodo,
+  withUpdatedTodo,
 } from './todos'
 
 /** Never registered in the Studio schema — see `useDismissals` for why. */
@@ -26,6 +27,8 @@ export interface Todos {
   add: (input: TodoInput) => void
   /** Removes a todo for good — see `withoutTodo`. */
   remove: (id: string) => void
+  /** Edits a todo in place — see `withUpdatedTodo`. */
+  update: (id: string, input: TodoInput) => void
 }
 
 /**
@@ -105,5 +108,11 @@ export function useTodos(): Todos {
     setState((current) => withoutTodo(current, id))
   }, [])
 
-  return useMemo(() => ({state, add, remove}), [state, add, remove])
+  const update = useCallback((id: string, input: TodoInput) => {
+    dirtyRef.current = true
+    hasLocalEditRef.current = true
+    setState((current) => withUpdatedTodo(current, id, input))
+  }, [])
+
+  return useMemo(() => ({state, add, remove, update}), [state, add, remove, update])
 }

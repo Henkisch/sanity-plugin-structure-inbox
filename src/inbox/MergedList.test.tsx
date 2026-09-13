@@ -81,6 +81,26 @@ describe('MergedList', () => {
     expect(titles).toEqual(['Item t1', 'Item d1'])
   })
 
+  it('shows an assignee avatar instead of restating the audience in text', () => {
+    const reports = {
+      tasks: report('tasks', 'Your tasks', {
+        open: [
+          item('t1', {
+            title: 'Follow up',
+            assignee: {label: 'Ada Lovelace'},
+          }),
+        ],
+      }),
+    }
+
+    renderList({reports, order: ['tasks']})
+
+    expect(screen.getByTitle('Ada Lovelace')).toBeTruthy()
+    expect(screen.getByText('AL')).toBeTruthy()
+    expect(screen.getByText(/Your tasks/)).toBeTruthy()
+    expect(screen.queryByText(/audience\./)).toBeNull()
+  })
+
   it('tags each row with its own source', () => {
     const reports = {
       drafts: report('drafts', 'Unpublished drafts', {
@@ -148,7 +168,7 @@ describe('MergedList', () => {
     expect(snoozes.snooze).toHaveBeenCalledWith('tasks', 't1', expect.any(String))
   })
 
-  it('selects a row by clicking anywhere on it, not just its checkbox', () => {
+  it('selects a row by clicking anywhere on it, not just its checkbox', async () => {
     const reports = {
       drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Click me'})]}),
     }
@@ -159,7 +179,9 @@ describe('MergedList', () => {
     expect(screen.getByText('selection.count')).toBeTruthy()
 
     fireEvent.click(screen.getByText('Click me'))
-    expect(screen.queryByText('selection.count')).toBeNull()
+    // The bar lingers briefly so its collapse can ease shut rather than snap
+    // — see `useDelayedUnmount`.
+    await vi.waitFor(() => expect(screen.queryByText('selection.count')).toBeNull())
   })
 
   it('suppresses per-row ask AI and delete once more than one row is selected', () => {
@@ -182,7 +204,7 @@ describe('MergedList', () => {
     expect(screen.queryByText('action.delete')).toBeNull()
   })
 
-  it('selects and clears every row from the select-all header', () => {
+  it('selects and clears every row from the select-all header', async () => {
     const reports = {
       drafts: report('drafts', 'Drafts', {
         open: [item('d1', {title: 'Draft one'}), item('d2', {title: 'Draft two'})],
@@ -197,7 +219,7 @@ describe('MergedList', () => {
     expect(selectAll).toHaveProperty('checked', true)
 
     fireEvent.click(selectAll)
-    expect(screen.queryByText('action.markDone')).toBeNull()
+    await vi.waitFor(() => expect(screen.queryByText('action.markDone')).toBeNull())
   })
 
   it('marks the select-all header indeterminate when only some rows are selected', () => {
@@ -250,6 +272,24 @@ describe('MergedList', () => {
     expect(snoozes.wake).toHaveBeenCalledWith('drafts', 'd1')
   })
 
+  it('confirms who a selection was assigned to, so a click landing is never a guess', async () => {
+    const toUser = vi.fn().mockResolvedValue(undefined)
+    const reports = {
+      drafts: report('drafts', 'Drafts', {
+        open: [item('d1', {title: 'Draft one'})],
+        assign: {users: [{id: 'user-1', label: 'Ada'}], toUser},
+      }),
+    }
+
+    renderList({reports, order: ['drafts']})
+
+    selectItem('Draft one')
+    fireEvent.change(screen.getByDisplayValue('action.assign'), {target: {value: 'user-1'}})
+
+    await vi.waitFor(() => expect(toUser).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText('undo.assigned')).toBeTruthy()
+  })
+
   it('offers assign only when every selected row shares one source', () => {
     const toUser = vi.fn().mockResolvedValue(undefined)
     const reports = {
@@ -289,6 +329,38 @@ describe('MergedList', () => {
       description: undefined,
       dueBy: undefined,
     })
+  })
+
+  it('opens a pre-filled edit dialog when a row is clicked, and saves through update', () => {
+    const update = vi.fn()
+    const reports = {
+      todos: report('todos', 'Todos', {
+        open: [item('t1', {title: 'Write docs', description: 'Draft notes', dueBy: '2026-02-01'})],
+        create: vi.fn(),
+        update,
+      }),
+    }
+
+    renderList({reports, order: ['todos']})
+
+    fireEvent.click(screen.getByText('Write docs'))
+
+    expect(screen.getByText('todos.editButton')).toBeTruthy()
+    expect(screen.getByDisplayValue('Write docs')).toBeTruthy()
+    expect(screen.getByDisplayValue('Draft notes')).toBeTruthy()
+    expect(screen.getByDisplayValue('2026-02-01')).toBeTruthy()
+
+    fireEvent.change(screen.getByDisplayValue('Write docs'), {
+      target: {value: 'Write the docs'},
+    })
+    fireEvent.click(screen.getByText('todos.save'))
+
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({id: 't1'}), {
+      title: 'Write the docs',
+      description: 'Draft notes',
+      dueBy: '2026-02-01',
+    })
+    expect(screen.queryByText('todos.editButton')).toBeNull()
   })
 
   it('includes a description and due date when filled in', () => {

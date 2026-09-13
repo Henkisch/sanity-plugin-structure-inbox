@@ -1,4 +1,4 @@
-import {Badge, Box, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
+import {Box, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
 import {useCallback, useEffect, useMemo, useState} from 'react'
 import {useTranslation} from 'sanity'
 
@@ -13,11 +13,15 @@ import {CreateItemRow} from './CreateItemRow'
 import {InboxRow} from './InboxRow'
 import {SelectionActions} from './SelectionActions'
 import {type InboxItem, type InboxSource, type InboxView} from './types'
+import {useDelayedUnmount} from './useDelayedUnmount'
 import {EXIT_ANIMATION_MS, useUndoToast} from './useUndoToast'
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
+
+/** How long the selection bar takes to ease open or shut — see `useDelayedUnmount`. */
+const SELECTION_BAR_TRANSITION_MS = 200
 
 interface InboxSectionProps {
   source: InboxSource
@@ -49,11 +53,14 @@ export function InboxSection(props: InboxSectionProps) {
   const {source, dismissals, snoozes, view, compact = false, onCount, onVisibleCount} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
-  const {items, loading, error, resolve, create, assess, assign, remove} = source.useItems()
+  const {items, loading, error, resolve, create, assess, assign, remove, update} = source.useItems()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [leavingIds, setLeavingIds] = useState<ReadonlySet<string>>(new Set())
   const showUndoToast = useUndoToast()
+
+  // The item being edited, if any — see `MergedList` for the full reasoning.
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   // A snoozed item wakes on its own once `until` passes, which needs a clock
   // to notice — reading one straight in the render body would be an impure
@@ -114,6 +121,13 @@ export function InboxSection(props: InboxSectionProps) {
   }, [])
 
   const clearSelection = useCallback(() => setSelectedIds([]), [])
+
+  // See `MergedList` for the full reasoning — same jump, same fix, and the
+  // same reason this tracks only the count rather than the `selected` array.
+  const showSelectionBar = useDelayedUnmount(selected.length > 0, SELECTION_BAR_TRANSITION_MS)
+  const [lastCount, setLastCount] = useState(selected.length)
+  if (selected.length > 0 && selected.length !== lastCount) setLastCount(selected.length)
+  const displayCount = selected.length > 0 ? selected.length : lastCount
 
   const allSelected = visible.length > 0 && selected.length === visible.length
   const someSelected = selected.length > 0 && !allSelected
@@ -225,54 +239,101 @@ export function InboxSection(props: InboxSectionProps) {
     async (userId: string) => {
       if (!assign) return
       const targets = [...selected]
+      const assignee = assign.users.find((user) => user.id === userId)?.label ?? userId
 
       setBusy(true)
       try {
         const results = await Promise.allSettled(targets.map((item) => assign.toUser(item, userId)))
+
+        let assignedCount = 0
         results.forEach((result) => {
           if (result.status === 'rejected') {
             console.error('[sanity-plugin-structure-inbox] could not assign item', result.reason)
+          } else {
+            assignedCount += 1
           }
         })
+
         setSelectedIds([])
+
+        // Assigning creates a new Task rather than changing the row that was
+        // selected, so nothing in the list itself said the click landed —
+        // this is the only confirmation there is.
+        if (assignedCount > 0) {
+          showUndoToast({title: t('undo.assigned', {count: assignedCount, name: assignee})})
+        }
       } finally {
         setBusy(false)
       }
     },
-    [assign, selected],
+    [assign, selected, showUndoToast, t],
   )
 
   const isEmpty = visible.length === 0
+  const editingItem = editingId ? visible.find((item) => item.id === editingId) : undefined
 
   return (
     <SectionCard
-      badge={open.length > 0 ? <Badge fontSize={0}>{open.length}</Badge> : undefined}
       // Handed over rather than thrown: throwing here would escape the boundary
       // that this very component renders, and take the whole tool with it.
       error={error}
       icon={source.icon}
-      // Says whose list this is. Without it, a personal task list and the
-      // team's forgotten drafts look identical, while a tick means something
-      // different in each.
-      note={source.audience === 'mine' ? t('audience.mine') : t('audience.everyone')}
+      // Only for `mine`: `everyone` is the common case (most sources default
+      // to it), and naming it on every header read as a leftover rather than
+      // information — the same reasoning `describeSource` in `MergedList`
+      // now applies per row. A personal source is the one worth calling out.
+      note={source.audience === 'mine' ? t('audience.mine') : undefined}
       title={source.title}
       toolbar={
-        selected.length > 0 ? (
-          <SelectionActions
-            assignableUsers={view === 'open' ? assign?.users : undefined}
-            busy={busy}
-            count={selected.length}
-            onAssign={view === 'open' && assign ? confirmAssign : undefined}
-            onCancel={clearSelection}
-            onConfirm={confirmSelection}
-            onSnooze={view === 'open' ? confirmSnooze : undefined}
-            resolves={Boolean(resolve)}
-            view={view}
-          />
-        ) : undefined
+        // See `MergedList` for why this is a grid that eases open and shut
+        // rather than a plain conditional render.
+        <Box
+          style={{
+            display: 'grid',
+            gridTemplateRows: selected.length > 0 ? '1fr' : '0fr',
+            transition: `grid-template-rows ${SELECTION_BAR_TRANSITION_MS}ms ease`,
+          }}
+        >
+          <Box style={{minHeight: 0, overflow: 'hidden'}}>
+            {showSelectionBar && (
+              <SelectionActions
+                assignableUsers={view === 'open' ? assign?.users : undefined}
+                busy={busy}
+                count={displayCount}
+                onAssign={view === 'open' && assign ? confirmAssign : undefined}
+                onCancel={clearSelection}
+                onConfirm={confirmSelection}
+                onSnooze={view === 'open' ? confirmSnooze : undefined}
+                resolves={Boolean(resolve)}
+                view={view}
+              />
+            )}
+          </Box>
+        </Box>
       }
     >
-      {view === 'open' && create && <CreateItemRow onCreate={create} />}
+      {view === 'open' && create && (
+        <CreateItemRow
+          editing={
+            editingItem
+              ? {
+                  key: editingItem.id,
+                  title: editingItem.title,
+                  description: editingItem.description,
+                  dueBy: editingItem.dueBy,
+                  onSave: (input) => {
+                    Promise.resolve(update?.(editingItem, input)).catch((error: unknown) => {
+                      console.error('[sanity-plugin-structure-inbox] could not update item', error)
+                    })
+                    setEditingId(null)
+                  },
+                  onCancel: () => setEditingId(null),
+                }
+              : undefined
+          }
+          onCreate={create}
+        />
+      )}
 
       {loading && isEmpty ? (
         <Box padding={3}>
@@ -292,8 +353,12 @@ export function InboxSection(props: InboxSectionProps) {
         </Box>
       ) : (
         <Stack>
-          <Card borderBottom padding={2}>
-            <Flex align="center">
+          <Card borderBottom paddingX={3} paddingY={2}>
+            {/* See `MergedList`'s identical header for why this `Flex` gets
+                its own extra `paddingLeft={1}` rather than bumping this
+                Card's padding a step — it lines this checkbox up with the
+                ones on every row below. */}
+            <Flex align="center" paddingLeft={1}>
               <Checkbox
                 checked={allSelected}
                 indeterminate={someSelected}
@@ -310,13 +375,49 @@ export function InboxSection(props: InboxSectionProps) {
           <Stack gap={1} padding={1}>
             {visible.map((item) => (
               <InboxRow
+                assignableUsers={assign?.users}
                 compact={compact}
                 done={view === 'done'}
                 item={item}
                 key={item.id}
                 leaving={leavingIds.has(item.id)}
                 onAssess={assess}
+                onEdit={update ? () => setEditingId(item.id) : undefined}
                 onlySelected={selected.length === 1 && selectedIds.includes(item.id)}
+                onReassign={
+                  assign
+                    ? (targetItem, userId) => {
+                        const assignee = assign.users.find((u) => u.id === userId)?.label ?? userId
+                        assign
+                          .toUser(targetItem, userId)
+                          .then(() =>
+                            showUndoToast({title: t('undo.assigned', {count: 1, name: assignee})}),
+                          )
+                          .catch((error: unknown) => {
+                            console.error(
+                              '[sanity-plugin-structure-inbox] could not assign item',
+                              error,
+                            )
+                          })
+                      }
+                    : undefined
+                }
+                onUnassign={
+                  assign?.unassign
+                    ? (targetItem) => {
+                        const unassign = assign.unassign
+                        if (!unassign) return
+                        unassign(targetItem)
+                          .then(() => showUndoToast({title: t('undo.unassigned')}))
+                          .catch((error: unknown) => {
+                            console.error(
+                              '[sanity-plugin-structure-inbox] could not unassign item',
+                              error,
+                            )
+                          })
+                      }
+                    : undefined
+                }
                 onRemove={remove}
                 onSelectedChange={handleSelectedChange}
                 selected={selectedIds.includes(item.id)}

@@ -436,7 +436,7 @@ describe('InboxSection', () => {
     expect(screen.queryByText('action.delete')).toBeNull()
   })
 
-  it('selects a row by clicking anywhere on it, not just its checkbox', () => {
+  it('selects a row by clicking anywhere on it, not just its checkbox', async () => {
     renderSection({
       source: {
         name: 'drafts',
@@ -449,10 +449,12 @@ describe('InboxSection', () => {
     expect(screen.getByText('selection.count')).toBeTruthy()
 
     fireEvent.click(screen.getByText('Click me'))
-    expect(screen.queryByText('selection.count')).toBeNull()
+    // The bar lingers briefly so its collapse can ease shut rather than snap
+    // — see `useDelayedUnmount`.
+    await vi.waitFor(() => expect(screen.queryByText('selection.count')).toBeNull())
   })
 
-  it('selects and clears every visible row from the select-all header', () => {
+  it('selects and clears every visible row from the select-all header', async () => {
     renderSection({
       source: {
         name: 'drafts',
@@ -473,7 +475,7 @@ describe('InboxSection', () => {
     expect(selectAll).toHaveProperty('checked', true)
 
     fireEvent.click(selectAll)
-    expect(screen.queryByText('action.markDone')).toBeNull()
+    await vi.waitFor(() => expect(screen.queryByText('action.markDone')).toBeNull())
   })
 
   it('hides the assign picker when there is no one to assign to', () => {

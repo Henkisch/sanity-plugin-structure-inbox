@@ -82,6 +82,25 @@ const QUERY = `*[
   "title": coalesce(title, name, label, _id)
 }`
 
+interface TaskTargetRow {
+  _id: string
+  targetId: string
+  assignedTo?: string
+}
+
+/**
+ * Every open task's target, regardless of which draft this source is about
+ * to list — cheaper than re-running one query per row, and it's how a draft's
+ * own row learns it has been handed to someone: `assign` below creates a task
+ * elsewhere, and nothing before this pointed back from the task to the draft
+ * it targets. Carrying the task's own `_id` here too is what lets `assign`
+ * reassign the existing task instead of creating a second one pointed at the
+ * same draft.
+ */
+const TASK_TARGETS_QUERY = `*[
+  _type == "tasks.task" && status == "open" && defined(target.document._ref)
+]{_id, "targetId": target.document._ref, assignedTo}`
+
 /**
  * Drafts that have sat unpublished long enough to look forgotten.
  *
@@ -113,13 +132,21 @@ const QUERY = `*[
  * `tasks.task` itself is `@beta` in Sanity's own typings, same as
  * `useAddonDataset`. `useUserListWithPermissions`, which supplies who a
  * draft can go to, is `@beta` for the same reason and reached the same way.
+ *
+ * A draft's own row also carries `assignee` once something has assigned it —
+ * `TASK_TARGETS_QUERY` reads every open task's target back out of the addon
+ * dataset and joins it onto whichever draft that target's canonical id
+ * matches. Without this, the only sign an assign had worked was a second,
+ * disconnected "Follow up: …" row appearing elsewhere in the list — an avatar
+ * appearing right where the draft already lives says the same thing without
+ * the reader having to make that connection themselves.
  */
 export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): InboxSource {
   const {
     olderThanDays = 7,
     limit = 10,
     types,
-    title = 'Unpublished drafts',
+    title = 'Draft',
     placement = 'main',
     onlyMine = false,
   } = options
@@ -185,6 +212,61 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
 
       const result = useObservable(result$, {items: [], loading: true})
 
+      // Live, same reasoning as `result$`: someone assigning or closing a task
+      // elsewhere should update a draft's avatar without the editor having to
+      // navigate away and back.
+      const openTaskByTarget$ = useMemo(() => {
+        if (!addonClient) return of<Map<string, {taskId: string; assignedTo?: string}>>(new Map())
+
+        const fetch$ = addonClient.observable.fetch<TaskTargetRow[]>(TASK_TARGETS_QUERY)
+
+        return liveQuery$(addonClient, TASK_TARGETS_QUERY, {}, fetch$).pipe(
+          map((rows) => {
+            const byTarget = new Map<string, {taskId: string; assignedTo?: string}>()
+            for (const row of rows) {
+              byTarget.set(row.targetId, {taskId: row._id, assignedTo: row.assignedTo})
+            }
+            return byTarget
+          }),
+          catchError(() => of(new Map<string, {taskId: string; assignedTo?: string}>())),
+        )
+      }, [addonClient])
+
+      const openTaskByTarget = useObservable(
+        openTaskByTarget$,
+        new Map<string, {taskId: string; assignedTo?: string}>(),
+      )
+
+      // `assignable` already carries exactly the display name and photo an
+      // avatar needs — built once here rather than looked up per row. Its own
+      // `imageUrl` is not reliably populated, though, so the one entry this
+      // editor can vouch for personally — themselves — uses the photo
+      // `useCurrentUser` already has instead.
+      const assigneesById = useMemo(() => {
+        const byId = new Map<string, {label: string; imageUrl?: string}>()
+        for (const user of assignable ?? []) {
+          const isSelf = user.id === userId
+          byId.set(user.id, {
+            label: user.displayName || user.email || user.id,
+            imageUrl: (isSelf && currentUser?.profileImage) || user.imageUrl,
+          })
+        }
+        return byId
+      }, [assignable, userId, currentUser])
+
+      const items = useMemo(
+        () =>
+          result.items.map((item): InboxItem => {
+            const canonicalId = item.intent?.params.id
+            const assignedTo = canonicalId
+              ? openTaskByTarget.get(canonicalId)?.assignedTo
+              : undefined
+            const assignee = assignedTo ? assigneesById.get(assignedTo) : undefined
+            return assignee ? {...item, assignee} : item
+          }),
+        [result.items, openTaskByTarget, assigneesById],
+      )
+
       const assess = useCallback(
         async (item: InboxItem) => {
           const message = await client.agent.action.prompt({
@@ -218,6 +300,17 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
             const targetId = item.intent?.params.id
             const documentType = item.intent?.params.type
 
+            // Reassigning a draft that already has an open task pointed at
+            // it updates that same task instead of creating a second one —
+            // the avatar's own picker is how an already-assigned draft gets
+            // reassigned, and a fresh "Follow up" task every time it fired
+            // was duplicating the same one endlessly instead.
+            const existingTaskId = targetId ? openTaskByTarget.get(targetId)?.taskId : undefined
+            if (existingTaskId) {
+              await addonClient.patch(existingTaskId).set({assignedTo}).commit()
+              return
+            }
+
             await addonClient.create({
               _type: 'tasks.task',
               title: `Follow up: ${item.title}`,
@@ -238,10 +331,19 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
                 }),
             })
           },
+          unassign: async (item: InboxItem) => {
+            // Nothing to unassign if there was never a task pointed at this
+            // draft to begin with — the avatar that offers "Unassign" only
+            // ever shows once one exists.
+            const targetId = item.intent?.params.id
+            const existingTaskId = targetId ? openTaskByTarget.get(targetId)?.taskId : undefined
+            if (existingTaskId)
+              await addonClient.patch(existingTaskId).unset(['assignedTo']).commit()
+          },
         }
-      }, [addonClient, assignable, client])
+      }, [addonClient, assignable, client, openTaskByTarget])
 
-      return useMemo(() => ({...result, assess, assign}), [result, assess, assign])
+      return useMemo(() => ({...result, items, assess, assign}), [result, items, assess, assign])
     },
   }
 }

@@ -49,10 +49,20 @@ export function SectionCard(props: SectionCardProps) {
     // clipped by this card's radius instead of bleeding past it.
     <Card border overflow="hidden" radius={3} shadow={0}>
       {title && (
-        <Card borderBottom padding={3} radius={0} tone="transparent">
-          <Flex align="center" gap={2}>
+        <Card borderBottom paddingX={3} paddingY={4} radius={0} tone="transparent">
+          {/* `paddingLeft={2}` here, on top of this Card's own `padding={3}`
+              — a row's checkbox carries this same extra padding
+              (`InboxRow.tsx`'s own checkbox wrapper), which this
+              single-layer header doesn't otherwise have. The theme's
+              spacing scale has no step between `3` and `4` that lines up
+              with it, so it's added as an explicit inner `paddingLeft`
+              rather than by bumping the Card's own padding a full step —
+              `2`, not the `1` that lined up the plain checkbox below,
+              since the icon's own glyph sits slightly inset from its
+              bounding box at this size. */}
+          <Flex align="center" gap={3} paddingLeft={2}>
             {Icon && (
-              <Text muted size={1}>
+              <Text muted size={2}>
                 <Icon />
               </Text>
             )}

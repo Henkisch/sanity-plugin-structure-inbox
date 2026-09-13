@@ -33,15 +33,15 @@ interface SourceFeedProps {
  */
 export function SourceFeed(props: SourceFeedProps) {
   const {source, dismissals, snoozes, now, onReport} = props
-  const {items, loading, error, resolve, create, assess, assign, remove} = source.useItems()
+  const {items, loading, error, resolve, create, assess, assign, remove, update} = source.useItems()
 
   const {open, done, snoozed} = useMemo(
     () => splitItems(items, source.name, dismissals.state, snoozes.state, now),
     [items, source.name, dismissals.state, snoozes.state, now],
   )
 
-  // `resolve`/`create`/`assess`/`assign`/`remove` are read through a ref
-  // rather than named directly in the effect's own dependency list below:
+  // `resolve`/`create`/`assess`/`assign`/`remove`/`update` are read through a
+  // ref rather than named directly in the effect's own dependency list below:
   // at least one
   // built-in source gets `assign` from a Sanity hook
   // (`useUserListWithPermissions`) that does not promise a stable reference
@@ -57,15 +57,16 @@ export function SourceFeed(props: SourceFeedProps) {
   // holds the actual functions, updated in their own effect that (being
   // declared first) always runs before this one in the same commit, so a
   // firing report always reads the latest ones.
-  const capabilities = useRef({resolve, create, assess, assign, remove})
+  const capabilities = useRef({resolve, create, assess, assign, remove, update})
   useEffect(() => {
-    capabilities.current = {resolve, create, assess, assign, remove}
+    capabilities.current = {resolve, create, assess, assign, remove, update}
   })
 
   const hasResolve = Boolean(resolve)
   const hasCreate = Boolean(create)
   const hasAssess = Boolean(assess)
   const hasRemove = Boolean(remove)
+  const hasUpdate = Boolean(update)
   const assignUserCount = assign?.users.length ?? -1
 
   useEffect(() => {
@@ -82,6 +83,7 @@ export function SourceFeed(props: SourceFeedProps) {
     hasCreate,
     hasAssess,
     hasRemove,
+    hasUpdate,
     assignUserCount,
   ])
 

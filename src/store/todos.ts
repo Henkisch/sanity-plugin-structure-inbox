@@ -5,6 +5,12 @@ export interface TodoItem {
   description?: string
   /** ISO date (`yyyy-mm-dd`) — a due date, not a moment, so no time of day. */
   dueBy?: string
+  /**
+   * Bumped by `withUpdatedTodo`. Absent on a todo nothing has ever edited —
+   * lets `mergeTodos` prefer whichever copy of a conflicting id was actually
+   * touched more recently, rather than an arbitrary side.
+   */
+  updatedAt?: string
 }
 
 export interface TodoInput {
@@ -39,7 +45,8 @@ function isTodoItem(value: unknown): value is TodoItem {
 
   const description = 'description' in value ? value.description : undefined
   const dueBy = 'dueBy' in value ? value.dueBy : undefined
-  return isOptionalString(description) && isOptionalString(dueBy)
+  const updatedAt = 'updatedAt' in value ? value.updatedAt : undefined
+  return isOptionalString(description) && isOptionalString(dueBy) && isOptionalString(updatedAt)
 }
 
 /** Parses a stored value, discarding anything that is not what we wrote. */
@@ -76,6 +83,31 @@ export function withTodo(
 }
 
 /**
+ * Edits a todo in place. A blank (or all-whitespace) title is silently
+ * dropped, same as `withTodo` — better to leave the old title standing than
+ * save one nobody would recognise as intentional.
+ */
+export function withUpdatedTodo(
+  state: TodosState,
+  id: string,
+  input: TodoInput,
+  updatedAt = new Date().toISOString(),
+): TodosState {
+  const title = input.title.trim()
+  if (!title) return state
+
+  const description = input.description?.trim() || undefined
+  const dueBy = input.dueBy || undefined
+
+  return {
+    version: TODOS_VERSION,
+    items: state.items.map((item) =>
+      item.id === id ? {...item, title, description, dueBy, updatedAt} : item,
+    ),
+  }
+}
+
+/**
  * Removes a todo for good — not a dismissal, which only hides it while
  * leaving it in this list forever. Marking one done still goes through the
  * shared dismissal record like any other source; this is for clearing out
@@ -88,14 +120,19 @@ export function withoutTodo(state: TodosState, id: string): TodosState {
 }
 
 /**
- * Unions two todo lists by id. Nothing here ever edits a todo once created, so
- * an id present on both sides is the same item on both — either side's copy
- * of it can stand.
+ * Unions two todo lists by id. An id present on both sides keeps whichever
+ * copy's `updatedAt` is later — the same id can now genuinely differ, since
+ * `withUpdatedTodo` can touch either side between a load starting and it
+ * resolving. Neither side having ever been edited keeps `a`'s copy, the same
+ * default as before edits existed at all.
  */
 export function mergeTodos(a: TodosState, b: TodosState): TodosState {
   const byId = new Map(a.items.map((item) => [item.id, item] as const))
   for (const item of b.items) {
-    if (!byId.has(item.id)) byId.set(item.id, item)
+    const existing = byId.get(item.id)
+    if (!existing || (item.updatedAt ?? '') > (existing.updatedAt ?? '')) {
+      byId.set(item.id, item)
+    }
   }
 
   return {

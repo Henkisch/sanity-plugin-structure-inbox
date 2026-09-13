@@ -3,9 +3,15 @@ import {useMemo} from 'react'
 import {useObservable} from 'react-rx'
 import {of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
-// `useAddonDataset` stays out of this named import — see `optionalHook` below.
-// `useCurrentUser` is public and stable, so it is imported normally.
-import {type AddonDatasetContextValue, useCurrentUser} from 'sanity'
+// `useAddonDataset` and `useUserListWithPermissions` stay out of this named
+// import — see `optionalHook` below. `useCurrentUser` is public and stable,
+// so it is imported normally.
+import {
+  type AddonDatasetContextValue,
+  useCurrentUser,
+  type UserListWithPermissionsHookValue,
+  type UserListWithPermissionsOptions,
+} from 'sanity'
 
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {optionalHook} from './capability'
@@ -27,6 +33,11 @@ function useUnavailableAddonDataset(): AddonDatasetContextValue {
   }
 }
 
+/** Stands in for `useUserListWithPermissions` when Sanity does not export it — see `unpublishedDrafts.ts`. */
+function useUnavailableUserList(): UserListWithPermissionsHookValue {
+  return {data: null, error: null, loading: false}
+}
+
 // Resolved once at module scope, not inside the component: `useAddonDataset`
 // is either present for the whole life of the process or absent for the whole
 // life of it. `useAddonDataset` below therefore names exactly one function —
@@ -34,6 +45,9 @@ function useUnavailableAddonDataset(): AddonDatasetContextValue {
 // can call it unconditionally on every render, which is what the rules of
 // hooks require.
 const useAddonDataset = optionalHook('useAddonDataset', useUnavailableAddonDataset)
+const useAssignableUsers = optionalHook<
+  (opts: UserListWithPermissionsOptions) => UserListWithPermissionsHookValue
+>('useUserListWithPermissions', useUnavailableUserList)
 
 export interface OpenTasksOptions {
   /** Cap on rows. Defaults to 10. */
@@ -58,6 +72,8 @@ interface TaskRow {
   title?: string
   dueBy?: string
   assignedTo?: string
+  targetId?: string
+  targetType?: string
 }
 
 const QUERY = `*[
@@ -66,7 +82,9 @@ const QUERY = `*[
   defined(title) &&
   ($assignedTo == null || assignedTo == $assignedTo)
 ] | order(coalesce(dueBy, _updatedAt) asc)[0...$limit]{
-  _id, _updatedAt, title, dueBy, assignedTo
+  _id, _updatedAt, title, dueBy, assignedTo,
+  "targetId": target.document._ref,
+  "targetType": target.documentType
 }`
 
 function isOverdue(dueBy?: string): boolean {
@@ -81,6 +99,15 @@ function isOverdue(dueBy?: string): boolean {
  * The one source where ticking means something real: a task has a status this
  * plugin can legitimately close, so it returns `resolve` and the selection bar
  * offers "Mark as done".
+ *
+ * Clicking a row opens the task's own `target` document, when it has one —
+ * the same `type: 'edit'` intent a draft's own row uses — rather than doing
+ * nothing: a task's own fields (a title, a due date) are thin next to the
+ * document it's actually about.
+ *
+ * Also offers `assign`: the avatar on a task's own row reassigns it directly.
+ * `useUserListWithPermissions`, which supplies who it can go to, is `@beta`
+ * in Sanity's own typings, same as `useAddonDataset`.
  *
  * Tasks live in the Studio's addon dataset — the same one comments use — rather
  * than in the content dataset, and both `useAddonDataset` and the `tasks.task`
@@ -103,7 +130,7 @@ function isOverdue(dueBy?: string): boolean {
  * down.
  */
 export function openTasks(options: OpenTasksOptions = {}): InboxSource {
-  const {limit = 10, title = 'Your tasks', placement = 'main', onlyMine = true} = options
+  const {limit = 10, title = 'Task', placement = 'main', onlyMine = true} = options
 
   return {
     name: 'openTasks',
@@ -116,6 +143,10 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
       const {client, ready} = useAddonDataset()
       const currentUser = useCurrentUser()
       const userId = currentUser?.id
+      // `null` documentValue: not scoped to one task, since any of them could
+      // be reassigned — see `unpublishedDrafts.ts`, which reaches the same
+      // hook the same way for the same reason.
+      const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
 
       const result$ = useMemo(() => {
         if (useAddonDataset === useUnavailableAddonDataset) {
@@ -135,6 +166,15 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
         const params = {assignedTo, limit}
         const fetch$ = client.observable.fetch<TaskRow[]>(QUERY, params)
 
+        // Every row this query can return is already assigned to `currentUser`
+        // when `onlyMine` is on — the query itself filters to it — so there is
+        // no per-row lookup to do; a fuller "everyone's tasks" view would need
+        // a project members list this source doesn't have yet.
+        const assignee =
+          assignedTo && currentUser
+            ? {label: currentUser.name, imageUrl: currentUser.profileImage}
+            : undefined
+
         // Live rather than fetched once: a task closed, reassigned, or its due
         // date changed by someone else used to only leave (or enter) this list
         // once the editor navigated away and back.
@@ -147,14 +187,42 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
               timestamp: row.dueBy || row._updatedAt,
               changedAt: row._updatedAt,
               tone: isOverdue(row.dueBy) ? 'critical' : 'default',
+              assignee,
+              // A task's own title is thin ("Follow up: X") — the document
+              // it targets is the substantial thing to look at, so clicking
+              // the row opens that instead of an editor for the task itself.
+              intent:
+                row.targetId && row.targetType
+                  ? {type: 'edit', params: {id: row.targetId, type: row.targetType}}
+                  : undefined,
             })),
           })),
           startWith<InboxSourceResult>({items: [], loading: true}),
           catchError((error: Error) => of<InboxSourceResult>({items: [], error})),
         )
-      }, [client, ready, userId])
+      }, [client, ready, userId, currentUser])
 
       const result = useObservable(result$, {items: [], loading: true})
+
+      // Lets the avatar on a task's own row reassign it directly — the same
+      // `assign` shape `unpublishedDrafts` offers, but a plain patch here
+      // rather than a create-or-patch: every row this source lists is
+      // already a task, never a document standing in for one.
+      const assign = useMemo(() => {
+        if (!client || !assignable) return undefined
+
+        return {
+          users: assignable
+            .filter((user) => user.granted)
+            .map((user) => ({id: user.id, label: user.displayName || user.email || user.id})),
+          toUser: async (item: InboxItem, assignedTo: string) => {
+            await client.patch(item.id).set({assignedTo}).commit()
+          },
+          unassign: async (item: InboxItem) => {
+            await client.patch(item.id).unset(['assignedTo']).commit()
+          },
+        }
+      }, [client, assignable])
 
       return useMemo(
         () => ({
@@ -164,8 +232,9 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
                 await client.patch(item.id).set({status: 'closed'}).commit()
               }
             : undefined,
+          assign,
         }),
-        [result, client],
+        [result, client, assign],
       )
     },
   }

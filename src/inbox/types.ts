@@ -53,6 +53,29 @@ export interface InboxItem {
     type: 'edit' | 'create'
     params: {id?: string; type?: string; [key: string]: string | undefined}
   }
+  /**
+   * Who this item is assigned to, if anyone — rendered as a small avatar
+   * rather than restated in text (a Jira-style issue card, not another line
+   * of "Assigned to you" next to text that already said so).
+   */
+  assignee?: {
+    label: string
+    imageUrl?: string
+  }
+  /**
+   * The description an "edit" dialog should prefill, exactly as stored.
+   *
+   * Only supplied by a source that also offers `update` — `subtitle` is
+   * display text a source is free to shape however it likes (a type name, a
+   * relative label), which makes it the wrong thing to hand back into a form.
+   */
+  description?: string
+  /**
+   * ISO date (`yyyy-mm-dd`) an "edit" dialog should prefill, exactly as
+   * stored — unlike `timestamp`, which a source may fall back to a creation
+   * time for display and is therefore ambiguous as an actual due date.
+   */
+  dueBy?: string
 }
 
 /**
@@ -121,6 +144,13 @@ export interface InboxSourceResult {
   assign?: {
     users: {id: string; label: string}[]
     toUser: (item: InboxItem, userId: string) => Promise<void>
+    /**
+     * Clears an item's assignee, leaving it open but unowned — distinct from
+     * handing it to someone else, and from `remove`, which the item itself
+     * doesn't survive. Optional: omit to not offer "Unassign" in the picker
+     * at all, for a source where that would never make sense.
+     */
+    unassign?: (item: InboxItem) => Promise<void>
   }
   /**
    * Deletes an item for good — unlike marking it done, which only removes it
@@ -130,6 +160,15 @@ export interface InboxSourceResult {
    * does, so a finished one doesn't just sit dismissed forever.
    */
   remove?: (item: InboxItem) => Promise<void> | void
+  /**
+   * Changes an item's own title/description/due date in place.
+   *
+   * Only a source with nowhere else for that editing to happen offers this —
+   * `todos` has no document a click could open instead. Present, a row with
+   * no `intent` opens the same dialog `create` uses, pre-filled, instead of
+   * doing nothing when clicked.
+   */
+  update?: (item: InboxItem, input: CreateItemInput) => Promise<void> | void
 }
 
 /**

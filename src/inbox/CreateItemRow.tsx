@@ -1,18 +1,37 @@
 import {AddIcon} from '@sanity/icons/Add'
 import {Box, Button, Dialog, Flex, Stack, Text, TextArea, TextInput} from '@sanity/ui'
-import {type SubmitEventHandler, useCallback, useId, useRef, useState} from 'react'
+import {type SubmitEventHandler, useCallback, useEffect, useId, useRef, useState} from 'react'
 import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {type CreateItemInput} from './types'
 
+/**
+ * An existing item to edit instead of a blank one to create — set by a row
+ * with nowhere else to send an edit click (a todo has no document to open).
+ * `key` identifies which item this is purely so the dialog knows when to
+ * reseed its fields from a *different* item — comparing the object itself
+ * would also fire on every parent re-render that happens to construct a new
+ * (but equal) object.
+ */
+interface EditingItem {
+  key: string
+  title: string
+  description?: string
+  dueBy?: string
+  onSave: (input: CreateItemInput) => void
+  onCancel: () => void
+}
+
 interface CreateItemRowProps {
   onCreate: (input: CreateItemInput) => void
+  editing?: EditingItem
 }
 
 /**
  * The "add one" control for a source that keeps its own items — currently
- * only `todos`.
+ * only `todos`. Also the "edit one" dialog for the same source, opened
+ * externally via `editing` rather than the button below.
  *
  * Collapsed to a plain **+ Add todo** button until clicked: a text input
  * sitting open above the list at all times, whether or not anyone was about
@@ -23,12 +42,13 @@ interface CreateItemRowProps {
  * inline row above the list has room for.
  */
 export function CreateItemRow(props: CreateItemRowProps) {
-  const {onCreate} = props
+  const {onCreate, editing} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const dialogId = useId()
   const formId = `${dialogId}-form`
 
-  const [open, setOpen] = useState(false)
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = internalOpen || Boolean(editing)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   // Uncontrolled, unlike the two fields above: a date input's `.value` is
@@ -39,16 +59,47 @@ export function CreateItemRow(props: CreateItemRowProps) {
   // at submit, sidesteps that entirely.
   const dueByRef = useRef<HTMLInputElement>(null)
 
-  const openDialog = useCallback(() => setOpen(true), [])
+  const openDialog = useCallback(() => setInternalOpen(true), [])
 
   const closeDialog = useCallback(() => {
-    setOpen(false)
+    editing?.onCancel()
+    setInternalOpen(false)
     setTitle('')
     setDescription('')
     // Nothing to reset for the due date: it's read straight off the DOM node
     // in `dueByRef`, and that node unmounts with the dialog — a fresh, empty
     // one is created the next time it opens.
-  }, [])
+  }, [editing])
+
+  // Seeded once per edit target, keyed on `editing.key` (a plain string)
+  // rather than running whenever `editing` itself changes reference — the
+  // exact "compare by identity on a value that isn't guaranteed stable" trap
+  // the selection bar's collapse animation hit elsewhere in this pane.
+  // Adjusted directly during render (React's own sanctioned way to react to
+  // a changed prop) rather than in an effect, since these two are React
+  // state — only the due date below, an imperative DOM write, belongs in one.
+  const [seededKey, setSeededKey] = useState(editing?.key)
+  if (editing && editing.key !== seededKey) {
+    setSeededKey(editing.key)
+    setTitle(editing.title)
+    setDescription(editing.description ?? '')
+  }
+
+  useEffect(() => {
+    // Only when there's an actual date to seed — setting `.value = ''`
+    // scripted a native date input into a visibly blank state on mobile
+    // Safari (no "yyyy-mm-dd" placeholder, no calendar glyph), unlike one
+    // simply left untouched. The field is inside `Dialog`, which unmounts
+    // when it closes, so a fresh instance of `dueByRef` is guaranteed the
+    // next time this opens — there's no stale value from a previous edit
+    // left to worry about clearing.
+    if (editing?.dueBy && dueByRef.current) dueByRef.current.value = editing.dueBy
+    // Keyed on `editing?.key`, not `editing` itself: the parent constructs a
+    // new `editing` object on every one of its own renders, and re-running
+    // this on every one of those would stomp a due date mid-edit back to its
+    // original value each time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing?.key])
 
   const handleSubmit = useCallback<SubmitEventHandler<HTMLFormElement>>(
     (event) => {
@@ -56,14 +107,20 @@ export function CreateItemRow(props: CreateItemRowProps) {
       const trimmedTitle = title.trim()
       if (!trimmedTitle) return
 
-      onCreate({
+      const input: CreateItemInput = {
         title: trimmedTitle,
         description: description.trim() || undefined,
         dueBy: dueByRef.current?.value || undefined,
-      })
-      closeDialog()
+      }
+
+      if (editing) editing.onSave(input)
+      else onCreate(input)
+
+      setInternalOpen(false)
+      setTitle('')
+      setDescription('')
     },
-    [title, description, onCreate, closeDialog],
+    [title, description, editing, onCreate],
   )
 
   return (
@@ -86,7 +143,7 @@ export function CreateItemRow(props: CreateItemRowProps) {
 
       {open && (
         <Dialog
-          header={t('todos.addButton')}
+          header={editing ? t('todos.editButton') : t('todos.addButton')}
           id={dialogId}
           onClose={closeDialog}
           footer={
@@ -96,7 +153,7 @@ export function CreateItemRow(props: CreateItemRowProps) {
                 <Button
                   disabled={!title.trim()}
                   form={formId}
-                  text={t('todos.add')}
+                  text={editing ? t('todos.save') : t('todos.add')}
                   tone="positive"
                   type="submit"
                 />

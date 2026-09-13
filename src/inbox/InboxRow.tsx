@@ -1,4 +1,6 @@
-import {Box, Button, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
+import {UserIcon} from '@sanity/icons/User'
+import {Avatar, Box, Button, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
+import {Menu, MenuButton, MenuDivider, MenuItem} from '@sanity/ui/menu'
 import {type CSSProperties, type MouseEvent, useCallback, useId, useState} from 'react'
 import {useTranslation} from 'sanity'
 import {useRouter} from 'sanity/router'
@@ -25,6 +27,27 @@ interface InboxRowProps {
   /** The source's `remove`, if it has one — see `InboxSourceResult.remove`. */
   onRemove?: (item: InboxItem) => Promise<void> | void
   /**
+   * Opens this one item's edit dialog — only ever set for a row with no
+   * `intent` to navigate to instead (a todo has no document), since a row
+   * only ever does one of the two on click.
+   */
+  onEdit?: (item: InboxItem) => void
+  /**
+   * Reassigns this one item directly, without a bulk selection — clicking
+   * the assignee avatar opens a small picker in place of it. Both this and
+   * `assignableUsers` come from the row's own source's `assign`, so they're
+   * either both present or both absent.
+   */
+  onReassign?: (item: InboxItem, userId: string) => void
+  /** Who `onReassign` can hand this item to — see `InboxSourceResult.assign`. */
+  assignableUsers?: {id: string; label: string}[]
+  /**
+   * Clears this item's assignee — offered in the same picker as `onReassign`,
+   * only once there's actually an assignee to clear. Absent for a source
+   * whose `assign` doesn't offer `unassign` at all.
+   */
+  onUnassign?: (item: InboxItem) => void
+  /**
    * True when this row is selected and nothing else is. `assess`/`remove`
    * only render then — with several rows selected, one "Ask AI" per row was
    * exactly the busyness the rest of this pane was redesigned to avoid; the
@@ -44,6 +67,16 @@ interface InboxRowProps {
 
 type Assessment = {status: 'idle'} | {status: 'loading'} | {status: 'done'; message: string}
 
+// "AB" from "Ada Bergström", "A" from "Ada" — the same shorthand an avatar
+// with no photo falls back to everywhere else in Studio.
+function initials(label: string): string {
+  const words = label.trim().split(/\s+/).filter(Boolean)
+  return words
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase())
+    .join('')
+}
+
 export function InboxRow(props: InboxRowProps) {
   const {
     item,
@@ -54,6 +87,10 @@ export function InboxRow(props: InboxRowProps) {
     onSelectedChange,
     onAssess,
     onRemove,
+    onEdit,
+    onReassign,
+    assignableUsers,
+    onUnassign,
     onlySelected = false,
     sourceLabel,
   } = props
@@ -71,27 +108,28 @@ export function InboxRow(props: InboxRowProps) {
     [item, onSelectedChange, selected],
   )
 
-  // The row itself is a second, larger way to do what the checkbox does —
-  // Gmail, Superhuman and Linear all treat the row as the hit target, not
-  // just the small box. Everything actually actionable inside the row (Open,
-  // Ask AI, Delete, the checkbox itself) stops the click from reaching here,
-  // so it acts instead of toggling the row underneath it.
+  // A row opens when it has somewhere to go — a document, matching how every
+  // other list in Sanity itself behaves — and falls back to an edit dialog
+  // when it doesn't (a todo) rather than doing nothing. Only when it has
+  // neither does clicking it fall back to the old select-on-click behaviour;
+  // the checkbox is always still there as a second, explicit way to select.
   const handleRowClick = useCallback(() => {
+    if (item.intent) {
+      navigateIntent(item.intent.type, item.intent.params)
+      return
+    }
+    if (onEdit) {
+      onEdit(item)
+      return
+    }
     toggleSelected()
-  }, [toggleSelected])
+  }, [item, onEdit, navigateIntent, toggleSelected])
 
   const stopPropagation = useCallback((event: MouseEvent) => {
     event.stopPropagation()
   }, [])
 
-  const handleOpen = useCallback(
-    (event: MouseEvent) => {
-      event.stopPropagation()
-      if (!item.intent) return
-      navigateIntent(item.intent.type, item.intent.params)
-    },
-    [item.intent, navigateIntent],
-  )
+  const canReassign = Boolean(onReassign && assignableUsers && assignableUsers.length > 0)
 
   const handleAssess = useCallback(
     (event: MouseEvent) => {
@@ -172,6 +210,94 @@ export function InboxRow(props: InboxRowProps) {
     </Box>
   )
 
+  // A Jira-style avatar chip, not another line of text — the row already
+  // says what it is; who it's assigned to reads faster as a face than as
+  // "Assigned to you" repeated on every single row. Clicking it opens a
+  // proper popup menu, when the row's source offers `assign` — the same
+  // "reassign one item without a bulk selection" the direct-manipulation
+  // pattern this pane was missing calls for. A native `<select>` did this
+  // first, but rendered as an ugly, disconnected system picker on mobile
+  // Safari; `MenuButton` is the same floating popover Studio's own assignee
+  // pickers use.
+  const assigneeAvatar = (() => {
+    const assignee = item.assignee
+    // Nothing to show, and no picker to open either — an item whose source
+    // has no `assign` at all (a todo, a release) was never assignable to
+    // begin with, so there's no "unassigned" to indicate.
+    if (!assignee && !canReassign) return null
+
+    const avatar = (
+      <Box style={{position: 'relative'}}>
+        <Avatar
+          initials={assignee ? initials(assignee.label) : undefined}
+          // A faint, empty circle for "assignable, nobody's picked it up yet"
+          // — Jira's own convention for an unassigned issue, and why the draft
+          // itself didn't already show a placeholder was the actual report:
+          // the only sign it could be assigned at all was the bulk selection
+          // bar's own "Assign to…" picker.
+          size={compact ? 0 : 1}
+          src={assignee?.imageUrl}
+          style={canReassign ? {cursor: 'pointer', opacity: assignee ? 1 : 0.4} : undefined}
+          title={assignee?.label ?? t('assignee.unassigned')}
+        />
+        {/* A person glyph on the faint circle above reads as "nobody yet" at
+            a glance — an empty circle alone looked like a loading state or a
+            rendering bug rather than a deliberate placeholder. Full opacity,
+            unlike the circle beneath it: the circle is what's meant to fade,
+            not the sign that it's still assignable. */}
+        {!assignee && (
+          <Flex
+            align="center"
+            justify="center"
+            style={{inset: 0, pointerEvents: 'none', position: 'absolute'}}
+          >
+            <Text muted size={compact ? 0 : 1}>
+              <UserIcon />
+            </Text>
+          </Flex>
+        )}
+      </Box>
+    )
+
+    return (
+      <Box onClick={stopPropagation}>
+        {canReassign ? (
+          <MenuButton
+            button={avatar}
+            id={`${labelId}-assignee`}
+            menu={
+              <Menu>
+                {assignableUsers?.map((user) => (
+                  <MenuItem
+                    key={user.id}
+                    onClick={() => onReassign?.(item, user.id)}
+                    pressed={user.label === assignee?.label}
+                    text={user.label}
+                  />
+                ))}
+                {/* Only once there's an assignee to clear, and only for a
+                    source whose `assign` actually offers it. */}
+                {assignee && onUnassign && (
+                  <>
+                    <MenuDivider />
+                    <MenuItem
+                      onClick={() => onUnassign(item)}
+                      text={t('assignee.unassign')}
+                      tone="critical"
+                    />
+                  </>
+                )}
+              </Menu>
+            }
+            popover={{placement: 'bottom-end', portal: true}}
+          />
+        ) : (
+          avatar
+        )}
+      </Box>
+    )
+  })()
+
   const removeRow = onRemove && (
     <Box>
       <Button
@@ -228,6 +354,7 @@ export function InboxRow(props: InboxRowProps) {
         <Flex align="center" gap={1}>
           {checkbox}
           <Box flex={1}>{label}</Box>
+          {assigneeAvatar}
         </Flex>
       </Card>
     )
@@ -250,15 +377,7 @@ export function InboxRow(props: InboxRowProps) {
 
         <Box flex={1}>{label}</Box>
 
-        {item.intent && !done && (
-          <Button
-            fontSize={1}
-            mode="bleed"
-            onClick={handleOpen}
-            padding={2}
-            text={t('item.open')}
-          />
-        )}
+        {assigneeAvatar}
       </Flex>
     </Card>
   )

@@ -1,4 +1,4 @@
-import {Box, Button, Card, Flex, Select, Text} from '@sanity/ui'
+import {Box, Button, Card, Flex, Select, Stack, Text} from '@sanity/ui'
 import {type ChangeEvent} from 'react'
 import {useTranslation} from 'sanity'
 
@@ -82,20 +82,32 @@ export function SelectionActions(props: SelectionActionsProps) {
 
   return (
     <Card borderBottom padding={2} radius={0} tone="primary">
-      {/* Two nested flexes, not one: the count label used to carry `flex={1}`
-          itself, which lets flexbox shrink it below its own text width once
-          Snooze and Assign are both showing — at a narrow viewport that
-          squeezed "1 selected" into a two-line wrap. The label now sizes to
-          its content and never shrinks; only the controls group grows, and
-          wraps onto its own line below the label when it doesn't fit. */}
-      <Flex align="center" gap={2} wrap="wrap">
-        <Box aria-live="polite" paddingLeft={2}>
-          <Text size={1} weight="medium">
-            {t('selection.count', {count})}
-          </Text>
-        </Box>
+      {/* Two flat rows, not one nested flex: nesting a `flex={1}` group inside
+          a wrapping outer `Flex` let the two levels of `wrap` interleave —
+          on a narrow phone, Snooze, the count, and Cancel each landed on
+          their own line in source order rather than a predictable stack.
+          Pairing the count with Cancel up top (the one thing every mail
+          client's mobile selection bar agrees on) and letting the action
+          controls wrap as one plain row below sidesteps that entirely. */}
+      <Stack gap={2}>
+        <Flex align="center" justify="space-between">
+          <Box aria-live="polite" paddingLeft={2}>
+            <Text size={1} weight="medium">
+              {t('selection.count', {count})}
+            </Text>
+          </Box>
 
-        <Flex align="center" flex={1} gap={2} justify="flex-end" wrap="wrap">
+          <Button
+            disabled={busy}
+            fontSize={1}
+            mode="bleed"
+            onClick={onCancel}
+            padding={2}
+            text={t('selection.cancel')}
+          />
+        </Flex>
+
+        <Flex align="center" gap={2} paddingLeft={2} wrap="wrap">
           {onSnooze && (
             <Box>
               <Select fontSize={1} onChange={handleSnoozeChange} value="">
@@ -139,17 +151,8 @@ export function SelectionActions(props: SelectionActionsProps) {
             }
             tone={view === 'open' ? 'positive' : 'default'}
           />
-
-          <Button
-            disabled={busy}
-            fontSize={1}
-            mode="bleed"
-            onClick={onCancel}
-            padding={2}
-            text={t('selection.cancel')}
-          />
         </Flex>
-      </Flex>
+      </Stack>
     </Card>
   )
 }

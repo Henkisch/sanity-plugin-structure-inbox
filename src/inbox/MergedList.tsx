@@ -1,3 +1,4 @@
+import {InboxIcon} from '@sanity/icons/Inbox'
 import {Box, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
 import {useCallback, useMemo, useState} from 'react'
 import {useTranslation} from 'sanity'
@@ -12,11 +13,15 @@ import {mergeRows} from './mergeItems'
 import {SelectionActions} from './SelectionActions'
 import {type SourceReport} from './SourceFeed'
 import {type InboxItem, type InboxView} from './types'
+import {useDelayedUnmount} from './useDelayedUnmount'
 import {EXIT_ANIMATION_MS, useUndoToast} from './useUndoToast'
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
+
+/** How long the selection bar takes to ease open or shut — see `useDelayedUnmount`. */
+const SELECTION_BAR_TRANSITION_MS = 200
 
 interface MergedListProps {
   reports: Record<string, SourceReport>
@@ -50,6 +55,13 @@ export function MergedList(props: MergedListProps) {
   const [leavingKeys, setLeavingKeys] = useState<ReadonlySet<string>>(new Set())
   const showUndoToast = useUndoToast()
 
+  // The row being edited, if any — a todo has nowhere else to send a click
+  // when it has no `intent` to open, so it opens the same dialog `create`
+  // uses instead, pre-filled. Keyed by row key rather than holding the row
+  // itself so a stale reference can't outlive a refetch.
+  const [editingKey, setEditingKey] = useState<string | null>(null)
+  const editingRow = editingKey ? rows.find((row) => row.key === editingKey) : undefined
+
   // Derived from what's on screen, same reasoning every earlier version of
   // this list used: a row can disappear — someone else finishes it, the tab
   // changes — while selected, and deriving the selection from `rows` means
@@ -60,6 +72,20 @@ export function MergedList(props: MergedListProps) {
   )
 
   const clearSelection = useCallback(() => setSelectedKeys([]), [])
+
+  // The bar itself stays mounted a beat after the selection empties, so the
+  // grid-row transition below has something to shrink around instead of the
+  // content vanishing out from under an animation already in progress.
+  const showSelectionBar = useDelayedUnmount(selected.length > 0, SELECTION_BAR_TRANSITION_MS)
+  // Only the count, not the whole `selected` array — `selected` is a fresh
+  // array on some sources' every render regardless of real change (nothing
+  // guarantees a source's own `items` is referentially stable), so comparing
+  // it by identity here reliably looped instead of settling. `count` is a
+  // primitive: comparing it can't loop, and it's the only thing this lingering
+  // moment needs to avoid flashing "0 selected" while the bar shrinks shut.
+  const [lastCount, setLastCount] = useState(selected.length)
+  if (selected.length > 0 && selected.length !== lastCount) setLastCount(selected.length)
+  const displayCount = selected.length > 0 ? selected.length : lastCount
 
   const allSelected = rows.length > 0 && selected.length === rows.length
   const someSelected = selected.length > 0 && !allSelected
@@ -173,29 +199,44 @@ export function MergedList(props: MergedListProps) {
     async (userId: string) => {
       if (!assignableSource) return
       const targets = [...selected]
+      const assignee = assignableSource.users.find((user) => user.id === userId)?.label ?? userId
 
       setBusy(true)
       try {
         const results = await Promise.allSettled(
           targets.map((row) => assignableSource.toUser(row.item, userId)),
         )
+
+        let assignedCount = 0
         results.forEach((result) => {
           if (result.status === 'rejected') {
             console.error('[sanity-plugin-structure-inbox] could not assign item', result.reason)
+          } else {
+            assignedCount += 1
           }
         })
+
         setSelectedKeys([])
+
+        // Assigning creates a new Task rather than changing the row that was
+        // selected, so nothing in the list itself said the click landed —
+        // this is the only confirmation there is.
+        if (assignedCount > 0) {
+          showUndoToast({title: t('undo.assigned', {count: assignedCount, name: assignee})})
+        }
       } finally {
         setBusy(false)
       }
     },
-    [assignableSource, selected],
+    [assignableSource, selected, showUndoToast, t],
   )
 
   const reportsInOrder = order
     .map((name) => reports[name])
     .filter((r): r is SourceReport => Boolean(r))
-  const creators = reportsInOrder.filter((r) => r.create)
+  // `update` too, not just `create`: the same dialog hosts both, and a
+  // source could in principle offer editing without offering creation.
+  const creators = reportsInOrder.filter((r) => r.create || r.update)
   const errors = reportsInOrder.filter((r) => r.error)
 
   // A configured source that has not reported at all yet counts as loading,
@@ -205,8 +246,20 @@ export function MergedList(props: MergedListProps) {
   const isEmpty = rows.length === 0
 
   const describeSource = useCallback(
-    (report: SourceReport | undefined): string | undefined => {
+    (report: SourceReport | undefined, item: InboxItem): string | undefined => {
       if (!report) return undefined
+      // An avatar chip already says who — restating it as "Assigned to you"
+      // right next to that avatar was the "so much stuff on those items"
+      // this row's own assignee avatar was added to fix.
+      if (item.assignee) return report.source.title
+      // An item nobody has picked up yet, from a source that actually offers
+      // `assign`, already shows the faint placeholder avatar
+      // (`InboxRow.tsx`) — "Unassigned" here names that placeholder instead
+      // of restating the source's audience, which said nothing about whether
+      // this particular item has anyone on it. A source with no `assign` at
+      // all (a release, a todo) was never individually assignable, so its
+      // audience is still the only true thing to say about it.
+      if (report.assign) return `${report.source.title} · ${t('assignee.unassigned')}`
       const audience =
         report.source.audience === 'mine' ? t('audience.mine') : t('audience.everyone')
       return `${report.source.title} · ${audience}`
@@ -225,25 +278,92 @@ export function MergedList(props: MergedListProps) {
       ))}
 
       {view === 'open' &&
-        creators.map((report) => (
-          <CreateItemRow key={report.source.name} onCreate={(title) => report.create?.(title)} />
-        ))}
+        creators.map((report) => {
+          const isEditingThis = editingRow?.sourceName === report.source.name
+          return (
+            <CreateItemRow
+              editing={
+                isEditingThis && editingRow
+                  ? {
+                      key: editingRow.key,
+                      title: editingRow.item.title,
+                      description: editingRow.item.description,
+                      dueBy: editingRow.item.dueBy,
+                      onSave: (input) => {
+                        Promise.resolve(report.update?.(editingRow.item, input)).catch(
+                          (error: unknown) => {
+                            console.error(
+                              '[sanity-plugin-structure-inbox] could not update item',
+                              error,
+                            )
+                          },
+                        )
+                        setEditingKey(null)
+                      },
+                      onCancel: () => setEditingKey(null),
+                    }
+                  : undefined
+              }
+              key={report.source.name}
+              onCreate={(input) => report.create?.(input)}
+            />
+          )
+        })}
 
-      {selected.length > 0 && (
-        <SelectionActions
-          assignableUsers={view === 'open' ? assignableSource?.users : undefined}
-          busy={busy}
-          count={selected.length}
-          onAssign={view === 'open' && assignableSource ? confirmAssign : undefined}
-          onCancel={clearSelection}
-          onConfirm={confirmSelection}
-          onSnooze={view === 'open' ? confirmSnooze : undefined}
-          resolves={selected.every((row) => Boolean(reports[row.sourceName]?.resolve))}
-          view={view}
-        />
-      )}
+      {/* Grid rather than a plain conditional render: the whole list used to
+          jump the instant selection changed, since the bar's block appearing
+          or disappearing is otherwise an instant reflow. `0fr`/`1fr` on a
+          single grid row eases that height open and shut instead — see
+          `useDelayedUnmount` for why the bar itself outlives the collapse. */}
+      <Box
+        style={{
+          display: 'grid',
+          gridTemplateRows: selected.length > 0 ? '1fr' : '0fr',
+          transition: `grid-template-rows ${SELECTION_BAR_TRANSITION_MS}ms ease`,
+        }}
+      >
+        <Box style={{minHeight: 0, overflow: 'hidden'}}>
+          {showSelectionBar && (
+            <SelectionActions
+              assignableUsers={view === 'open' ? assignableSource?.users : undefined}
+              busy={busy}
+              count={displayCount}
+              onAssign={view === 'open' && assignableSource ? confirmAssign : undefined}
+              onCancel={clearSelection}
+              onConfirm={confirmSelection}
+              onSnooze={view === 'open' ? confirmSnooze : undefined}
+              resolves={selected.every((row) => Boolean(reports[row.sourceName]?.resolve))}
+              view={view}
+            />
+          )}
+        </Box>
+      </Box>
 
       <Card border overflow="hidden" radius={3} shadow={0}>
+        {/* Matches the header every `aside` source's own card already has
+            (`SectionCard`) — the main column merges every source into one
+            list, but it's still one section, and it looked like an
+            afterthought without a header of its own to say so. */}
+        <Card borderBottom paddingX={3} paddingY={4} radius={0} tone="transparent">
+          {/* Extra `paddingLeft={2}` beyond the Card's own `padding={3}` —
+              see the "Select all" row below, and `InboxRow.tsx`'s own
+              checkbox wrapper, for the same nudge and why: a row's checkbox
+              carries this same extra padding, and the theme's spacing scale
+              does not have a step between `3` and `4` that lines up with it,
+              so it is added here explicitly rather than by bumping the
+              Card's own padding a full step. The icon's own glyph sits
+              slightly inset from its bounding box at this size, hence `2`
+              rather than the `1` that lined up the plain checkbox below. */}
+          <Flex align="center" gap={3} paddingLeft={2}>
+            <Text muted size={2}>
+              <InboxIcon />
+            </Text>
+            <Text size={1} weight="semibold">
+              {t('inbox.title')}
+            </Text>
+          </Flex>
+        </Card>
+
         {anyLoading && isEmpty ? (
           <Box padding={3}>
             <Text muted size={1}>
@@ -262,8 +382,17 @@ export function MergedList(props: MergedListProps) {
           </Box>
         ) : (
           <Stack>
-            <Card borderBottom padding={2}>
-              <Flex align="center">
+            <Card borderBottom paddingX={3} paddingY={2}>
+              {/* `paddingLeft={1}` on the `Flex` below, on top of this
+                  Card's own `padding={3}`: a row's own checkbox sits under
+                  that same extra unit (`InboxRow.tsx`'s own checkbox
+                  wrapper), which this single-layer header doesn't otherwise
+                  have — see the header above for the identical adjustment.
+                  The theme's spacing scale has no step between `3` and `4`
+                  that lines up with it, which is why this is added as an
+                  explicit inner `paddingLeft` rather than by bumping the
+                  Card's own padding a full step. */}
+              <Flex align="center" paddingLeft={1}>
                 <Checkbox
                   checked={allSelected}
                   indeterminate={someSelected}
@@ -282,12 +411,53 @@ export function MergedList(props: MergedListProps) {
                 const report = reports[row.sourceName]
                 return (
                   <InboxRow
+                    assignableUsers={report?.assign?.users}
                     done={view === 'done'}
                     item={row.item}
                     key={row.key}
                     leaving={leavingKeys.has(row.key)}
                     onAssess={report?.assess}
+                    onEdit={report?.update ? () => setEditingKey(row.key) : undefined}
                     onlySelected={selected.length === 1 && selectedKeys.includes(row.key)}
+                    onReassign={
+                      report?.assign
+                        ? (item, userId) => {
+                            const assign = report.assign
+                            if (!assign) return
+                            const assignee =
+                              assign.users.find((u) => u.id === userId)?.label ?? userId
+                            assign
+                              .toUser(item, userId)
+                              .then(() =>
+                                showUndoToast({
+                                  title: t('undo.assigned', {count: 1, name: assignee}),
+                                }),
+                              )
+                              .catch((error: unknown) => {
+                                console.error(
+                                  '[sanity-plugin-structure-inbox] could not assign item',
+                                  error,
+                                )
+                              })
+                          }
+                        : undefined
+                    }
+                    onUnassign={
+                      report?.assign?.unassign
+                        ? (item) => {
+                            const unassign = report.assign?.unassign
+                            if (!unassign) return
+                            unassign(item)
+                              .then(() => showUndoToast({title: t('undo.unassigned')}))
+                              .catch((error: unknown) => {
+                                console.error(
+                                  '[sanity-plugin-structure-inbox] could not unassign item',
+                                  error,
+                                )
+                              })
+                          }
+                        : undefined
+                    }
                     onRemove={report?.remove}
                     onSelectedChange={(item: InboxItem, isSelected: boolean) =>
                       setSelectedKeys((current) =>
@@ -297,7 +467,7 @@ export function MergedList(props: MergedListProps) {
                       )
                     }
                     selected={selectedKeys.includes(row.key)}
-                    sourceLabel={describeSource(report)}
+                    sourceLabel={describeSource(report, row.item)}
                   />
                 )
               })}

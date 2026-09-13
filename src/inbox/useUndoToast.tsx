@@ -18,21 +18,32 @@ export const EXIT_ANIMATION_MS = 180
  * a source's own `resolve` (a Task actually completed elsewhere, say), so the
  * toast's promise is scoped to "back in your Open list," same as everywhere
  * else `resolve` and `dismiss` are already two separate ideas.
+ *
+ * Without `onUndo`, this is a plain confirmation instead — `confirmAssign`
+ * uses it that way: assigning creates a new Task rather than changing the row
+ * that was selected, so nothing in the list itself said the click landed,
+ * which is exactly what led to the same item getting assigned twice.
  */
 export function useUndoToast() {
   const toast = useToast()
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
   return useCallback(
-    (options: {title: string; onUndo: () => void}) => {
+    (options: {title: string; onUndo?: () => void}) => {
+      if (!options.onUndo) {
+        toast.push({status: 'success', title: options.title, duration: 3000})
+        return
+      }
+
       // Toast APIs don't have an obvious cross-implementation way to re-close
       // themselves early; the alternative (a self-owned toast log) does. This
       // way of picking one is why undoing still updates the same toast rather
       // than stacking a second one.
       const id = `structure-inbox-undo-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      const onUndo = options.onUndo
 
       const handleUndo = () => {
-        options.onUndo()
+        onUndo()
         toast.push({id, status: 'success', title: t('undo.done'), duration: 1500})
       }
 
