@@ -333,11 +333,19 @@ separate deployable in your Studio project, not something this npm package
 ships or can install for you.
 
 Sketch of what such a Function does, run on a schedule rather than a document
-event:
+event — fetch stays your own code, but working out what's still open is one
+call to `buildDigest`, exported from `sanity-plugin-structure-inbox` for
+exactly this, pure and dependency-free, no Studio context required:
 
-1. Fetch each editor's dismissals/snoozes/todos documents (`*[_type == "structureInbox.dismissals"]`, etc.) alongside whatever your sources actually query (drafts, tasks, releases).
-2. For each editor, apply `isDismissed` / `isSnoozed` — exported from `sanity-plugin-structure-inbox` for exactly this, pure and dependency-free, no Studio context required — to work out what is still genuinely open for them right now.
-3. Send whatever is left, however you'd send it — the Function is plain Node.js, so any email or chat API works.
+```ts
+import {buildDigest, parseDismissals, parseSnoozes} from 'sanity-plugin-structure-inbox'
+
+const editors = await fetchEditorsWithParsedState(client) // your own fetch + parseDismissals/parseSnoozes per editor
+const sources = await fetchConfiguredSourceItems(client)  // your own fetch, shaped as {name, items}[]
+
+const digests = buildDigest(sources, editors)
+// digests: {userId, open: InboxItem[]}[] — send however you'd like; the Function is plain Node.js, so any email or chat API works.
+```
 
 This intentionally stays a recipe rather than shipped code: a digest's cadence, channel and formatting are product decisions for your Studio, not this plugin's to make.
 
