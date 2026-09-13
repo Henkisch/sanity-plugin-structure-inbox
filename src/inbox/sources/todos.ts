@@ -43,6 +43,7 @@ export function todos(options: TodosOptions = {}): InboxSource {
     icon: CheckmarkCircleIcon,
     placement,
     audience: 'mine',
+    neverExpireDismissals: true,
 
     useItems(): InboxSourceResult {
       const {state, add, remove} = useTodos()
