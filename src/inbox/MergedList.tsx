@@ -252,11 +252,17 @@ export function MergedList(props: MergedListProps) {
     try {
       const results = await Promise.allSettled(
         targets.map((row) =>
-          soleCreator.create!({
-            title: row.item.title,
-            description: row.item.description,
-            dueBy: row.item.dueBy,
-          }),
+          // `create` is typed `Promise<void> | void` — wrapped so a source
+          // that creates synchronously (or throws synchronously) still
+          // yields a settled promise instead of aborting this `.map()`
+          // before `allSettled` ever runs.
+          Promise.resolve().then(() =>
+            soleCreator.create!({
+              title: row.item.title,
+              description: row.item.description,
+              dueBy: row.item.dueBy,
+            }),
+          ),
         ),
       )
 
