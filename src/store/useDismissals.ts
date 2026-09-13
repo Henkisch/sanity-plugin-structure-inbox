@@ -59,7 +59,7 @@ export interface Dismissals {
  * State is held locally and updated optimistically, so ticking an item is
  * instant and a failed write costs the editor nothing beyond this session.
  */
-export function useDismissals(): Dismissals {
+export function useDismissals(neverExpireSources: readonly string[] = []): Dismissals {
   const client = useClient({apiVersion: API_VERSION})
   const currentUser = useCurrentUser()
   const userId = currentUser?.id
@@ -159,14 +159,17 @@ export function useDismissals(): Dismissals {
       })
   }, [client, documentId, state])
 
-  const update = useCallback((next: (current: DismissalState) => DismissalState) => {
-    // Pruned on write rather than on read: reads happen on every render, and
-    // an editor who never dismisses anything should not pay for maintenance
-    // of a value they are not growing.
-    dirtyRef.current = true
-    hasLocalEditRef.current = true
-    setState((current) => pruneDismissals(next(current)))
-  }, [])
+  const update = useCallback(
+    (next: (current: DismissalState) => DismissalState) => {
+      // Pruned on write rather than on read: reads happen on every render, and
+      // an editor who never dismisses anything should not pay for maintenance
+      // of a value they are not growing.
+      dirtyRef.current = true
+      hasLocalEditRef.current = true
+      setState((current) => pruneDismissals(next(current), Date.now(), neverExpireSources))
+    },
+    [neverExpireSources],
+  )
 
   const dismiss = useCallback(
     (source: string, itemId: string) => update((current) => withDismissal(current, source, itemId)),

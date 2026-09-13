@@ -209,6 +209,21 @@ export interface InboxSource {
   audience?: 'mine' | 'everyone'
 
   /**
+   * Exempts this source's dismissals from the 90-day TTL that ages out every
+   * other source's (see `DISMISSAL_TTL_DAYS` in `src/store/dismissals.ts`).
+   *
+   * Most sources want the TTL — a still-dismissed item resurfacing after this
+   * long is a deliberate "you evidently haven't finished this" nudge. Turn
+   * this on only for a source with no other way to mark something truly
+   * finished (no `resolve`, and nothing external that could make a dismissed
+   * item newly relevant again) — `todos` is the only built-in example, since
+   * dismissing one is the only "done" a todo has.
+   *
+   * @defaultValue false
+   */
+  neverExpireDismissals?: boolean
+
+  /**
    * Returns this source's items.
    *
    * This is a React hook — it may call `useClient`, `useActiveReleases`, or any

@@ -150,7 +150,11 @@ export function BoundedSourceFeed(props: BoundedSourceFeedProps) {
 
 export function Inbox({sources}: InboxProps) {
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
-  const dismissals = useDismissals()
+  const neverExpireDismissalSources = useMemo(
+    () => sources.filter((source) => source.neverExpireDismissals).map((source) => source.name),
+    [sources],
+  )
+  const dismissals = useDismissals(neverExpireDismissalSources)
   const snoozes = useSnoozes()
   const [view, setView] = useState<InboxView>('open')
 

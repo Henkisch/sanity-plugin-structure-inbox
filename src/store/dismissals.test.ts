@@ -67,6 +67,41 @@ describe('pruneDismissals', () => {
 
     expect(pruneDismissals(state, now).dismissed).toEqual({})
   })
+
+  it('keeps an exempt source entries past the TTL', () => {
+    const state = {
+      version: 1 as const,
+      dismissed: {todos: {old: iso(DISMISSAL_TTL_DAYS + 1)}},
+    }
+
+    expect(pruneDismissals(state, now, ['todos']).dismissed.todos).toEqual({
+      old: iso(DISMISSAL_TTL_DAYS + 1),
+    })
+  })
+
+  it('still prunes a non-exempt source in the same state', () => {
+    const state = {
+      version: 1 as const,
+      dismissed: {
+        todos: {old: iso(DISMISSAL_TTL_DAYS + 1)},
+        drafts: {old: iso(DISMISSAL_TTL_DAYS + 1)},
+      },
+    }
+
+    const result = pruneDismissals(state, now, ['todos'])
+
+    expect(result.dismissed.todos).toEqual({old: iso(DISMISSAL_TTL_DAYS + 1)})
+    expect(result.dismissed.drafts).toBeUndefined()
+  })
+
+  it('preserves existing behavior when the third argument is omitted', () => {
+    const state = {
+      version: 1 as const,
+      dismissed: {todos: {old: iso(DISMISSAL_TTL_DAYS + 1)}},
+    }
+
+    expect(pruneDismissals(state, now).dismissed).toEqual({})
+  })
 })
 
 describe('a dismissal expires when the item changes', () => {
