@@ -310,6 +310,108 @@ describe('MergedList', () => {
     expect(screen.queryByText('action.assign')).toBeNull()
   })
 
+  it('offers "save to todos" only when exactly one source has create', () => {
+    const create = vi.fn()
+    const reports = {
+      todos: report('todos', 'Todos', {create, open: [item('td1', {title: 'Todo one'})]}),
+      tasks: report('tasks', 'Tasks', {open: [item('t1', {title: 'Task one'})]}),
+    }
+
+    renderList({reports, order: ['todos', 'tasks']})
+
+    selectItem('Task one')
+    expect(screen.getByText('action.saveToTodos')).toBeTruthy()
+
+    selectItem('Todo one')
+    expect(screen.getByText('action.saveToTodos')).toBeTruthy()
+  })
+
+  it('does not offer "save to todos" when zero or two-or-more sources have create', () => {
+    const noCreators = {
+      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]}),
+      tasks: report('tasks', 'Tasks', {open: [item('t1', {title: 'Task one'})]}),
+    }
+
+    renderList({reports: noCreators, order: ['drafts', 'tasks']})
+    selectItem('Draft one')
+    expect(screen.queryByText('action.saveToTodos')).toBeNull()
+    cleanup()
+
+    const twoCreators = {
+      todos: report('todos', 'Todos', {create: vi.fn(), open: [item('td1', {title: 'Todo one'})]}),
+      releases: report('releases', 'Releases', {
+        create: vi.fn(),
+        open: [item('r1', {title: 'Release one'})],
+      }),
+    }
+
+    renderList({reports: twoCreators, order: ['todos', 'releases']})
+    selectItem('Todo one')
+    expect(screen.queryByText('action.saveToTodos')).toBeNull()
+  })
+
+  it("saves each selected row's title/description/dueBy to the sole creator, regardless of source", async () => {
+    const create = vi.fn().mockResolvedValue(undefined)
+    const reports = {
+      todos: report('todos', 'Todos', {
+        create,
+        open: [item('td1', {title: 'Todo one', description: 'Todo desc'})],
+      }),
+      drafts: report('drafts', 'Drafts', {
+        open: [item('d1', {title: 'Draft one', description: 'Draft desc'})],
+      }),
+      tasks: report('tasks', 'Tasks', {
+        open: [item('t1', {title: 'Task one', dueBy: '2026-02-01'})],
+      }),
+    }
+
+    renderList({reports, order: ['todos', 'drafts', 'tasks']})
+
+    selectItem('Todo one')
+    selectItem('Draft one')
+    selectItem('Task one')
+    fireEvent.click(screen.getByText('action.saveToTodos'))
+
+    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(3))
+    expect(create).toHaveBeenCalledWith({
+      title: 'Todo one',
+      description: 'Todo desc',
+      dueBy: undefined,
+    })
+    expect(create).toHaveBeenCalledWith({
+      title: 'Draft one',
+      description: 'Draft desc',
+      dueBy: undefined,
+    })
+    expect(create).toHaveBeenCalledWith({
+      title: 'Task one',
+      description: undefined,
+      dueBy: '2026-02-01',
+    })
+  })
+
+  it('clears the selection and shows an undo toast with the saved count', async () => {
+    const create = vi.fn().mockResolvedValue(undefined)
+    const reports = {
+      todos: report('todos', 'Todos', {create}),
+      drafts: report('drafts', 'Drafts', {
+        open: [item('d1', {title: 'Draft one'}), item('d2', {title: 'Draft two'})],
+      }),
+    }
+
+    renderList({reports, order: ['todos', 'drafts']})
+
+    selectItem('Draft one')
+    selectItem('Draft two')
+    fireEvent.click(screen.getByText('action.saveToTodos'))
+
+    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText('undo.savedToTodos')).toBeTruthy()
+    // The bar lingers briefly so its collapse can ease shut rather than snap
+    // — see `useDelayedUnmount`.
+    await vi.waitFor(() => expect(screen.queryByText('selection.count')).toBeNull())
+  })
+
   it('renders a create row per source that offers one, only in the open view', () => {
     const create = vi.fn()
     const reports = {
