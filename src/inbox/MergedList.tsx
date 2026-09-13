@@ -237,7 +237,56 @@ export function MergedList(props: MergedListProps) {
   // `update` too, not just `create`: the same dialog hosts both, and a
   // source could in principle offer editing without offering creation.
   const creators = reportsInOrder.filter((r) => r.create || r.update)
+  // Offered only when exactly one configured source can create items: with
+  // two or more, "save to todos" would be ambiguous about which list a copy
+  // goes into, the same reasoning `assign` already applies to a mixed-source
+  // selection.
+  const soleCreator = creators.length === 1 ? creators[0] : undefined
   const errors = reportsInOrder.filter((r) => r.error)
+
+  const confirmSaveToTodos = useCallback(async () => {
+    if (!soleCreator?.create) return
+    const targets = [...selected]
+
+    setBusy(true)
+    try {
+      const results = await Promise.allSettled(
+        targets.map((row) =>
+          // `create` is typed `Promise<void> | void` — wrapped so a source
+          // that creates synchronously (or throws synchronously) still
+          // yields a settled promise instead of aborting this `.map()`
+          // before `allSettled` ever runs.
+          Promise.resolve().then(() =>
+            soleCreator.create!({
+              title: row.item.title,
+              description: row.item.description,
+              dueBy: row.item.dueBy,
+            }),
+          ),
+        ),
+      )
+
+      let savedCount = 0
+      results.forEach((result) => {
+        if (result.status === 'rejected') {
+          console.error(
+            '[sanity-plugin-structure-inbox] could not save item to todos',
+            result.reason,
+          )
+        } else {
+          savedCount += 1
+        }
+      })
+
+      setSelectedKeys([])
+
+      if (savedCount > 0) {
+        showUndoToast({title: t('undo.savedToTodos', {count: savedCount})})
+      }
+    } finally {
+      setBusy(false)
+    }
+  }, [soleCreator, selected, showUndoToast, t])
 
   // A configured source that has not reported at all yet counts as loading,
   // the same as one that has reported `loading: true` — otherwise the first
@@ -331,6 +380,7 @@ export function MergedList(props: MergedListProps) {
               onAssign={view === 'open' && assignableSource ? confirmAssign : undefined}
               onCancel={clearSelection}
               onConfirm={confirmSelection}
+              onSaveToTodos={view === 'open' && soleCreator ? confirmSaveToTodos : undefined}
               onSnooze={view === 'open' ? confirmSnooze : undefined}
               resolves={selected.every((row) => Boolean(reports[row.sourceName]?.resolve))}
               view={view}

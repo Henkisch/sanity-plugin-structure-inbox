@@ -23,6 +23,8 @@ interface SelectionActionsProps {
   assignableUsers?: {id: string; label: string}[]
   /** Offers the "Assign" picker. Only meaningful in the open view, same reasoning as `onSnooze`. */
   onAssign?: (userId: string) => void
+  /** Offers "Save to todos". Only meaningful in the open view, same reasoning as `onSnooze`. */
+  onSaveToTodos?: () => void
 }
 
 const SNOOZE_PRESETS: SnoozePreset[] = ['laterToday', 'tomorrow', 'nextWeek']
@@ -55,8 +57,18 @@ function isSnoozePreset(value: string): value is SnoozePreset {
  * split into two buttons the editor has to choose between.
  */
 export function SelectionActions(props: SelectionActionsProps) {
-  const {count, view, resolves, busy, onConfirm, onCancel, onSnooze, assignableUsers, onAssign} =
-    props
+  const {
+    count,
+    view,
+    resolves,
+    busy,
+    onConfirm,
+    onCancel,
+    onSnooze,
+    assignableUsers,
+    onAssign,
+    onSaveToTodos,
+  } = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
   const confirmLabel =
@@ -136,6 +148,17 @@ export function SelectionActions(props: SelectionActionsProps) {
                 ))}
               </Select>
             </Box>
+          )}
+
+          {onSaveToTodos && (
+            <Button
+              disabled={busy}
+              fontSize={1}
+              mode="bleed"
+              onClick={onSaveToTodos}
+              padding={2}
+              text={t('action.saveToTodos')}
+            />
           )}
 
           <Button
