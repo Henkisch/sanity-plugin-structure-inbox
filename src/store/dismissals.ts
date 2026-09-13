@@ -47,12 +47,33 @@ export function parseDismissals(value: unknown): DismissalState {
   return {version: DISMISSAL_VERSION, dismissed}
 }
 
-/** Drops entries older than {@link DISMISSAL_TTL_DAYS}. */
-export function pruneDismissals(state: DismissalState, now = Date.now()): DismissalState {
+/**
+ * Drops entries older than {@link DISMISSAL_TTL_DAYS} — except for a source
+ * named in `neverExpireSources`, whose entries are kept regardless of age.
+ *
+ * Most sources want the TTL: an item still dismissed after this long is one
+ * the editor has evidently chosen to live with (see the doc comment above),
+ * and letting it resurface is a deliberate nudge. A source with no other way
+ * to mark something truly finished — `todos` is the only built-in example —
+ * has no such nudge to give: there is nothing else that could make a
+ * genuinely-finished todo "not done" again, so ageing its dismissal out only
+ * looks like data loss.
+ */
+export function pruneDismissals(
+  state: DismissalState,
+  now = Date.now(),
+  neverExpireSources: readonly string[] = [],
+): DismissalState {
+  const exempt = new Set(neverExpireSources)
   const cutoff = now - DISMISSAL_TTL_DAYS * 24 * 60 * 60 * 1000
   const dismissed: DismissalState['dismissed'] = {}
 
   for (const [source, items] of Object.entries(state.dismissed)) {
+    if (exempt.has(source)) {
+      dismissed[source] = items
+      continue
+    }
+
     const kept = Object.entries(items).filter(([, at]) => {
       const time = Date.parse(at)
       // An unparseable timestamp is one we did not write; drop it.
