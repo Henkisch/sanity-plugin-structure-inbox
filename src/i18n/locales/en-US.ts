@@ -5,9 +5,23 @@
 const enUS = {
   'inbox.title': 'Inbox',
 
-  'inbox.allClear': 'Nothing waiting on you',
-  'inbox.waiting_one': '{{count}} thing waiting on you',
-  'inbox.waiting_other': '{{count}} things waiting on you',
+  // Which "who" the headline names depends on the assignee filter: nobody
+  // selected reads as the whole team's queue, exactly one selected can name
+  // that person (or "you" when it's the viewer themself), and anything else
+  // (several people, or Unassigned in the mix) has no single clean noun to
+  // name, so it says nothing rather than guess.
+  'inbox.allClear.team': 'Nothing waiting on your team',
+  'inbox.allClear.you': 'Nothing waiting on you',
+  'inbox.allClear.named': 'Nothing waiting on {{name}}',
+  'inbox.allClear.generic': 'Nothing waiting',
+  'inbox.waiting.team_one': '{{count}} thing waiting on your team',
+  'inbox.waiting.team_other': '{{count}} things waiting on your team',
+  'inbox.waiting.you_one': '{{count}} thing waiting on you',
+  'inbox.waiting.you_other': '{{count}} things waiting on you',
+  'inbox.waiting.named_one': '{{count}} thing waiting on {{name}}',
+  'inbox.waiting.named_other': '{{count}} things waiting on {{name}}',
+  'inbox.waiting.generic_one': '{{count}} thing waiting',
+  'inbox.waiting.generic_other': '{{count}} things waiting',
   'tab.open': 'Open',
   'tab.done': 'Done',
   'tab.snoozed': 'Snoozed',

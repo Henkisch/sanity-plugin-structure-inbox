@@ -19,7 +19,7 @@ import {
 } from '@sanity/ui'
 import {Menu, MenuButton, MenuItem} from '@sanity/ui/menu'
 import {type ReactNode, useCallback, useEffect, useMemo, useState} from 'react'
-import {useTranslation} from 'sanity'
+import {useCurrentUser, useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {useDismissals} from '../store/useDismissals'
@@ -167,6 +167,7 @@ export function Inbox({sources}: InboxProps) {
   )
   const dismissals = useDismissals(neverExpireDismissalSources)
   const snoozes = useSnoozes()
+  const currentUser = useCurrentUser()
   const [view, setView] = useState<InboxView>('open')
 
   // A snoozed item wakes on its own once `until` passes — see the identical
@@ -308,6 +309,23 @@ export function Inbox({sources}: InboxProps) {
     () => openRows.filter((row) => matchesInboxFilters(row, assigneeFilter, typeFilter)).length,
     [openRows, assigneeFilter, typeFilter],
   )
+
+  // Names who the headline is about — a shared team inbox by default (no
+  // filter means "everyone's queue," not "your queue"), narrowing to "you" or
+  // a named person only once the assignee filter actually picks out exactly
+  // one. Several people, or Unassigned in the mix, has no single clean noun
+  // to name, so the headline just states the count with no "on X" at all
+  // rather than guess at a phrase.
+  const headlineSubject = useMemo((): {kind: 'team' | 'you' | 'generic'} | {kind: 'named'; name: string} => {
+    if (assigneeFilter.size === 0) return {kind: 'team'}
+    if (assigneeFilter.size === 1) {
+      const [only] = assigneeFilter
+      if (currentUser && only === currentUser.id) return {kind: 'you'}
+      const person = availableAssignees.find((assignee) => assignee.id === only)
+      if (person) return {kind: 'named', name: person.label}
+    }
+    return {kind: 'generic'}
+  }, [assigneeFilter, availableAssignees, currentUser])
 
   // `openRows` restricted to sources that offer `assign` — the only ones
   // "unassigned" means anything for (a todo or release was never assignable
@@ -539,7 +557,9 @@ export function Inbox({sources}: InboxProps) {
                 which contradicts "nothing waiting on you". */}
             <StatusDot tone={openCount > 0 ? 'attention' : 'clear'} />
             <Heading size={1}>
-              {openCount === 0 ? t('inbox.allClear') : t('inbox.waiting', {count: openCount})}
+              {openCount === 0
+                ? t(`inbox.allClear.${headlineSubject.kind}`, headlineSubject)
+                : t(`inbox.waiting.${headlineSubject.kind}`, {count: openCount, ...headlineSubject})}
             </Heading>
           </Flex>
 
