@@ -13,8 +13,11 @@ import {
   type UserListWithPermissionsOptions,
 } from 'sanity'
 
+import {type DismissalState} from '../../store/dismissals'
+import {type SnoozeState} from '../../store/snoozes'
+import {splitItems} from '../splitItems'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
-import {optionalHook} from './capability'
+import {optionalHook, useSafely} from './capability'
 import {liveQuery$} from './liveQuery'
 
 /**
@@ -141,12 +144,100 @@ function isOverdue(dueBy?: string): boolean {
 export function openTasks(options: OpenTasksOptions = {}): InboxSource {
   const {limit = 10, title = 'Task', placement = 'main', onlyMine = true} = options
 
+  /**
+   * The base task fetch — deliberately shared between `useItems` and
+   * `useOpenCount` below, since both need exactly this and nothing else
+   * (`useOpenCount` doesn't resolve `assignedTo` ids to a label/photo, only
+   * `useItems` does, further down).
+   */
+  function useTaskFetch(
+    client: AddonDatasetContextValue['client'],
+    ready: boolean,
+    userId: string | undefined,
+  ): RawTaskResult {
+    const result$ = useMemo(() => {
+      if (useAddonDataset === useUnavailableAddonDataset) {
+        return of<RawTaskResult>({
+          items: [],
+          error: new Error('Open tasks are unavailable: Sanity no longer exports useAddonDataset.'),
+          rowAssignees: new Map(),
+        })
+      }
+
+      // No addon dataset means tasks have never been used in this Studio.
+      // That is not a failure, it is simply nothing to show.
+      if (!client || !ready) {
+        return of<RawTaskResult>({items: [], loading: !ready, rowAssignees: new Map()})
+      }
+
+      const assignedTo = onlyMine ? (userId ?? null) : null
+      const params = {assignedTo, limit}
+      const fetch$ = client.observable.fetch<TaskRow[]>(QUERY, params)
+
+      // Live rather than fetched once: a task closed, reassigned, or its due
+      // date changed by someone else used to only leave (or enter) this list
+      // once the editor navigated away and back.
+      return liveQuery$(client, QUERY, params, fetch$).pipe(
+        map((rows): RawTaskResult => ({
+          items: rows.map((row): InboxItem => ({
+            id: row._id,
+            title: row.title || row._id,
+            subtitle: row.dueBy ? (isOverdue(row.dueBy) ? 'Overdue' : 'Due') : undefined,
+            timestamp: row.dueBy || row._updatedAt,
+            changedAt: row._updatedAt,
+            tone: isOverdue(row.dueBy) ? 'critical' : 'default',
+            // A task's own title is thin ("Follow up: X") — the document
+            // it targets is the substantial thing to look at, so clicking
+            // the row opens that instead of an editor for the task itself.
+            intent:
+              row.targetId && row.targetType
+                ? {type: 'edit', params: {id: row.targetId, type: row.targetType}}
+                : undefined,
+          })),
+          // Row-level `assignedTo` from the query, kept alongside `items`
+          // rather than folded into them here: resolving it to a
+          // label/photo needs `assignable` (and the current user's own
+          // profile for a self-match), neither of which this pipe closes
+          // over — see the `items` memo below, the same two-step split
+          // `unpublishedDrafts.ts` uses for the same reason.
+          rowAssignees: new Map(rows.map((row) => [row._id, row.assignedTo])),
+        })),
+        startWith<RawTaskResult>({items: [], loading: true, rowAssignees: new Map()}),
+        catchError((error: Error) => of<RawTaskResult>({items: [], error, rowAssignees: new Map()})),
+      )
+    }, [client, ready, userId])
+
+    return useObservable(result$, {items: [], loading: true, rowAssignees: new Map()})
+  }
+
   return {
     name: 'openTasks',
     title,
     icon: TaskIcon,
     placement,
     audience: onlyMine ? 'mine' : 'everyone',
+
+    useOpenCount(dismissals: DismissalState, snoozes: SnoozeState, now: number): number | null {
+      // Tasks live in the addon dataset, so unlike `unpublishedDrafts.ts`
+      // (whose base query needs nothing from it), there is no count here at
+      // all without `useAddonDataset` — this can't be worked around the way
+      // that source's `useOpenCount` was. `useSafely` (see `capability.ts`)
+      // returns the "unavailable" fallback instead of throwing when its
+      // context isn't mounted here, so this reports `null` (does not
+      // contribute to the total) rather than crashing the count provider —
+      // which today, from `src/studio/inboxCountLayout.tsx`'s
+      // `studio.components.layout` slot, it always will, since that context
+      // has only been confirmed present inside the structure tool's own
+      // resolved pane tree.
+      const {client, ready} = useSafely(useAddonDataset, useUnavailableAddonDataset())
+      const userId = useCurrentUser()?.id
+      const result = useTaskFetch(client, ready, userId)
+
+      return useMemo(() => {
+        if (result.loading || result.error) return null
+        return splitItems(result.items, 'openTasks', dismissals, snoozes, now).open.length
+      }, [result, dismissals, snoozes, now])
+    },
 
     useItems(): InboxSourceResult {
       const {client, ready} = useAddonDataset()
@@ -157,67 +248,7 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
       // hook the same way for the same reason.
       const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
 
-      const result$ = useMemo(() => {
-        if (useAddonDataset === useUnavailableAddonDataset) {
-          return of<RawTaskResult>({
-            items: [],
-            error: new Error(
-              'Open tasks are unavailable: Sanity no longer exports useAddonDataset.',
-            ),
-            rowAssignees: new Map(),
-          })
-        }
-
-        // No addon dataset means tasks have never been used in this Studio.
-        // That is not a failure, it is simply nothing to show.
-        if (!client || !ready) {
-          return of<RawTaskResult>({items: [], loading: !ready, rowAssignees: new Map()})
-        }
-
-        const assignedTo = onlyMine ? (userId ?? null) : null
-        const params = {assignedTo, limit}
-        const fetch$ = client.observable.fetch<TaskRow[]>(QUERY, params)
-
-        // Live rather than fetched once: a task closed, reassigned, or its due
-        // date changed by someone else used to only leave (or enter) this list
-        // once the editor navigated away and back.
-        return liveQuery$(client, QUERY, params, fetch$).pipe(
-          map((rows): RawTaskResult => ({
-            items: rows.map((row): InboxItem => ({
-              id: row._id,
-              title: row.title || row._id,
-              subtitle: row.dueBy ? (isOverdue(row.dueBy) ? 'Overdue' : 'Due') : undefined,
-              timestamp: row.dueBy || row._updatedAt,
-              changedAt: row._updatedAt,
-              tone: isOverdue(row.dueBy) ? 'critical' : 'default',
-              // A task's own title is thin ("Follow up: X") — the document
-              // it targets is the substantial thing to look at, so clicking
-              // the row opens that instead of an editor for the task itself.
-              intent:
-                row.targetId && row.targetType
-                  ? {type: 'edit', params: {id: row.targetId, type: row.targetType}}
-                  : undefined,
-            })),
-            // Row-level `assignedTo` from the query, kept alongside `items`
-            // rather than folded into them here: resolving it to a
-            // label/photo needs `assignable` (and the current user's own
-            // profile for a self-match), neither of which this pipe closes
-            // over — see the `items` memo below, the same two-step split
-            // `unpublishedDrafts.ts` uses for the same reason.
-            rowAssignees: new Map(rows.map((row) => [row._id, row.assignedTo])),
-          })),
-          startWith<RawTaskResult>({items: [], loading: true, rowAssignees: new Map()}),
-          catchError((error: Error) =>
-            of<RawTaskResult>({items: [], error, rowAssignees: new Map()}),
-          ),
-        )
-      }, [client, ready, userId])
-
-      const result: RawTaskResult = useObservable(result$, {
-        items: [],
-        loading: true,
-        rowAssignees: new Map(),
-      })
+      const result = useTaskFetch(client, ready, userId)
 
       // Every assignable project member, keyed by id — same shape and same
       // reasoning as `unpublishedDrafts.ts`'s own `assigneesById`: `assignable`

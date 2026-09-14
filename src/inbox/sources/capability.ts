@@ -43,3 +43,32 @@ export function optionalHook<T>(name: string, fallback: T): T {
   const value = Reflect.get(sanity, name)
   return typeof value === 'function' ? value : fallback
 }
+
+/**
+ * Calls `hook` and returns `fallback` instead of letting it throw.
+ *
+ * For a hook whose *export* might not exist, use `optionalHook` above
+ * instead — this is for one whose export exists but throws when its
+ * required context isn't mounted at the call site. Sanity's own
+ * `useAddonDataset` does this (`useAddonDataset: missing context value`),
+ * which matters here because this plugin's always-mounted count provider
+ * (`src/studio/inboxCountLayout.tsx`) sits at the Studio's
+ * `studio.components.layout` slot — outside the structure tool's own
+ * resolved pane tree, which is the only place that context is reliably
+ * provided (confirmed by reproducing the crash from that slot).
+ *
+ * Safe to wrap a hook call in try/catch here specifically because
+ * `useAddonDataset`'s throw happens *after* its one internal `useContext`
+ * call already returned (a plain `if (!ctx) throw ...` in its own body) —
+ * catching it does not leave any hook mid-flight, so React's hook-call
+ * bookkeeping for this component is unaffected. This is not a general
+ * license to wrap arbitrary hooks in try/catch; do not reuse this for a
+ * hook whose internals aren't understood this precisely.
+ */
+export function useSafely<T>(hook: () => T, fallback: T): T {
+  try {
+    return hook()
+  } catch {
+    return fallback
+  }
+}

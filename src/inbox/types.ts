@@ -1,5 +1,8 @@
 import {type ComponentType} from 'react'
 
+import {type DismissalState} from '../store/dismissals'
+import {type SnoozeState} from '../store/snoozes'
+
 /**
  * Which slice of the inbox is on screen: the things still to do, the things
  * already ticked off, or the things put off until later.
@@ -243,4 +246,26 @@ export interface InboxSource {
    * without disturbing its neighbours.
    */
   useItems: () => InboxSourceResult
+
+  /**
+   * A cheaper way to get just this source's live open count, without the
+   * rest of `useItems()`'s payload (assignee joins, the `assess`/`assign`
+   * capabilities, etc).
+   *
+   * Only used by this plugin's own always-mounted count provider
+   * (`useInboxOpenCount()`, wired up automatically by `structureInbox()`),
+   * which needs a live count from *outside* the structure tool's own
+   * resolved pane tree — the one place some Studio context `useItems()` may
+   * depend on (Sanity's addon dataset, used by Tasks) is reliably available.
+   * The pane itself always calls `useItems()`, never this.
+   *
+   * Omit it and this source simply does not contribute to
+   * `useInboxOpenCount()`'s total — it still works normally everywhere
+   * else. That is a deliberate, safer default than falling back to
+   * `useItems()` from this provider: a source whose `useItems()` depends on
+   * context unavailable here would crash instead of just under-counting
+   * (see `unpublishedDrafts.ts` and `openTasks.ts` for two built-in sources
+   * that hit exactly this, and how each does or doesn't provide this).
+   */
+  useOpenCount?: (dismissals: DismissalState, snoozes: SnoozeState, now: number) => number | null
 }
