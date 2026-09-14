@@ -56,10 +56,12 @@ function renderList(props: {
 
   renderWithTheme(
     <MergedList
+      assigneeFilter={new Set()}
       dismissals={dismissals}
       order={props.order}
       reports={props.reports}
       snoozes={snoozes}
+      typeFilter={new Set()}
       view={props.view ?? 'open'}
     />,
   )
@@ -250,7 +252,11 @@ describe('MergedList', () => {
 
     await vi.waitFor(() => expect(dismissals.dismiss).toHaveBeenCalledWith('drafts', 'd1'))
 
-    fireEvent.click(await screen.findByText('selection.undo'))
+    // A generous timeout, not the library default: this toast only appears
+    // after `confirmSelection`'s own real `setTimeout(EXIT_ANIMATION_MS)`
+    // resolves, and a slow, loaded test run can push that past the default
+    // 1000ms window on its own, with nothing actually wrong.
+    fireEvent.click(await screen.findByText('selection.undo', {}, {timeout: 5000}))
     expect(dismissals.restore).toHaveBeenCalledWith('drafts', 'd1')
   })
 
@@ -268,7 +274,11 @@ describe('MergedList', () => {
       expect(snoozes.snooze).toHaveBeenCalledWith('drafts', 'd1', expect.any(String)),
     )
 
-    fireEvent.click(await screen.findByText('selection.undo'))
+    // A generous timeout, not the library default: this toast only appears
+    // after `confirmSelection`'s own real `setTimeout(EXIT_ANIMATION_MS)`
+    // resolves, and a slow, loaded test run can push that past the default
+    // 1000ms window on its own, with nothing actually wrong.
+    fireEvent.click(await screen.findByText('selection.undo', {}, {timeout: 5000}))
     expect(snoozes.wake).toHaveBeenCalledWith('drafts', 'd1')
   })
 
@@ -412,25 +422,12 @@ describe('MergedList', () => {
     await vi.waitFor(() => expect(screen.queryByText('selection.count')).toBeNull())
   })
 
-  it('renders a create row per source that offers one, only in the open view', () => {
-    const create = vi.fn()
-    const reports = {
-      todos: report('todos', 'Todos', {create}),
-    }
+  it('does not render its own "add new" trigger — that now lives in Inbox.tsx\'s tab row', () => {
+    const reports = {todos: report('todos', 'Todos', {create: vi.fn()})}
 
     renderList({reports, order: ['todos']})
 
-    fireEvent.click(screen.getByText('todos.addButton'))
-    fireEvent.change(screen.getByPlaceholderText('todos.addPlaceholder'), {
-      target: {value: 'New todo'},
-    })
-    fireEvent.click(screen.getByText('todos.add'))
-
-    expect(create).toHaveBeenCalledWith({
-      title: 'New todo',
-      description: undefined,
-      dueBy: undefined,
-    })
+    expect(screen.queryByText('todos.addButton')).toBeNull()
   })
 
   it('opens a pre-filled edit dialog when a row is clicked, and saves through update', () => {
@@ -463,53 +460,6 @@ describe('MergedList', () => {
       dueBy: '2026-02-01',
     })
     expect(screen.queryByText('todos.editButton')).toBeNull()
-  })
-
-  it('includes a description and due date when filled in', () => {
-    const create = vi.fn()
-    const reports = {todos: report('todos', 'Todos', {create})}
-
-    renderList({reports, order: ['todos']})
-
-    fireEvent.click(screen.getByText('todos.addButton'))
-    fireEvent.change(screen.getByPlaceholderText('todos.addPlaceholder'), {
-      target: {value: 'New todo'},
-    })
-    fireEvent.change(screen.getByPlaceholderText('todos.descriptionPlaceholder'), {
-      target: {value: 'Some detail'},
-    })
-    fireEvent.change(screen.getByDisplayValue(''), {target: {value: '2026-02-01'}})
-    fireEvent.click(screen.getByText('todos.add'))
-
-    expect(create).toHaveBeenCalledWith({
-      title: 'New todo',
-      description: 'Some detail',
-      dueBy: '2026-02-01',
-    })
-  })
-
-  it('closes the dialog without creating anything on cancel', () => {
-    const create = vi.fn()
-    const reports = {todos: report('todos', 'Todos', {create})}
-
-    renderList({reports, order: ['todos']})
-
-    fireEvent.click(screen.getByText('todos.addButton'))
-    fireEvent.change(screen.getByPlaceholderText('todos.addPlaceholder'), {
-      target: {value: 'Abandoned'},
-    })
-    fireEvent.click(screen.getByText('selection.cancel'))
-
-    expect(screen.queryByPlaceholderText('todos.addPlaceholder')).toBeNull()
-    expect(create).not.toHaveBeenCalled()
-  })
-
-  it('hides create rows outside the open view', () => {
-    const reports = {todos: report('todos', 'Todos', {create: vi.fn()})}
-
-    renderList({reports, order: ['todos'], view: 'done'})
-
-    expect(screen.queryByText('todos.addButton')).toBeNull()
   })
 
   it('shows an inline error for a source that reported one, without hiding the rest', () => {

@@ -49,7 +49,24 @@ export function SectionCard(props: SectionCardProps) {
     // clipped by this card's radius instead of bleeding past it.
     <Card border overflow="hidden" radius={3} shadow={0}>
       {title && (
-        <Card borderBottom paddingX={3} paddingY={4} radius={0} tone="transparent">
+        // `minHeight` matches the merged list's own header exactly — that
+        // one grows taller than plain icon+title text whenever its filter
+        // bar (avatar stack + type menu) is present, and a shorter header
+        // here read as misaligned even though both columns' cards still
+        // start at the same `top`. This card has no filter bar of its own
+        // to grow for, so the height is pinned explicitly instead.
+        <Card
+          borderBottom
+          paddingX={3}
+          paddingY={3}
+          radius={0}
+          // `display: flex` + `alignItems: center` on the card itself, not
+          // just on the `Flex` inside it: `minHeight` alone left the inner
+          // `Flex` at its own content height, sitting at the card's top
+          // instead of centered in the extra room `minHeight` now reserves.
+          style={{alignItems: 'center', display: 'flex', minHeight: 54}}
+          tone="transparent"
+        >
           {/* `paddingLeft={2}` here, on top of this Card's own `padding={3}`
               — a row's checkbox carries this same extra padding
               (`InboxRow.tsx`'s own checkbox wrapper), which this
@@ -60,7 +77,7 @@ export function SectionCard(props: SectionCardProps) {
               `2`, not the `1` that lined up the plain checkbox below,
               since the icon's own glyph sits slightly inset from its
               bounding box at this size. */}
-          <Flex align="center" gap={3} paddingLeft={2}>
+          <Flex align="center" flex={1} gap={3} paddingLeft={2}>
             {Icon && (
               <Text muted size={2}>
                 <Icon />

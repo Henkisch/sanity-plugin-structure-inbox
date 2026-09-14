@@ -1,27 +1,17 @@
-import {Box, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
-import {useCallback, useEffect, useMemo, useState} from 'react'
+import {Box, Stack, Text} from '@sanity/ui'
+import {useEffect, useMemo, useState} from 'react'
 import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {isDismissed} from '../store/dismissals'
-import {resolveSnoozeUntil, type SnoozePreset} from '../store/snoozePresets'
 import {isSnoozed} from '../store/snoozes'
 import {type Dismissals} from '../store/useDismissals'
 import {type Snoozes} from '../store/useSnoozes'
 import {SectionCard} from '../ui/SectionCard'
 import {CreateItemRow} from './CreateItemRow'
 import {InboxRow} from './InboxRow'
-import {SelectionActions} from './SelectionActions'
 import {type InboxItem, type InboxSource, type InboxView} from './types'
-import {useDelayedUnmount} from './useDelayedUnmount'
-import {EXIT_ANIMATION_MS, useUndoToast} from './useUndoToast'
-
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-/** How long the selection bar takes to ease open or shut — see `useDelayedUnmount`. */
-const SELECTION_BAR_TRANSITION_MS = 200
+import {useUndoToast} from './useUndoToast'
 
 interface InboxSectionProps {
   source: InboxSource
@@ -41,22 +31,23 @@ interface InboxSectionProps {
 }
 
 /**
- * One source's group in the inbox.
+ * One source's group in the inbox — always an `aside` source today (`main`
+ * sources render through `MergedList` instead, which is where the bulk
+ * selection/mark-done/snooze bar this component used to carry now lives
+ * exclusively). Aside content is ambient context to glance at and open, not
+ * a worklist to multi-select and clear, so this is a plain read-only list:
+ * open, done and snoozed tabs still split it, and a single row can still be
+ * reassigned, asked about, or removed on its own — just nothing bulk.
  *
  * Each source gets its own component so its `useItems` hook has a stable call
  * position of its own. A single component looping over sources would break the
- * rules of hooks the moment a Studio's config changed. It also keeps selection
- * scoped to one source, which is what makes the action bar unambiguous: every
- * selected row shares the same notion of what "done" can mean.
+ * rules of hooks the moment a Studio's config changed.
  */
 export function InboxSection(props: InboxSectionProps) {
   const {source, dismissals, snoozes, view, compact = false, onCount, onVisibleCount} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
-  const {items, loading, error, resolve, create, assess, assign, remove, update} = source.useItems()
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [busy, setBusy] = useState(false)
-  const [leavingIds, setLeavingIds] = useState<ReadonlySet<string>>(new Set())
+  const {items, loading, error, create, assess, assign, remove, update} = source.useItems()
   const showUndoToast = useUndoToast()
 
   // The item being edited, if any — see `MergedList` for the full reasoning.
@@ -105,170 +96,6 @@ export function InboxSection(props: InboxSectionProps) {
     onVisibleCount?.(source.name, visible.length)
   }, [onVisibleCount, source.name, visible.length])
 
-  // A row can disappear while selected — someone else publishes the draft, or
-  // the editor switches tabs. Deriving the selection from what is on screen
-  // means the action bar can never count rows nobody can see, and no effect is
-  // needed to clear it.
-  const selected = useMemo(
-    () => visible.filter((item) => selectedIds.includes(item.id)),
-    [visible, selectedIds],
-  )
-
-  const handleSelectedChange = useCallback((item: InboxItem, isSelected: boolean) => {
-    setSelectedIds((current) =>
-      isSelected ? [...current, item.id] : current.filter((id) => id !== item.id),
-    )
-  }, [])
-
-  const clearSelection = useCallback(() => setSelectedIds([]), [])
-
-  // See `MergedList` for the full reasoning — same jump, same fix, and the
-  // same reason this tracks only the count rather than the `selected` array.
-  const showSelectionBar = useDelayedUnmount(selected.length > 0, SELECTION_BAR_TRANSITION_MS)
-  const [lastCount, setLastCount] = useState(selected.length)
-  if (selected.length > 0 && selected.length !== lastCount) setLastCount(selected.length)
-  const displayCount = selected.length > 0 ? selected.length : lastCount
-
-  const allSelected = visible.length > 0 && selected.length === visible.length
-  const someSelected = selected.length > 0 && !allSelected
-
-  const toggleAll = useCallback(() => {
-    setSelectedIds(allSelected ? [] : visible.map((item) => item.id))
-  }, [allSelected, visible])
-
-  /**
-   * The primary action the selection bar offers, in whichever direction the
-   * current tab implies.
-   *
-   * Marking done means two things at once when the source supports it: complete
-   * the item where it lives, then take it out of this editor's inbox. The order
-   * matters — an item whose resolve failed stays in the inbox rather than
-   * vanishing from one person's view while still open for everyone else.
-   */
-  const confirmSelection = useCallback(async () => {
-    if (view === 'done') {
-      for (const item of selected) dismissals.restore(source.name, item.id)
-      setSelectedIds([])
-      return
-    }
-
-    if (view === 'snoozed') {
-      for (const item of selected) snoozes.wake(source.name, item.id)
-      setSelectedIds([])
-      return
-    }
-
-    const targets = [...selected]
-
-    // Cleared immediately — the bar disappearing is the confirmation the
-    // click landed; the rows themselves fade a beat longer before the
-    // mutation that actually removes them runs, see `EXIT_ANIMATION_MS`.
-    setSelectedIds([])
-    setLeavingIds((current) => new Set([...current, ...targets.map((item) => item.id)]))
-    await wait(EXIT_ANIMATION_MS)
-
-    setBusy(true)
-    try {
-      // `allSettled` rather than `all`: one item failing should not strand the
-      // others, and each is marked done only once its own resolve succeeded
-      // (or, with no `resolve` at all, unconditionally).
-      const results = await Promise.allSettled(
-        targets.map((item) => (resolve ? resolve(item) : Promise.resolve())),
-      )
-
-      let dismissedCount = 0
-      results.forEach((result, index) => {
-        if (result.status === 'fulfilled') {
-          dismissals.dismiss(source.name, targets[index].id)
-          dismissedCount += 1
-        } else {
-          console.error('[sanity-plugin-structure-inbox] could not resolve item', result.reason)
-        }
-      })
-
-      setLeavingIds((current) => {
-        const next = new Set(current)
-        targets.forEach((item) => next.delete(item.id))
-        return next
-      })
-
-      if (dismissedCount > 0) {
-        showUndoToast({
-          title: t('undo.markedDone', {count: dismissedCount}),
-          onUndo: () => targets.forEach((item) => dismissals.restore(source.name, item.id)),
-        })
-      }
-    } finally {
-      setBusy(false)
-    }
-  }, [view, resolve, selected, dismissals, snoozes, source.name, showUndoToast, t])
-
-  /** Only reachable from the open view — see `onSnooze` on `SelectionActions`. */
-  const confirmSnooze = useCallback(
-    (preset: SnoozePreset) => {
-      const until = resolveSnoozeUntil(preset)
-      const targets = [...selected]
-
-      setSelectedIds([])
-      setLeavingIds((current) => new Set([...current, ...targets.map((item) => item.id)]))
-
-      setTimeout(() => {
-        for (const item of targets) snoozes.snooze(source.name, item.id, until)
-
-        setLeavingIds((current) => {
-          const next = new Set(current)
-          targets.forEach((item) => next.delete(item.id))
-          return next
-        })
-
-        showUndoToast({
-          title: t('undo.snoozed', {count: targets.length}),
-          onUndo: () => targets.forEach((item) => snoozes.wake(source.name, item.id)),
-        })
-      }, EXIT_ANIMATION_MS)
-    },
-    [selected, snoozes, source.name, showUndoToast, t],
-  )
-
-  /**
-   * Only reachable from the open view — see `onAssign` on `SelectionActions`.
-   * Assigning creates a real task per item, so — like resolving — failures
-   * are per item and one does not strand the rest.
-   */
-  const confirmAssign = useCallback(
-    async (userId: string) => {
-      if (!assign) return
-      const targets = [...selected]
-      const assignee = assign.users.find((user) => user.id === userId)?.label ?? userId
-
-      setBusy(true)
-      try {
-        const results = await Promise.allSettled(targets.map((item) => assign.toUser(item, userId)))
-
-        let assignedCount = 0
-        results.forEach((result) => {
-          if (result.status === 'rejected') {
-            console.error('[sanity-plugin-structure-inbox] could not assign item', result.reason)
-          } else {
-            assignedCount += 1
-          }
-        })
-
-        setSelectedIds([])
-
-        // Assigning creates a new Task rather than changing the row that was
-        // selected, so nothing in the list itself said the click landed —
-        // this is the only confirmation there is.
-        if (assignedCount > 0) {
-          showUndoToast({title: t('undo.assigned', {count: assignedCount, name: assignee})})
-        }
-      } finally {
-        setBusy(false)
-      }
-    },
-    [assign, selected, showUndoToast, t],
-  )
-
   const isEmpty = visible.length === 0
   const editingItem = editingId ? visible.find((item) => item.id === editingId) : undefined
 
@@ -284,33 +111,6 @@ export function InboxSection(props: InboxSectionProps) {
       // now applies per row. A personal source is the one worth calling out.
       note={source.audience === 'mine' ? t('audience.mine') : undefined}
       title={source.title}
-      toolbar={
-        // See `MergedList` for why this is a grid that eases open and shut
-        // rather than a plain conditional render.
-        <Box
-          style={{
-            display: 'grid',
-            gridTemplateRows: selected.length > 0 ? '1fr' : '0fr',
-            transition: `grid-template-rows ${SELECTION_BAR_TRANSITION_MS}ms ease`,
-          }}
-        >
-          <Box style={{minHeight: 0, overflow: 'hidden'}}>
-            {showSelectionBar && (
-              <SelectionActions
-                assignableUsers={view === 'open' ? assign?.users : undefined}
-                busy={busy}
-                count={displayCount}
-                onAssign={view === 'open' && assign ? confirmAssign : undefined}
-                onCancel={clearSelection}
-                onConfirm={confirmSelection}
-                onSnooze={view === 'open' ? confirmSnooze : undefined}
-                resolves={Boolean(resolve)}
-                view={view}
-              />
-            )}
-          </Box>
-        </Box>
-      }
     >
       {view === 'open' && create && (
         <CreateItemRow
@@ -353,25 +153,6 @@ export function InboxSection(props: InboxSectionProps) {
         </Box>
       ) : (
         <Stack>
-          <Card borderBottom paddingX={3} paddingY={2}>
-            {/* See `MergedList`'s identical header for why this `Flex` gets
-                its own extra `paddingLeft={1}` rather than bumping this
-                Card's padding a step — it lines this checkbox up with the
-                ones on every row below. */}
-            <Flex align="center" paddingLeft={1}>
-              <Checkbox
-                checked={allSelected}
-                indeterminate={someSelected}
-                onChange={toggleAll}
-                title={t('selection.selectAll')}
-              />
-              <Box paddingLeft={2}>
-                <Text muted size={0}>
-                  {t('selection.selectAll')}
-                </Text>
-              </Box>
-            </Flex>
-          </Card>
           <Stack gap={1} padding={1}>
             {visible.map((item) => (
               <InboxRow
@@ -380,10 +161,8 @@ export function InboxSection(props: InboxSectionProps) {
                 done={view === 'done'}
                 item={item}
                 key={item.id}
-                leaving={leavingIds.has(item.id)}
                 onAssess={assess}
                 onEdit={update ? () => setEditingId(item.id) : undefined}
-                onlySelected={selected.length === 1 && selectedIds.includes(item.id)}
                 onReassign={
                   assign
                     ? (targetItem, userId) => {
@@ -419,8 +198,6 @@ export function InboxSection(props: InboxSectionProps) {
                     : undefined
                 }
                 onRemove={remove}
-                onSelectedChange={handleSelectedChange}
-                selected={selectedIds.includes(item.id)}
               />
             ))}
           </Stack>

@@ -15,13 +15,20 @@ interface InboxRowProps {
   compact?: boolean
   /** Already ticked off. Only ever rendered while "Show done" is on. */
   done?: boolean
-  selected: boolean
+  /**
+   * Omit both this and `onSelectedChange` for a source with no bulk-selection
+   * mechanism of its own to hook into (today, every `aside` source: ambient
+   * context to glance at and open, not a worklist to multi-select and clear).
+   * The row still opens via `intent`/`onEdit` either way — only the checkbox
+   * and the click-to-select fallback disappear.
+   */
+  selected?: boolean
   /**
    * Fading out on its way to being marked done or snoozed, rather than
    * vanishing the instant the action bar is clicked — see `EXIT_ANIMATION_MS`.
    */
   leaving?: boolean
-  onSelectedChange: (item: InboxItem, selected: boolean) => void
+  onSelectedChange?: (item: InboxItem, selected: boolean) => void
   /** The source's `assess`, if it has one — see `InboxSourceResult.assess`. */
   onAssess?: (item: InboxItem) => Promise<string>
   /** The source's `remove`, if it has one — see `InboxSourceResult.remove`. */
@@ -68,8 +75,10 @@ interface InboxRowProps {
 type Assessment = {status: 'idle'} | {status: 'loading'} | {status: 'done'; message: string}
 
 // "AB" from "Ada Bergström", "A" from "Ada" — the same shorthand an avatar
-// with no photo falls back to everywhere else in Studio.
-function initials(label: string): string {
+// with no photo falls back to everywhere else in Studio. Exported for
+// `Inbox.tsx`'s assignee filter chips, the one other place that draws an
+// avatar from just a label.
+export function initials(label: string): string {
   const words = label.trim().split(/\s+/).filter(Boolean)
   return words
     .slice(0, 2)
@@ -77,12 +86,60 @@ function initials(label: string): string {
     .join('')
 }
 
+/**
+ * The empty circle with a person glyph — Jira's own convention for
+ * "assignable, nobody's picked it up yet" — factored out so `Inbox.tsx`'s
+ * "Unassigned" filter chip can draw the exact same placeholder instead of
+ * restating it as text next to everyone else's photo. Full opacity here,
+ * unlike a row's own inline placeholder (`assigneeAvatar` below): a filter
+ * chip sits among other equally-solid avatars it needs to read as one of,
+ * not among assigned items it's meant to visually recede next to.
+ *
+ * Purely visual — no click handling of its own. `Inbox.tsx` wraps it (and
+ * every other avatar in its stack) in a plain `<button>` instead of styling
+ * this component itself as one: overriding `Avatar`'s own internal style
+ * this way, for both the ring and the `as="button"` tag swap, is what broke
+ * its icon's positioning the first time this was tried.
+ *
+ * A `Card`, not an `Avatar`, for the circle itself: `Avatar` with neither
+ * `initials` nor `src` still picks a background from its own themed palette
+ * (deterministic, not random — but not this component's to control), and in
+ * this theme that happened to land on the exact same colour `Text muted`
+ * renders in, making the icon on top of it disappear against its own
+ * background. `Card tone="transparent"` paired with `Text muted` is the same
+ * combination this codebase already leans on everywhere else for guaranteed
+ * contrast (see `SectionCard`'s own header icon), so it can't coincide again.
+ */
+const UNASSIGNED_AVATAR_DIAMETER: Record<0 | 1 | 2, number> = {0: 19, 1: 25, 2: 35}
+
+export function UnassignedAvatar({size = 1}: {size?: 0 | 1 | 2}) {
+  const diameter = UNASSIGNED_AVATAR_DIAMETER[size]
+  return (
+    <Box style={{height: diameter, position: 'relative', width: diameter}}>
+      {/* `borderRadius: '50%'` via raw style, not the `radius` prop: `radius`
+          is Sanity's own small integer scale (fixed px steps), not an
+          arbitrary pixel value — passing the diameter through it left visible
+          straight edges instead of a full circle. */}
+      <Card style={{borderRadius: '50%', height: '100%', width: '100%'}} tone="transparent" />
+      <Flex
+        align="center"
+        justify="center"
+        style={{inset: 0, pointerEvents: 'none', position: 'absolute'}}
+      >
+        <Text muted size={size}>
+          <UserIcon />
+        </Text>
+      </Flex>
+    </Box>
+  )
+}
+
 export function InboxRow(props: InboxRowProps) {
   const {
     item,
     compact = false,
     done = false,
-    selected,
+    selected = false,
     leaving = false,
     onSelectedChange,
     onAssess,
@@ -104,7 +161,7 @@ export function InboxRow(props: InboxRowProps) {
   // same order a mail client puts them in, and the reason a tick that silently
   // completed things felt wrong.
   const toggleSelected = useCallback(
-    () => onSelectedChange(item, !selected),
+    () => onSelectedChange?.(item, !selected),
     [item, onSelectedChange, selected],
   )
 
@@ -172,7 +229,7 @@ export function InboxRow(props: InboxRowProps) {
     opacity: leaving ? 0 : 1,
   }
 
-  const checkbox = (
+  const checkbox = onSelectedChange && (
     <Flex align="center" onClick={stopPropagation} paddingLeft={1} paddingRight={compact ? 1 : 2}>
       <Checkbox
         aria-labelledby={labelId}

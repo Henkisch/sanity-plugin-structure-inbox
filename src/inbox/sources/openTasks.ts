@@ -87,6 +87,15 @@ const QUERY = `*[
   "targetType": target.documentType
 }`
 
+/**
+ * `useItems`'s own intermediate shape, before `assignedTo` ids are resolved
+ * to a label/photo — see the `items` memo further down, which turns this
+ * into the `InboxSourceResult` the source actually returns.
+ */
+interface RawTaskResult extends InboxSourceResult {
+  rowAssignees: Map<string, string | undefined>
+}
+
 function isOverdue(dueBy?: string): boolean {
   if (!dueBy) return false
   const due = Date.parse(dueBy)
@@ -150,36 +159,30 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
 
       const result$ = useMemo(() => {
         if (useAddonDataset === useUnavailableAddonDataset) {
-          return of<InboxSourceResult>({
+          return of<RawTaskResult>({
             items: [],
             error: new Error(
               'Open tasks are unavailable: Sanity no longer exports useAddonDataset.',
             ),
+            rowAssignees: new Map(),
           })
         }
 
         // No addon dataset means tasks have never been used in this Studio.
         // That is not a failure, it is simply nothing to show.
-        if (!client || !ready) return of<InboxSourceResult>({items: [], loading: !ready})
+        if (!client || !ready) {
+          return of<RawTaskResult>({items: [], loading: !ready, rowAssignees: new Map()})
+        }
 
         const assignedTo = onlyMine ? (userId ?? null) : null
         const params = {assignedTo, limit}
         const fetch$ = client.observable.fetch<TaskRow[]>(QUERY, params)
 
-        // Every row this query can return is already assigned to `currentUser`
-        // when `onlyMine` is on — the query itself filters to it — so there is
-        // no per-row lookup to do; a fuller "everyone's tasks" view would need
-        // a project members list this source doesn't have yet.
-        const assignee =
-          assignedTo && currentUser
-            ? {label: currentUser.name, imageUrl: currentUser.profileImage}
-            : undefined
-
         // Live rather than fetched once: a task closed, reassigned, or its due
         // date changed by someone else used to only leave (or enter) this list
         // once the editor navigated away and back.
         return liveQuery$(client, QUERY, params, fetch$).pipe(
-          map((rows): InboxSourceResult => ({
+          map((rows): RawTaskResult => ({
             items: rows.map((row): InboxItem => ({
               id: row._id,
               title: row.title || row._id,
@@ -187,7 +190,6 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
               timestamp: row.dueBy || row._updatedAt,
               changedAt: row._updatedAt,
               tone: isOverdue(row.dueBy) ? 'critical' : 'default',
-              assignee,
               // A task's own title is thin ("Follow up: X") — the document
               // it targets is the substantial thing to look at, so clicking
               // the row opens that instead of an editor for the task itself.
@@ -196,13 +198,52 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
                   ? {type: 'edit', params: {id: row.targetId, type: row.targetType}}
                   : undefined,
             })),
+            // Row-level `assignedTo` from the query, kept alongside `items`
+            // rather than folded into them here: resolving it to a
+            // label/photo needs `assignable` (and the current user's own
+            // profile for a self-match), neither of which this pipe closes
+            // over — see the `items` memo below, the same two-step split
+            // `unpublishedDrafts.ts` uses for the same reason.
+            rowAssignees: new Map(rows.map((row) => [row._id, row.assignedTo])),
           })),
-          startWith<InboxSourceResult>({items: [], loading: true}),
-          catchError((error: Error) => of<InboxSourceResult>({items: [], error})),
+          startWith<RawTaskResult>({items: [], loading: true, rowAssignees: new Map()}),
+          catchError((error: Error) =>
+            of<RawTaskResult>({items: [], error, rowAssignees: new Map()}),
+          ),
         )
-      }, [client, ready, userId, currentUser])
+      }, [client, ready, userId])
 
-      const result = useObservable(result$, {items: [], loading: true})
+      const result: RawTaskResult = useObservable(result$, {
+        items: [],
+        loading: true,
+        rowAssignees: new Map(),
+      })
+
+      // Every assignable project member, keyed by id — same shape and same
+      // reasoning as `unpublishedDrafts.ts`'s own `assigneesById`: `assignable`
+      // has everyone's display name and photo except a reliable one for the
+      // current user, whose own profile fills that gap instead.
+      const assigneesById = useMemo(() => {
+        const byId = new Map<string, {label: string; imageUrl?: string}>()
+        for (const user of assignable ?? []) {
+          const isSelf = user.id === userId
+          byId.set(user.id, {
+            label: user.displayName || user.email || user.id,
+            imageUrl: (isSelf && currentUser?.profileImage) || user.imageUrl,
+          })
+        }
+        return byId
+      }, [assignable, userId, currentUser])
+
+      const items = useMemo(
+        () =>
+          result.items.map((item): InboxItem => {
+            const assignedTo = result.rowAssignees.get(item.id)
+            const assignee = assignedTo ? assigneesById.get(assignedTo) : undefined
+            return assignee ? {...item, assignee} : item
+          }),
+        [result.items, result.rowAssignees, assigneesById],
+      )
 
       // Lets the avatar on a task's own row reassign it directly — the same
       // `assign` shape `unpublishedDrafts` offers, but a plain patch here
@@ -226,7 +267,9 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
 
       return useMemo(
         () => ({
-          ...result,
+          items,
+          loading: result.loading,
+          error: result.error,
           resolve: client
             ? async (item: InboxItem) => {
                 await client.patch(item.id).set({status: 'closed'}).commit()
@@ -234,7 +277,7 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
             : undefined,
           assign,
         }),
-        [result, client, assign],
+        [items, result.loading, result.error, client, assign],
       )
     },
   }

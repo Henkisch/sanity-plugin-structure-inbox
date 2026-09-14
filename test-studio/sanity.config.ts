@@ -48,10 +48,14 @@ export default defineConfig([
       // `showInList` is off by default; this workspace turns it on so both the
       // visible entry and the invisible resolution get exercised somewhere.
       structureInbox({
-        // showInList: true,
+        showInList: true,
         sources: [
-          // The personal list: assigned tasks, with a real "Mark as done".
-          openTasks(),
+          // Everyone's open tasks, not just this editor's own — lets the new
+          // assignee/type filter row in the merged list actually have
+          // something to filter, and matches how a real team Studio is more
+          // likely to configure it now that the pane has its own filter UI
+          // instead of baking "just mine" into the query.
+          openTasks({onlyMine: false}),
           // Zero days, so a draft made seconds ago shows up — a seven-day
           // default would make this workspace look broken while testing.
           unpublishedDrafts({olderThanDays: 0}),
@@ -59,8 +63,6 @@ export default defineConfig([
           todos(),
         ],
       }),
-      // Stacked on purpose — see the probe's own comment.
-      activeToolLayoutProbe(),
       visionTool(),
     ],
     schema: {types: schemaTypes},
@@ -116,6 +118,24 @@ export default defineConfig([
         },
       }),
       structureInbox({showInList: true, sources: [unpublishedDrafts({olderThanDays: 0})]}),
+    ],
+    schema: {types: schemaTypes},
+  },
+  {
+    // Confirms `useMiddlewareComponents` composes two plugins' own
+    // `activeToolLayout` overrides through `renderDefault` — see the probe's
+    // own comment. Verified working; kept in its own out-of-the-way
+    // workspace rather than cluttering `default` with a permanent banner on
+    // every visit now that it's served its purpose for day-to-day testing.
+    name: 'activeToolLayoutProbe',
+    title: 'activeToolLayout composition probe',
+    basePath: '/active-tool-layout-probe',
+    projectId,
+    dataset,
+    plugins: [
+      structureTool({structure}),
+      structureInbox({sources: [unpublishedDrafts({olderThanDays: 0})]}),
+      activeToolLayoutProbe(),
     ],
     schema: {types: schemaTypes},
   },

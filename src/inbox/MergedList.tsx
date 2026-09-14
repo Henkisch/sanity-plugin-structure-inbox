@@ -1,6 +1,6 @@
 import {InboxIcon} from '@sanity/icons/Inbox'
 import {Box, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
-import {useCallback, useMemo, useState} from 'react'
+import {type ReactNode, useCallback, useMemo, useState} from 'react'
 import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
@@ -8,6 +8,7 @@ import {resolveSnoozeUntil, type SnoozePreset} from '../store/snoozePresets'
 import {type Dismissals} from '../store/useDismissals'
 import {type Snoozes} from '../store/useSnoozes'
 import {CreateItemRow} from './CreateItemRow'
+import {matchesInboxFilters} from './inboxFilterSentinels'
 import {InboxRow} from './InboxRow'
 import {mergeRows} from './mergeItems'
 import {SelectionActions} from './SelectionActions'
@@ -30,6 +31,20 @@ interface MergedListProps {
   view: InboxView
   dismissals: Dismissals
   snoozes: Snoozes
+  /**
+   * State owned by `Inbox.tsx` (it also needs it for the pane's own headline
+   * count) — applied to `allRows` below. Multi-select: empty means "no
+   * filter, show everything." See `ASSIGNEE_UNASSIGNED`.
+   */
+  assigneeFilter: ReadonlySet<string>
+  typeFilter: ReadonlySet<string>
+  /**
+   * The actual filter controls (avatar stack + type menu), built in
+   * `Inbox.tsx` from the same state as `assigneeFilter`/`typeFilter` above —
+   * rendered here, in this column's own header, since they only ever
+   * narrow this column and never the aside sources beside it.
+   */
+  filterBar?: ReactNode
 }
 
 /**
@@ -45,10 +60,15 @@ interface MergedListProps {
  * one at a time.
  */
 export function MergedList(props: MergedListProps) {
-  const {reports, order, view, dismissals, snoozes} = props
+  const {reports, order, view, dismissals, snoozes, assigneeFilter, typeFilter, filterBar} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
-  const rows = useMemo(() => mergeRows(reports, order, view), [reports, order, view])
+  const allRows = useMemo(() => mergeRows(reports, order, view), [reports, order, view])
+
+  const rows = useMemo(
+    () => allRows.filter((row) => matchesInboxFilters(row, assigneeFilter, typeFilter)),
+    [allRows, assigneeFilter, typeFilter],
+  )
 
   const [selectedKeys, setSelectedKeys] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
@@ -326,51 +346,64 @@ export function MergedList(props: MergedListProps) {
         </Card>
       ))}
 
+      {/* The "add new" trigger now lives in `Inbox.tsx`'s tab row instead —
+          this instance is edit-only, mounted only while an item from an
+          editable source is actually being edited. `hideTrigger` keeps it
+          from also drawing a second, redundant "+ Add todo" button here
+          even in that brief window. */}
       {view === 'open' &&
-        creators.map((report) => {
-          const isEditingThis = editingRow?.sourceName === report.source.name
-          return (
+        editingRow &&
+        creators
+          .filter((report) => report.source.name === editingRow.sourceName)
+          .map((report) => (
             <CreateItemRow
-              editing={
-                isEditingThis && editingRow
-                  ? {
-                      key: editingRow.key,
-                      title: editingRow.item.title,
-                      description: editingRow.item.description,
-                      dueBy: editingRow.item.dueBy,
-                      onSave: (input) => {
-                        Promise.resolve(report.update?.(editingRow.item, input)).catch(
-                          (error: unknown) => {
-                            console.error(
-                              '[sanity-plugin-structure-inbox] could not update item',
-                              error,
-                            )
-                          },
-                        )
-                        setEditingKey(null)
-                      },
-                      onCancel: () => setEditingKey(null),
-                    }
-                  : undefined
-              }
+              editing={{
+                key: editingRow.key,
+                title: editingRow.item.title,
+                description: editingRow.item.description,
+                dueBy: editingRow.item.dueBy,
+                onSave: (input) => {
+                  Promise.resolve(report.update?.(editingRow.item, input)).catch(
+                    (error: unknown) => {
+                      console.error('[sanity-plugin-structure-inbox] could not update item', error)
+                    },
+                  )
+                  setEditingKey(null)
+                },
+                onCancel: () => setEditingKey(null),
+              }}
+              hideTrigger
               key={report.source.name}
               onCreate={(input) => report.create?.(input)}
             />
-          )
-        })}
+          ))}
 
-      {/* Grid rather than a plain conditional render: the whole list used to
-          jump the instant selection changed, since the bar's block appearing
-          or disappearing is otherwise an instant reflow. `0fr`/`1fr` on a
-          single grid row eases that height open and shut instead — see
-          `useDelayedUnmount` for why the bar itself outlives the collapse. */}
-      <Box
-        style={{
-          display: 'grid',
-          gridTemplateRows: selected.length > 0 ? '1fr' : '0fr',
-          transition: `grid-template-rows ${SELECTION_BAR_TRANSITION_MS}ms ease`,
-        }}
-      >
+      {/* Its own zero-gap `Stack`, not a direct child of the outer one above:
+          this Box is always mounted (collapsed to `0fr` when nothing is
+          selected), and the outer Stack's `gap` applies between siblings
+          regardless of a collapsed one's actual rendered height — that
+          added a permanent 12px gap above the card below even with nothing
+          else on screen, which is exactly what put this box and
+          `SectionCard`'s own outer box (no such always-mounted sibling) out
+          of alignment. */}
+      <Stack gap={0}>
+        {/* Grid rather than a plain conditional render: the whole list used to
+            jump the instant selection changed, since the bar's block appearing
+            or disappearing is otherwise an instant reflow. `0fr`/`1fr` on a
+            single grid row eases that height open and shut instead — see
+            `useDelayedUnmount` for why the bar itself outlives the collapse. */}
+        <Box
+          style={{
+            display: 'grid',
+            gridTemplateRows: selected.length > 0 ? '1fr' : '0fr',
+            // The 12px the outer Stack used to contribute unconditionally —
+            // restored here, but only while the bar is actually visible, so
+            // it still separates the bar from the card below without also
+            // pushing the (collapsed, invisible) card down when it isn't.
+            marginBottom: selected.length > 0 ? 12 : 0,
+            transition: `grid-template-rows ${SELECTION_BAR_TRANSITION_MS}ms ease, margin-bottom ${SELECTION_BAR_TRANSITION_MS}ms ease`,
+          }}
+        >
         <Box style={{minHeight: 0, overflow: 'hidden'}}>
           {showSelectionBar && (
             <SelectionActions
@@ -394,7 +427,7 @@ export function MergedList(props: MergedListProps) {
             (`SectionCard`) — the main column merges every source into one
             list, but it's still one section, and it looked like an
             afterthought without a header of its own to say so. */}
-        <Card borderBottom paddingX={3} paddingY={4} radius={0} tone="transparent">
+        <Card borderBottom paddingX={3} paddingY={3} radius={0} tone="transparent">
           {/* Extra `paddingLeft={2}` beyond the Card's own `padding={3}` —
               see the "Select all" row below, and `InboxRow.tsx`'s own
               checkbox wrapper, for the same nudge and why: a row's checkbox
@@ -404,13 +437,17 @@ export function MergedList(props: MergedListProps) {
               Card's own padding a full step. The icon's own glyph sits
               slightly inset from its bounding box at this size, hence `2`
               rather than the `1` that lined up the plain checkbox below. */}
-          <Flex align="center" gap={3} paddingLeft={2}>
-            <Text muted size={2}>
-              <InboxIcon />
-            </Text>
-            <Text size={1} weight="semibold">
-              {t('inbox.title')}
-            </Text>
+          <Flex align="center" gap={3} justify="space-between" paddingLeft={2} wrap="wrap">
+            <Flex align="center" gap={3}>
+              <Text muted size={2}>
+                <InboxIcon />
+              </Text>
+              <Text size={1} weight="semibold">
+                {t('inbox.title')}
+              </Text>
+            </Flex>
+
+            {filterBar}
           </Flex>
         </Card>
 
@@ -456,8 +493,17 @@ export function MergedList(props: MergedListProps) {
                 </Box>
               </Flex>
             </Card>
-            <Stack gap={1} padding={1}>
-              {rows.map((row) => {
+            {/* Capped, not left to grow with however many rows are open —
+                the persistent sidebar next to this column has its own
+                (roughly stable) height, and an Inbox list that could grow
+                taller than it forever made that neighbour look like an
+                afterthought. `560px` is a rough eyeball (~9 rows), not a
+                pixel-synced measurement against the sidebar's actual
+                rendered height — that would need a `ResizeObserver` and
+                isn't justified yet. */}
+            <Box style={{maxHeight: 560, overflowY: 'auto'}}>
+              <Stack gap={1} padding={1}>
+                {rows.map((row) => {
                 const report = reports[row.sourceName]
                 return (
                   <InboxRow
@@ -521,10 +567,12 @@ export function MergedList(props: MergedListProps) {
                   />
                 )
               })}
-            </Stack>
+              </Stack>
+            </Box>
           </Stack>
         )}
       </Card>
+      </Stack>
     </Stack>
   )
 }

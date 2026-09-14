@@ -22,6 +22,7 @@ const enUS = {
   'audience.everyone': 'Everyone',
   'assignee.unassigned': 'Unassigned',
   'assignee.unassign': 'Unassign',
+  'filter.type': 'Type',
   'source.loading': 'Loading…',
   'source.error.title': 'This section could not load',
   'source.error.retry': 'Try again',
@@ -61,6 +62,8 @@ const enUS = {
   'action.saveToTodos': 'Save to todos',
   'action.delete': 'Delete',
 
+  'inbox.addMenu': 'Add',
+
   'todos.addPlaceholder': 'Add a todo…',
   'todos.addButton': 'Add todo',
   'todos.add': 'Add',
@@ -74,6 +77,15 @@ const enUS = {
   'assess.ask': 'Ask AI',
   'assess.loading': 'Asking AI…',
   'assess.error': 'Could not reach AI.',
+
+  'stats.title': 'Overview',
+  'stats.age.title': 'Open items by age',
+  'stats.age.recent': '{{count}} new',
+  'stats.age.week': '{{count}} this week',
+  'stats.age.old': '{{count}} older',
+  'stats.unassigned': 'Unassigned',
+  'stats.clearedToday': 'Cleared today',
+  'stats.load.title': 'Open items by assignee',
 }
 
 export default enUS

@@ -1,5 +1,9 @@
+import {FilterIcon} from '@sanity/icons/Filter'
 import {
+  Avatar,
+  AvatarStack,
   Box,
+  Button,
   Card,
   Container,
   Flex,
@@ -11,6 +15,7 @@ import {
   TabPanel,
   Text,
 } from '@sanity/ui'
+import {Menu, MenuButton, MenuItem} from '@sanity/ui/menu'
 import {type ReactNode, useCallback, useEffect, useMemo, useState} from 'react'
 import {useTranslation} from 'sanity'
 
@@ -20,7 +25,13 @@ import {useSnoozes} from '../store/useSnoozes'
 import {SectionCard} from '../ui/SectionCard'
 import {SectionErrorBoundary} from '../ui/SectionErrorBoundary'
 import {StatusDot} from '../ui/StatusDot'
+import {AddMenu} from './AddMenu'
+import {CreateItemRow} from './CreateItemRow'
+import {ASSIGNEE_UNASSIGNED, matchesInboxFilters} from './inboxFilterSentinels'
 import {InboxSection} from './InboxSection'
+import {InboxStats} from './InboxStats'
+import {initials, UnassignedAvatar} from './InboxRow'
+import {mergeRows} from './mergeItems'
 import {MergedList} from './MergedList'
 import {SourceFeed, type SourceReport} from './SourceFeed'
 import {type InboxSource, type InboxView} from './types'
@@ -198,20 +209,252 @@ export function Inbox({sources}: InboxProps) {
 
   const mainOrder = useMemo(() => main.map((source) => source.name), [main])
 
-  // Only the main column counts toward the headline. The aside is context —
-  // "three releases are scheduled" is not three things asking for your
-  // attention, and folding it in would make the number cry wolf.
-  const openCount = useMemo(
-    () => mainOrder.reduce((total, name) => total + (reports[name]?.open.length ?? 0), 0),
+  // The "add new" trigger for a source that keeps its own items (today, only
+  // `todos`) — now lives up here, on the tab row, instead of above the
+  // merged list. `MergedList` still owns the *edit* dialog for the same
+  // source, mounted only while an item is actually being edited.
+  const creators = useMemo(
+    () =>
+      mainOrder
+        .map((name) => reports[name])
+        .filter((report): report is SourceReport => Boolean(report?.create || report?.update)),
+    [mainOrder, reports],
+  )
+
+  // Bumped per creator source to pop that source's own (hidden-trigger)
+  // `CreateItemRow` dialog open from `AddMenu` — see `CreateItemRow`'s own
+  // `openSignal` prop for why a counter rather than a plain boolean.
+  const [createSignals, setCreateSignals] = useState<Record<string, number>>({})
+  const requestCreate = useCallback((sourceName: string) => {
+    setCreateSignals((current) => ({...current, [sourceName]: (current[sourceName] ?? 0) + 1}))
+  }, [])
+
+  // Every main-source row across *all three* tabs, not just whichever one is
+  // currently selected — used only to decide which filter chips exist, never
+  // to decide what's shown. Scoping this to just `view` used to mean the
+  // filter bar itself would appear, disappear, and re-shuffle its chips as
+  // an editor switched tabs (Snoozed showing one lone unassigned draft has
+  // nothing to filter on its own, even though Open and Done both do) — which
+  // reads as the controls being broken, not as them correctly reflecting a
+  // smaller tab. The chips themselves stay stable; `matchesInboxFilters`
+  // below still only ever filters whatever `view` is actually showing.
+  const allRowsAnyView = useMemo(
+    () => (['open', 'done', 'snoozed'] as const).flatMap((v) => mergeRows(reports, mainOrder, v)),
     [reports, mainOrder],
   )
 
-  // The aside column is ambient context, not something to clear — an empty
-  // one showing "All clear." earns it a whole extra column for a permanent
-  // non-event. Rendered only once something in it is actually worth a look;
-  // `undefined` (nothing reported yet) counts as "might have content" so the
-  // column doesn't flash away and back on first load.
+  // Every assignee present anywhere, not the full project roster — a chip
+  // for someone with nothing in any view would still be a dead filter.
+  // Keyed by label: nothing upstream hands back a stable id today, and two
+  // people sharing a display name is the same accepted edge case the parked
+  // "team view" grouping already lived with.
+  const availableAssignees = useMemo(() => {
+    const byLabel = new Map<string, {label: string; imageUrl?: string}>()
+    for (const row of allRowsAnyView) {
+      if (row.item.assignee) byLabel.set(row.item.assignee.label, row.item.assignee)
+    }
+    return [...byLabel.values()].sort((a, b) => a.label.localeCompare(b.label))
+  }, [allRowsAnyView])
+
+  // "Unassigned" only counts for a row whose source actually offers
+  // `assign` — a todo or release was never assignable to begin with, so it
+  // isn't "unassigned," it's just not that kind of thing.
+  const hasUnassignedRow = useMemo(
+    () => allRowsAnyView.some((row) => !row.item.assignee && reports[row.sourceName]?.assign),
+    [allRowsAnyView, reports],
+  )
+  // A filter row earns its place only once it could actually narrow
+  // something — one assignee and nobody unassigned is exactly the single
+  // avatar already on that one row, restated as a chip.
+  const showAssigneeFilter = availableAssignees.length + (hasUnassignedRow ? 1 : 0) > 1
+
+  // Every source contributing a row anywhere, in the configured order — same
+  // reasoning as `availableAssignees`.
+  const availableTypes = useMemo(() => {
+    const present = new Set(allRowsAnyView.map((row) => row.sourceName))
+    return mainOrder
+      .map((name) => reports[name])
+      .filter((report): report is SourceReport => Boolean(report) && present.has(report.source.name))
+  }, [allRowsAnyView, mainOrder, reports])
+
+  // Both empty means "no filter applied" (show everything) — not "hide
+  // everything" — so a fresh pane starts unfiltered rather than blank.
+  // Jira-style multi-select: checking several people (or nobody plus several
+  // people) narrows to their union, not just one at a time.
+  const [assigneeFilter, setAssigneeFilter] = useState<ReadonlySet<string>>(new Set())
+  const [typeFilter, setTypeFilter] = useState<ReadonlySet<string>>(new Set())
+
+  const toggleSetMember = useCallback(
+    (setState: (updater: (current: ReadonlySet<string>) => ReadonlySet<string>) => void) =>
+      (key: string) => {
+        setState((current) => {
+          const next = new Set(current)
+          if (next.has(key)) next.delete(key)
+          else next.add(key)
+          return next
+        })
+      },
+    [],
+  )
+  const toggleAssignee = useMemo(() => toggleSetMember(setAssigneeFilter), [toggleSetMember])
+  const toggleType = useMemo(() => toggleSetMember(setTypeFilter), [toggleSetMember])
+
+  // Fixed to the `open` view regardless of which tab is actually selected —
+  // the headline above the tabs is always "how many things are open," even
+  // while looking at Done or Snoozed. Kept separate from `allRowsAnyView`
+  // above (which covers every tab at once, for the filter bar's own
+  // available-assignee/-type lists).
+  const openRows = useMemo(() => mergeRows(reports, mainOrder, 'open'), [reports, mainOrder])
+
+  // Only the main column counts toward the headline. The aside is context —
+  // "three releases are scheduled" is not three things asking for your
+  // attention, and folding it in would make the number cry wolf. Filtered by
+  // the same assignee/type state as the list below, so the headline never
+  // says "8 things" while a filter is only showing 2 of them.
+  const openCount = useMemo(
+    () => openRows.filter((row) => matchesInboxFilters(row, assigneeFilter, typeFilter)).length,
+    [openRows, assigneeFilter, typeFilter],
+  )
+
+  // `openRows` restricted to sources that offer `assign` — the only ones
+  // "unassigned" means anything for (a todo or release was never assignable
+  // to begin with) — same distinction `hasUnassignedRow` above already
+  // draws for the filter bar's own "Unassigned" chip. Feeds `InboxStats`'
+  // unassigned-count widget.
+  const assignableRows = useMemo(
+    () => openRows.filter((row) => reports[row.sourceName]?.assign),
+    [openRows, reports],
+  )
+
+  // Still tracked — an aside *source* like Releases still only draws its own
+  // card once it actually has something to show — but no longer decides
+  // whether the aside column itself exists: `InboxStats` below makes that
+  // column permanent, the "persistent sidebar" this pane always wanted, with
+  // or without any `aside` sources configured at all.
   const asideHasContent = aside.some((source) => (asideVisibleCounts[source.name] ?? 1) > 0)
+
+  // Rendered here (state and available-lists live in this component, for
+  // `openCount` above) but handed down to `MergedList` to actually place —
+  // these filters only ever govern that one column, never the aside sources
+  // beside it (a release or a draft has no assignee, and grouping releases
+  // by type would just be one bucket), so they belong in that column's own
+  // header rather than spanning the whole pane above both boxes.
+  const filterBar = (showAssigneeFilter || availableTypes.length > 1) && (
+    <Flex gap={3} wrap="wrap">
+      {showAssigneeFilter && (
+        // A real avatar-stack (Sanity UI's own component: overlapping
+        // circles, not a row of separate buttons) — clicking the
+        // already-active one clears back to "no filter" instead of a
+        // separate "Everyone" control, the same toggle-off behaviour every
+        // other filter in this bar already uses.
+        <AvatarStack maxLength={8} size={1}>
+          {/* Each avatar wrapped in a plain, unstyled `<button>` rather than
+              styled directly — putting the ring and the `as="button"` tag
+              swap on `Avatar`/`UnassignedAvatar` themselves fought their own
+              internal layout (their person-glyph overlay lost its position,
+              and the ring's square corners showed past the circle). A
+              wrapper button owns its own box model instead, leaving both
+              components exactly as they render everywhere else. */}
+          {/* Explicit, increasing `zIndex` left to right: each avatar
+              overlaps the *previous* one's right edge (see `AvatarStack`'s
+              own negative-margin overlap), so whichever one is later in the
+              stack has to paint on top of its neighbour for that overlap to
+              read as "in front of," not "tucked behind." Plain DOM order
+              alone left the browser to decide, which put the earlier one on
+              top instead. */}
+          {availableAssignees.map((person, index) => (
+            <button
+              aria-label={person.label}
+              aria-pressed={assigneeFilter.has(person.label)}
+              key={person.label}
+              onClick={() => toggleAssignee(person.label)}
+              style={{
+                background: 'none',
+                border: 'none',
+                borderRadius: '50%',
+                boxShadow: assigneeFilter.has(person.label) ? '0 0 0 2px currentColor' : 'none',
+                color: 'inherit',
+                cursor: 'pointer',
+                font: 'inherit',
+                padding: 0,
+                position: 'relative',
+                zIndex: index + 1,
+              }}
+              type="button"
+            >
+              <Avatar initials={initials(person.label)} size={1} src={person.imageUrl} />
+            </button>
+          ))}
+          {hasUnassignedRow && (
+            <button
+              aria-label={t('assignee.unassigned')}
+              aria-pressed={assigneeFilter.has(ASSIGNEE_UNASSIGNED)}
+              onClick={() => toggleAssignee(ASSIGNEE_UNASSIGNED)}
+              style={{
+                background: 'none',
+                border: 'none',
+                borderRadius: '50%',
+                boxShadow: assigneeFilter.has(ASSIGNEE_UNASSIGNED) ? '0 0 0 2px currentColor' : 'none',
+                color: 'inherit',
+                cursor: 'pointer',
+                font: 'inherit',
+                padding: 0,
+                position: 'relative',
+                zIndex: availableAssignees.length + 1,
+              }}
+              type="button"
+            >
+              <UnassignedAvatar size={1} />
+            </button>
+          )}
+        </AvatarStack>
+      )}
+
+      {availableTypes.length > 1 && (
+        <MenuButton
+          button={
+            <Button
+              aria-label={t('filter.type')}
+              fontSize={1}
+              icon={FilterIcon}
+              mode={typeFilter.size > 0 ? 'default' : 'bleed'}
+              padding={2}
+              tone={typeFilter.size > 0 ? 'primary' : 'default'}
+            />
+          }
+          id="structure-inbox-type-filter"
+          menu={
+            // A handful of short words (`Task`, `Draft`, `Todo`) left to
+            // their own natural width made the whole popover shrink-wrap
+            // down to almost nothing — technically fine, visually like a
+            // rendering bug. A floor width fixes it without hardcoding a
+            // specific menu length.
+            <Menu style={{minWidth: 160}}>
+              {/* Matches Studio's own "..." menu pattern (sort/layout options
+                  grouped under a small muted label) rather than a permanent
+                  row of type chips next to the assignee avatars — one
+                  collapsed control instead of two things competing for
+                  attention on first glance. */}
+              <Box paddingX={3} paddingY={2}>
+                <Text muted size={0} weight="semibold">
+                  {t('filter.type')}
+                </Text>
+              </Box>
+              {availableTypes.map((report) => (
+                <MenuItem
+                  key={report.source.name}
+                  onClick={() => toggleType(report.source.name)}
+                  pressed={typeFilter.has(report.source.name)}
+                  text={report.source.title}
+                />
+              ))}
+            </Menu>
+          }
+          popover={{placement: 'bottom-end', portal: true}}
+        />
+      )}
+    </Flex>
+  )
 
   if (sources.length === 0) {
     return (
@@ -243,7 +486,7 @@ export function Inbox({sources}: InboxProps) {
        * below is what makes the two feel like one pane instead of a floating
        * page followed by a list of cards.
        */}
-      <Card borderBottom padding={4}>
+      <Card borderBottom padding={[3, 3, 4]}>
         <Stack gap={4}>
           <Flex align="center" gap={3}>
             {/* Pulsing amber while something needs a look; a calm, static
@@ -255,10 +498,11 @@ export function Inbox({sources}: InboxProps) {
             </Heading>
           </Flex>
 
-          {/* Left-aligned under the heading rather than off at the right
-              edge: at this width the tabs were a screen away from the list
-              they filter. */}
-          <Flex>
+          {/* Tabs left, actions flush right — same row, `wrap="wrap"` so a
+              narrow phone drops the actions to a line of their own under the
+              tabs instead of squeezing both onto one, matching how
+              `SelectionActions` already handles the same width constraint. */}
+          <Flex align="center" gap={3} justify="space-between" wrap="wrap">
             <TabList gap={1}>
               <Tab
                 aria-controls={PANEL_ID}
@@ -285,6 +529,33 @@ export function Inbox({sources}: InboxProps) {
                 selected={view === 'snoozed'}
               />
             </TabList>
+
+            {view === 'open' && (
+              <Flex gap={2} wrap="wrap">
+                <AddMenu
+                  creators={creators.map((report) => ({
+                    key: report.source.name,
+                    label:
+                      report.source.name === 'todos'
+                        ? t('todos.addButton')
+                        : `${t('inbox.addMenu')} ${report.source.title}`,
+                    onClick: () => requestCreate(report.source.name),
+                  }))}
+                />
+                {/* Hidden-trigger dialogs only — `AddMenu` above is the only
+                    visible entry point now; each one still needs to be
+                    mounted somewhere to have a dialog `requestCreate` can
+                    pop open. */}
+                {creators.map((report) => (
+                  <CreateItemRow
+                    hideTrigger
+                    key={report.source.name}
+                    onCreate={(input) => report.create?.(input)}
+                    openSignal={createSignals[report.source.name]}
+                  />
+                ))}
+              </Flex>
+            )}
           </Flex>
         </Stack>
       </Card>
@@ -309,34 +580,49 @@ export function Inbox({sources}: InboxProps) {
             id={PANEL_ID}
           >
             <Grid gap={4} gridTemplateColumns={COLUMNS}>
-              <Box gridColumn={asideHasContent ? [1, 1, 1, 2] : COLUMNS}>
+              <Box gridColumn={[1, 1, 1, 2]}>
                 <MergedList
+                  assigneeFilter={assigneeFilter}
                   dismissals={dismissals}
+                  filterBar={filterBar}
                   order={mainOrder}
                   reports={reports}
                   snoozes={snoozes}
+                  typeFilter={typeFilter}
                   view={view}
                 />
               </Box>
 
-              {asideHasContent && (
-                <Box gridColumn={1}>
-                  <Stack gap={3}>
-                    {aside.map((source) => (
-                      <BoundedSection
-                        compact
-                        dismissals={dismissals}
-                        key={source.name}
-                        onCount={ignoreCount}
-                        onVisibleCount={handleAsideVisibleCount}
-                        snoozes={snoozes}
-                        source={source}
-                        view={view}
-                      />
-                    ))}
-                  </Stack>
-                </Box>
-              )}
+              {/* Always rendered now, `InboxStats` first — the persistent
+                  sidebar. `asideHasContent` still gates the aside *sources'*
+                  own cards beneath it (Releases stays hidden until it has
+                  something to show), just not the column itself. */}
+              <Box gridColumn={1}>
+                <Stack gap={3}>
+                  <InboxStats
+                    assignableRows={assignableRows}
+                    dismissals={dismissals}
+                    openRows={openRows}
+                  />
+
+                  {asideHasContent && (
+                    <Stack gap={3}>
+                      {aside.map((source) => (
+                        <BoundedSection
+                          compact
+                          dismissals={dismissals}
+                          key={source.name}
+                          onCount={ignoreCount}
+                          onVisibleCount={handleAsideVisibleCount}
+                          snoozes={snoozes}
+                          source={source}
+                          view={view}
+                        />
+                      ))}
+                    </Stack>
+                  )}
+                </Stack>
+              </Box>
             </Grid>
           </TabPanel>
         </Container>
