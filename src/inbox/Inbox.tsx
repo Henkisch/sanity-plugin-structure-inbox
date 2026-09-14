@@ -375,6 +375,15 @@ export function Inbox({sources}: InboxProps) {
                 color: 'inherit',
                 cursor: 'pointer',
                 font: 'inherit',
+                // `AvatarStack`'s own built-in overlap (the theme's
+                // `avatar.sizes[1].distance`, ~4px) is too thin for the ring
+                // above to read as a cutout — at that overlap the two
+                // borders just about touch, so adjacent avatars looked like
+                // flush circles with no visible separation. Stacking extra
+                // negative margin on top of it widens the overlap enough
+                // for the on-top avatar's own ring to visibly bite into the
+                // one behind, matching kibo-ui's reference proportions.
+                marginLeft: index > 0 ? '-8px' : undefined,
                 padding: 0,
                 position: 'relative',
                 // `AvatarStack` wraps each child in its own `inline-block`
@@ -415,6 +424,9 @@ export function Inbox({sources}: InboxProps) {
                 color: 'inherit',
                 cursor: 'pointer',
                 font: 'inherit',
+                // See the matching comment above: widens the built-in
+                // overlap enough for the ring to read as a visible cutout.
+                marginLeft: availableAssignees.length > 0 ? '-8px' : undefined,
                 padding: 0,
                 position: 'relative',
                 verticalAlign: 'middle',
