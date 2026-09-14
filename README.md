@@ -76,7 +76,7 @@ the order their sources were configured in.
 ### Whose items are these
 
 Every section says whether its items are yours or the whole team's, because
-"done" means different things either side of that line. A source declares it
+what a tick means differs either side of that line. A source declares it
 with `audience`.
 
 - **`openTasks` is personal.** A task is assigned to someone, so `onlyMine`
@@ -102,6 +102,13 @@ mine". Nothing ever scans the dataset.
 comments use — rather than from your content dataset. A Studio that has never
 used tasks has no addon dataset at all, which shows up as an empty section
 rather than an error.
+
+A task also carries its own real, closed-or-not status — the one source in
+this plugin where "cleared" can mean something Sanity itself confirms rather
+than just "this editor stopped seeing it." `openTasks` widens its own query to
+also fetch tasks closed within the last `clearedWithinDays` (default `7`), so
+closing a task elsewhere still shows up in this editor's Cleared tab for a
+while, the same way it would in Sanity's own Tasks panel.
 
 Both `useAddonDataset` and the `tasks.task` document shape are marked beta in
 Sanity's own typings. `useAddonDataset` is reached only through a lookup that
@@ -136,12 +143,12 @@ useItems() {
 
 `todos` also returns `remove`, so a finished one can be deleted for good —
 select it and **Delete** appears next to (or instead of) **Ask AI**. This
-matters because a todo's "done" state otherwise lives entirely in the same
-90-day-aging dismissal record every other source uses (see below): with
-nothing else tracking completion, a todo finished more than 90 days ago would
-otherwise reopen, and the list would only ever grow. `remove` is what a
-source without `resolve` uses to let an editor clear an item out for real,
-not just dismiss it:
+matters because `todos` has no `resolve`: ticking one off only **acknowledges**
+it (see "Selecting and acting" below) — a marker that the editor has seen it,
+which never moves it out of Open. Without `remove`, a todo an editor is
+actually finished with would sit in Open, acknowledged, forever. `remove` is
+what a source without `resolve` uses to let an editor clear an item out for
+real:
 
 ```ts
 useItems() {
@@ -189,7 +196,7 @@ is and when a source needs it.
 `unpublishedDrafts` also offers `assess`: click **Ask AI** on a row and Sanity's
 Agent Actions gives a one-line read — "looks ready to publish", "still missing
 a hero image". Informational only; it never writes to the document, so it
-renders the same in every view (Open, Snoozed, Done).
+renders the same in every view (Open, Snoozed, Cleared).
 
 A source opts in by returning `assess` from `useItems`:
 
@@ -265,7 +272,7 @@ export function needsReview(): InboxSource {
 }
 ```
 
-A source can also offer `useOpenCount(dismissals, snoozes, now)` — a
+A source can also offer `useOpenCount(snoozes, now)` — a
 cheaper alternative to `useItems()` that only reports a live open count,
 read by `useInboxOpenCount()` (see above). It matters because that count
 is computed from *outside* the Inbox pane, at a point in
@@ -277,42 +284,80 @@ was never designed to run.
 
 ## Selecting and acting
 
+### Open, Cleared, Snoozed, and what "Acknowledge" means
+
+This plugin's two guiding rules: **Sanity is the source of truth**, and
+**editors need to know what they can, and should, work on**. Together they
+mean a tick can't always claim the same thing.
+
+- **Open** — everything not yet resolved and not currently snoozed. An item
+  stays here even after someone acknowledges it; acknowledging is not a way
+  out of Open.
+- **Cleared** — only items a source itself confirms are actually resolved,
+  with real evidence (a task's own closed status, say). Never populated by an
+  editor ticking something — there is no "my own cleared," only "Sanity's."
+  A source with no `resolve` (a draft, a release, a todo) can never put
+  anything here, because this plugin has no way to verify anything changed.
+- **Snoozed** — hidden from Open until a chosen time, or until the item
+  changes underneath the snooze, whichever comes first.
+- **Acknowledge** — a personal, non-binding "I've seen this" marker, available
+  wherever a tick can't mean a real resolution. It shows as a small checkmark
+  on the row and changes nothing in Sanity — the item is still open, for this
+  editor and everyone else, and stays in Open until it's actually resolved or
+  removed. Snoozing an item acknowledges it too, for the same reason: coming
+  back from a snooze shouldn't look freshly-unseen.
+
+This is why `openTasks` alone can put something in Cleared: a task has a real
+status. Everything else in this pane can only be acknowledged or, for `todos`
+(which has nowhere else to record completion), removed outright.
+
 Ticking a checkbox **selects** a row; it does not complete it. Once something is
 selected, the action bar appears and the editor chooses — the order a mail
 client uses, and the reason a tick that silently acted felt wrong.
 
 Selection spans the whole merged list, not one source at a time: tick a task
-and a draft together, and **Mark as done** resolves each through its own
-source — one Promise per row, so one failing never strands the rest (see
-`Promise.allSettled` in `MergedList`). **Ask AI** and **Delete** only show on a
-row once it's selected — both are per-row decisions, not a permanent line
-under every row.
+and a draft together, and the selection bar resolves what it can for real and
+acknowledges the rest in the same click — one Promise per resolvable row, so
+one failing never strands the rest (see `Promise.allSettled` in
+`MergedList`). **Ask AI** and **Delete** only show on a row once it's
+selected — both are per-row decisions, not a permanent line under every row.
 
-There is one verb, **Mark as done**, plus **Cancel**. What "done" changes
-depends on the source, and the button's tooltip says which:
+The confirm button reads differently depending on what's selected, because
+ticking means one of two genuinely different things:
 
 - A source that returns **`resolve`** from `useItems` completes the item where
-  it actually lives, then takes it out of the editor's inbox. `openTasks` closes
-  the task for everyone.
-- A source without `resolve` can only remove the item from **that editor's own
-  inbox**. Nothing changes for anyone else. Neither `unpublishedDrafts` nor
-  `upcomingReleases` resolves: publishing a draft has validation, permissions
-  and side effects this pane has no business performing, and running a release
-  belongs in the Releases tool.
+  it actually lives, then takes it out of the editor's inbox — **Mark as
+  done**. `openTasks` closes the task for everyone, and (within
+  `clearedWithinDays`) it shows up in Cleared for anyone who had it, not just
+  whoever ticked it.
+- A source without `resolve` (`unpublishedDrafts`, `upcomingReleases`, `todos`)
+  has nothing this pane can verify, so ticking only **Acknowledges** it: a
+  checkmark appears on the row, and it stays in Open — publishing a draft or
+  running a release has validation, permissions and side effects this pane has
+  no business performing, so there is no "done" this plugin can claim on their
+  behalf. An acknowledged item that's never actually resolved sits in Open,
+  marked seen, indefinitely — see `todos`' own `remove` above for the one way
+  around that.
+- A mixed selection does both at once, and the button's tooltip says so.
 
-**Open**, **Snoozed** and **Done** are tabs, so a finished or sleeping row never
-sits among unfinished ones. In the Done tab the same control reads **Mark as
-not done** — a tick is never a one-way door.
+**Open**, **Snoozed** and **Cleared** are tabs. Cleared only ever holds items a
+source itself confirms are resolved — never an acknowledgment — so today it's
+only ever populated by `openTasks` (see "Tasks" above); a source with no
+`resolve` never has anything to show there. In the Cleared tab the same
+control reads **Mark as not done**, undoing the source's own resolution where
+that's meaningful.
 
 Selecting rows in the Open tab also offers **Snooze**, a picker with three
 presets — *later today*, *tomorrow*, *next week*. A snoozed item leaves Open
-for the Snoozed tab, where **Wake now** brings it back early. Left alone, it
-wakes on its own once the chosen time passes — no source involvement, and
-nothing changes anywhere outside this editor's own inbox.
+for the Snoozed tab, where **Wake now** brings it back early — acknowledged in
+the process, the same as ticking it directly, so it doesn't read as
+freshly-unseen the moment it's back. Left alone, it wakes on its own once the
+chosen time passes — no source involvement, and nothing changes anywhere
+outside this editor's own inbox.
 
-A snooze also **wakes early when the item changes** — the same rule a
-dismissal follows, and for the same reason: a snooze says "not now, I've seen
-this version", not "hide it no matter what happens to it".
+A snooze also **wakes early when the item changes** — the same rule an
+acknowledgment follows, and for the same reason: a snooze says "not now, I've
+seen this version", not "hide it no matter what happens to it".
 
 Return `resolve` to make a tick mean something real:
 
@@ -328,31 +373,36 @@ useItems() {
 }
 ```
 
-### Where "done" is stored
+### Where an acknowledgment is stored
 
 In a document scoped to the editor: `_id` is derived from their user id, and the
 type is deliberately never registered in your schema, so it stays out of the
-structure tool, search and reference pickers.
+structure tool, search and reference pickers. The code name is still
+`dismissals` — `useDismissals`, `dismiss()`, `restore()` — a holdover from
+before this plugin could tell a real resolution apart from an editor just
+having seen something; what it records today is exactly that: acknowledgment,
+never Cleared.
 
 Sanity's own `/users/me/keyvalue` store would be the natural home — it is where
 the Structure tool keeps its pane settings — but it accepts only an allowlist of
 Sanity's own keys and rejects anything a plugin writes.
 
-A dismissal also **expires when the item changes**. An item's `changedAt` — its
-real modification time, separate from the `timestamp` shown in the row —
-doubles as a freshness check, so a draft edited after you ticked it comes back.
-Ticking says "I have seen this version", not "never show me this document
-again". Omit `changedAt` for anything whose changes your source cannot
-observe, and never set it to a future value (a due date, a publish date) — a
-future `changedAt` would look "changed" the instant it is ticked and undo the
-dismissal immediately.
+An acknowledgment also **expires when the item changes**. An item's
+`changedAt` — its real modification time, separate from the `timestamp` shown
+in the row — doubles as a freshness check, so a draft edited after you ticked
+it comes back to Open, unacknowledged. Ticking says "I have seen this
+version", not "never show me this document again". Omit `changedAt` for
+anything whose changes your source cannot observe, and never set it to a
+future value (a due date, a publish date) — a future `changedAt` would look
+"changed" the instant it is ticked and undo the acknowledgment immediately.
 
 Snoozes and todos each live in a sibling document of their own — same
 per-editor, unregistered-type approach, kept apart because neither shares a
-lifecycle with a dismissal: a snooze expires on its own, and a todo has
-nowhere else to live at all — which is also why a dismissed todo, alone
-among built-in sources, never ages back out of "done" the way every other
-source's dismissals do after 90 days.
+lifecycle with an acknowledgment: a snooze expires on its own, and a todo has
+nowhere else to live at all — which is also why an acknowledged todo, alone
+among built-in sources, never ages back out of Open the way every other
+source's acknowledgments do after 90 days; nothing but `remove` ever takes a
+todo out of Open for good.
 
 ### Recipe: a digest outside the Studio
 
@@ -367,12 +417,15 @@ ships or can install for you.
 Sketch of what such a Function does, run on a schedule rather than a document
 event — fetch stays your own code, but working out what's still open is one
 call to `buildDigest`, exported from `sanity-plugin-structure-inbox` for
-exactly this, pure and dependency-free, no Studio context required:
+exactly this, pure and dependency-free, no Studio context required. It reads
+each editor's snoozes only, never their acknowledgments — an item someone
+merely acknowledged is still open for digest purposes, same as it is in their
+own Open tab:
 
 ```ts
-import {buildDigest, parseDismissals, parseSnoozes} from 'sanity-plugin-structure-inbox'
+import {buildDigest, parseSnoozes} from 'sanity-plugin-structure-inbox'
 
-const editors = await fetchEditorsWithParsedState(client) // your own fetch + parseDismissals/parseSnoozes per editor
+const editors = await fetchEditorsWithParsedState(client) // your own fetch + parseSnoozes per editor
 const sources = await fetchConfiguredSourceItems(client)  // your own fetch, shaped as {name, items}[]
 
 const digests = buildDigest(sources, editors)

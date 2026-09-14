@@ -38,7 +38,7 @@ behaviour here, fix the comment in the same commit.
 | 016 | Let the open count escape the pane (`useInboxOpenCount`) | P2 | L | — | DONE (merged) |
 | 017 | A live badge on the Studio navbar, for real | P2 | S | 016 | REJECTED (built, verified working, then pulled by the maintainer — see plan file) |
 | 018 | Ship the team-wide "who's sitting on what" view as a real Studio tool | P2 | L | — | DONE (merged) |
-| 019 | "Cleared" means Sanity said so — split resolution from acknowledgement | P1 | XL | — | TODO |
+| 019 | "Cleared" means Sanity said so — split resolution from acknowledgement | P1 | XL | — | IN PROGRESS (code shipped, typecheck/lint/test green; manual browser verification pending) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale)
