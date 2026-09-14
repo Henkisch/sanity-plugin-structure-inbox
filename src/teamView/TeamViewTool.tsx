@@ -48,7 +48,16 @@ export function createTeamViewTool(options: TeamViewToolOptions) {
     // before making `sources` any more dynamic than that.
     const results = sources.map((source) => source.useItems())
 
-    const items = useMemo(() => results.flatMap((result) => result.items), [results])
+    // A source's `useItems()` never filters by view — it's `splitItems`
+    // upstream that separates open from cleared — so a task widened into
+    // Cleared by `openTasks`'s own recently-closed window (see
+    // `plans/019-cleared-means-sanity-said-so.md`) shows up here too unless
+    // this excludes it explicitly. Team view is "who's sitting on what," so a
+    // closed task counts against no one.
+    const items = useMemo(
+      () => results.flatMap((result) => result.items).filter((item) => !item.cleared),
+      [results],
+    )
     const loading = results.some((result) => result.loading)
     const error = results.find((result) => result.error)?.error
 

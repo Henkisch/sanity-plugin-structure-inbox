@@ -13,7 +13,6 @@ import {
   type UserListWithPermissionsOptions,
 } from 'sanity'
 
-import {type DismissalState} from '../../store/dismissals'
 import {type SnoozeState} from '../../store/snoozes'
 import {splitItems} from '../splitItems'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
@@ -67,6 +66,16 @@ export interface OpenTasksOptions {
    * @defaultValue true
    */
   onlyMine?: boolean
+  /**
+   * How far back a closed task still counts toward Cleared — older closures
+   * simply age out of the query, the same way a dismissal already ages out
+   * after `DISMISSAL_TTL_DAYS`. This is the only place a task's own resolved
+   * state can be shown at all: unlike a dismissal, there is no separate
+   * per-editor record of "this got cleared" to fall back on.
+   *
+   * @defaultValue 7
+   */
+  clearedWithinDays?: number
 }
 
 interface TaskRow {
@@ -75,17 +84,21 @@ interface TaskRow {
   title?: string
   dueBy?: string
   assignedTo?: string
+  status: string
   targetId?: string
   targetType?: string
 }
 
 const QUERY = `*[
   _type == "tasks.task" &&
-  status == "open" &&
   defined(title) &&
-  ($assignedTo == null || assignedTo == $assignedTo)
+  ($assignedTo == null || assignedTo == $assignedTo) &&
+  (
+    status == "open" ||
+    (status == "closed" && _updatedAt > $clearedSince)
+  )
 ] | order(coalesce(dueBy, _updatedAt) asc)[0...$limit]{
-  _id, _updatedAt, title, dueBy, assignedTo,
+  _id, _updatedAt, title, dueBy, assignedTo, status,
   "targetId": target.document._ref,
   "targetType": target.documentType
 }`
@@ -142,7 +155,13 @@ function isOverdue(dueBy?: string): boolean {
  * down.
  */
 export function openTasks(options: OpenTasksOptions = {}): InboxSource {
-  const {limit = 10, title = 'Task', placement = 'main', onlyMine = true} = options
+  const {
+    limit = 10,
+    title = 'Task',
+    placement = 'main',
+    onlyMine = true,
+    clearedWithinDays = 7,
+  } = options
 
   /**
    * The base task fetch — deliberately shared between `useItems` and
@@ -171,7 +190,17 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
       }
 
       const assignedTo = onlyMine ? (userId ?? null) : null
-      const params = {assignedTo, limit}
+      // `limit` caps the combined open+recently-closed set, not each bucket
+      // separately: one query, one `order().slice()`, same as before this
+      // widened — a closed row only ever displaces an open one when the
+      // Studio has more open tasks than `limit`, which the badge and count
+      // already treat as "there's more than fits" today. A per-bucket cap
+      // would need two queries (or one with two slices spliced together) to
+      // guarantee `limit` opens are never crowded out by closures — not
+      // worth the extra round trip for a default 7-day window this narrow.
+      // eslint-disable-next-line react/purity -- see `unpublishedDrafts.ts`'s own `before`: read once per recompute, not a live clock.
+      const clearedSince = new Date(Date.now() - clearedWithinDays * 24 * 60 * 60 * 1000).toISOString()
+      const params = {assignedTo, limit, clearedSince}
       const fetch$ = client.observable.fetch<TaskRow[]>(QUERY, params)
 
       // Live rather than fetched once: a task closed, reassigned, or its due
@@ -193,6 +222,9 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
               row.targetId && row.targetType
                 ? {type: 'edit', params: {id: row.targetId, type: row.targetType}}
                 : undefined,
+            // Real, Sanity-confirmed evidence, not a dismissal — see `cleared`
+            // on `InboxItem`. This is the one source that can set it at all.
+            cleared: row.status === 'closed',
           })),
           // Row-level `assignedTo` from the query, kept alongside `items`
           // rather than folded into them here: resolving it to a
@@ -217,7 +249,7 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
     placement,
     audience: onlyMine ? 'mine' : 'everyone',
 
-    useOpenCount(dismissals: DismissalState, snoozes: SnoozeState, now: number): number | null {
+    useOpenCount(snoozes: SnoozeState, now: number): number | null {
       // Tasks live in the addon dataset, so unlike `unpublishedDrafts.ts`
       // (whose base query needs nothing from it), there is no count here at
       // all without `useAddonDataset` — this can't be worked around the way
@@ -235,8 +267,8 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
 
       return useMemo(() => {
         if (result.loading || result.error) return null
-        return splitItems(result.items, 'openTasks', dismissals, snoozes, now).open.length
-      }, [result, dismissals, snoozes, now])
+        return splitItems(result.items, 'openTasks', snoozes, now).open.length
+      }, [result, snoozes, now])
     },
 
     useItems(): InboxSourceResult {
