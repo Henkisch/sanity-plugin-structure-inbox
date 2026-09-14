@@ -164,6 +164,30 @@ Writing your own source that should update itself the same way: see
 `liveQuery$` in `src/inbox/sources/liveQuery.ts` — it wraps a one-shot
 `client.observable.fetch` in exactly this listen-then-refetch shape.
 
+### Reading the open count without the pane
+
+`useInboxOpenCount()` returns the same live "how many things are open"
+number the pane's own headline shows — usable anywhere in the Studio, not
+only while the Inbox pane itself is mounted (a custom navbar badge, say).
+Returns `null` until it has reported at least once.
+
+```tsx
+import {useInboxOpenCount} from 'sanity-plugin-structure-inbox'
+
+function MyBadge() {
+  const count = useInboxOpenCount()
+  return count ? <Badge>{count}</Badge> : null
+}
+```
+
+This same number is also shown, live, as a small badge on the Studio's own
+navbar by default whenever `structureInbox()` is registered — no setup
+required.
+
+A source contributes to this count only if it defines `useOpenCount`
+(alongside its own `useItems`) — see "Writing your own" below for what that
+is and when a source needs it.
+
 ### Asking AI about an item
 
 `unpublishedDrafts` also offers `assess`: click **Ask AI** on a row and Sanity's
@@ -244,6 +268,16 @@ export function needsReview(): InboxSource {
   }
 }
 ```
+
+A source can also offer `useOpenCount(dismissals, snoozes, now)` — a
+cheaper alternative to `useItems()` that only reports a live open count,
+read by `useInboxOpenCount()` (see above) and the navbar badge. It matters
+because that count is computed from *outside* the Inbox pane, at a point in
+the Studio's component tree where some hooks a source's own `useItems()`
+might depend on (Sanity's addon dataset, for one) aren't guaranteed to be
+available — a source that omits `useOpenCount` simply doesn't contribute to
+that external count, rather than risk `useItems()` failing somewhere it
+was never designed to run.
 
 ## Selecting and acting
 
