@@ -2,6 +2,7 @@ import {FilterIcon} from '@sanity/icons/Filter'
 import {
   Avatar,
   AvatarStack,
+  Badge,
   Box,
   Button,
   Card,
@@ -440,14 +441,29 @@ export function Inbox({sources}: InboxProps) {
       {availableTypes.length > 1 && (
         <MenuButton
           button={
-            <Button
-              aria-label={t('filter.type')}
-              fontSize={1}
-              icon={FilterIcon}
-              mode={typeFilter.size > 0 ? 'default' : 'bleed'}
-              padding={2}
-              tone={typeFilter.size > 0 ? 'primary' : 'default'}
-            />
+            <Box style={{position: 'relative'}}>
+              <Button aria-label={t('filter.type')} fontSize={1} icon={FilterIcon} mode="bleed" padding={2} />
+              {typeFilter.size > 0 && (
+                // A count instead of a blue "active" fill — the fill read as
+                // just another button state, not as "N filters applied."
+                <Badge
+                  fontSize={0}
+                  padding={1}
+                  radius="full"
+                  style={{
+                    minWidth: '1.2em',
+                    pointerEvents: 'none',
+                    position: 'absolute',
+                    right: -4,
+                    textAlign: 'center',
+                    top: -4,
+                  }}
+                  tone="primary"
+                >
+                  {typeFilter.size}
+                </Badge>
+              )}
+            </Box>
           }
           id="structure-inbox-type-filter"
           menu={
