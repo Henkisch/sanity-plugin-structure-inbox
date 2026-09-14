@@ -1,3 +1,4 @@
+import {CheckmarkIcon} from '@sanity/icons/Checkmark'
 import {FilterIcon} from '@sanity/icons/Filter'
 import {
   Avatar,
@@ -485,6 +486,7 @@ export function Inbox({sources}: InboxProps) {
               </Box>
               {availableTypes.map((report) => (
                 <MenuItem
+                  iconRight={typeFilter.has(report.source.name) ? CheckmarkIcon : undefined}
                   key={report.source.name}
                   onClick={() => toggleType(report.source.name)}
                   pressed={typeFilter.has(report.source.name)}
