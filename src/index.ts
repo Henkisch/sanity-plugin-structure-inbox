@@ -4,6 +4,11 @@ export {inboxListItem} from './structure/inboxNode'
 export {useInboxOpenCount} from './studio/inboxCountLayout'
 export type {StructureInboxConfig} from './types'
 
+export {
+  structureInboxTeamView,
+  type StructureInboxTeamViewConfig,
+} from './teamView/structureInboxTeamView'
+
 export type {InboxItem, InboxSource, InboxSourceResult} from './inbox/types'
 export {openTasks, type OpenTasksOptions} from './inbox/sources/openTasks'
 export {todos, type TodosOptions} from './inbox/sources/todos'

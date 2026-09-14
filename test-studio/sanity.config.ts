@@ -3,6 +3,7 @@ import {defineConfig} from 'sanity'
 import {
   openTasks,
   structureInbox,
+  structureInboxTeamView,
   todos,
   unpublishedDrafts,
   upcomingReleases,
@@ -13,7 +14,6 @@ import {type StructureResolver} from 'sanity/structure'
 import {activeToolLayoutProbe} from './plugins/activeToolLayoutProbe'
 import {navBadgeSpike} from './plugins/navBadgeSpike'
 import {navbarBadgeSpike} from './plugins/navbarBadgeSpike'
-import {teamViewSpike} from './plugins/teamViewSpike'
 import {schemaTypes} from './schemaTypes'
 
 const projectId = process.env.SANITY_STUDIO_PROJECT_ID!
@@ -158,17 +158,17 @@ export default defineConfig([
     schema: {types: schemaTypes},
   },
   {
-    // Plan 012 spike: a throwaway "who's sitting on what" team view, grouping
-    // the same 'everyone'-audience items the personal Inbox pane already
-    // fetches, by assignee instead of by tone/timestamp. See
-    // `plans/012-team-wide-view.md`. Not a shipped surface — kept in its own
-    // workspace so it never appears next to the real Inbox pane.
+    // Plan 018: the real, shipped "who's sitting on what" team view —
+    // 'everyone'-audience items the personal Inbox pane already fetches,
+    // grouped by assignee instead of by tone/timestamp. See
+    // `plans/018-team-view-production.md`. Kept in its own workspace so it
+    // never appears next to the real Inbox pane.
     name: 'teamViewSpike',
-    title: 'Team view spike',
+    title: 'Team view',
     basePath: '/team-view-spike',
     projectId,
     dataset,
-    plugins: [structureTool({structure}), teamViewSpike(), visionTool()],
+    plugins: [structureTool({structure}), structureInboxTeamView(), visionTool()],
     schema: {types: schemaTypes},
   },
 ])
