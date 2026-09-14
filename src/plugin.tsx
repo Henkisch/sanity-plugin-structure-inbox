@@ -6,6 +6,7 @@ import {structureInboxLocaleBundles} from './i18n'
 import {resolveConfig} from './structure/resolveConfig'
 import {wrapStructure} from './structure/wrapStructure'
 import {createActiveToolLayout} from './studio/createActiveToolLayout'
+import {createInboxCountLayout} from './studio/inboxCountLayout'
 import {type StructureInboxConfig} from './types'
 import {warnOnce} from './warnOnce'
 
@@ -36,6 +37,7 @@ export const structureInbox = definePlugin<StructureInboxConfig | void>((options
     studio: {
       components: {
         activeToolLayout: createActiveToolLayout(config),
+        layout: createInboxCountLayout(config),
       },
     },
 

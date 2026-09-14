@@ -22,8 +22,9 @@ import {type ReactNode, useCallback, useEffect, useMemo, useState} from 'react'
 import {useCurrentUser, useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
-import {useDismissals} from '../store/useDismissals'
-import {useSnoozes} from '../store/useSnoozes'
+import {type useDismissals} from '../store/useDismissals'
+import {type useSnoozes} from '../store/useSnoozes'
+import {useSharedInboxStore} from '../studio/inboxCountLayout'
 import {SectionCard} from '../ui/SectionCard'
 import {SectionErrorBoundary} from '../ui/SectionErrorBoundary'
 import {StatusDot} from '../ui/StatusDot'
@@ -161,12 +162,7 @@ export function BoundedSourceFeed(props: BoundedSourceFeedProps) {
 
 export function Inbox({sources}: InboxProps) {
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
-  const neverExpireDismissalSources = useMemo(
-    () => sources.filter((source) => source.neverExpireDismissals).map((source) => source.name),
-    [sources],
-  )
-  const dismissals = useDismissals(neverExpireDismissalSources)
-  const snoozes = useSnoozes()
+  const {dismissals, snoozes} = useSharedInboxStore()
   const currentUser = useCurrentUser()
   const [view, setView] = useState<InboxView>('open')
 
