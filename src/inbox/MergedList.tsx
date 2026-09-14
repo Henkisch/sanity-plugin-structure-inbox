@@ -317,10 +317,10 @@ export function MergedList(props: MergedListProps) {
   const describeSource = useCallback(
     (report: SourceReport | undefined, item: InboxItem): string | undefined => {
       if (!report) return undefined
-      // An avatar chip already says who — restating it as "Assigned to you"
-      // right next to that avatar was the "so much stuff on those items"
-      // this row's own assignee avatar was added to fix.
-      if (item.assignee) return report.source.title
+      // The avatar chip already shows a face, but not a name at this size —
+      // naming the assignee here is the only place on the row that actually
+      // spells it out.
+      if (item.assignee) return `${report.source.title} · ${item.assignee.label}`
       // An item nobody has picked up yet, from a source that actually offers
       // `assign`, already shows the faint placeholder avatar
       // (`InboxRow.tsx`) — "Unassigned" here names that placeholder instead
