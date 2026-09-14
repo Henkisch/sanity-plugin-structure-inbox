@@ -341,11 +341,12 @@ export function Inbox({sources}: InboxProps) {
               components exactly as they render everywhere else. */}
           {/* Explicit, increasing `zIndex` left to right: each avatar
               overlaps the *previous* one's right edge (see `AvatarStack`'s
-              own negative-margin overlap), so whichever one is later in the
-              stack has to paint on top of its neighbour for that overlap to
-              read as "in front of," not "tucked behind." Plain DOM order
-              alone left the browser to decide, which put the earlier one on
-              top instead. */}
+              own negative-margin overlap, and kibo-ui's own avatar-stack at
+              https://www.kibo-ui.com/components/avatar-stack), so whichever
+              one is later in the stack has to paint on top of its neighbour
+              for that overlap to read as "in front of," not "tucked behind."
+              Plain DOM order alone left the browser to decide, which put the
+              earlier one on top instead. */}
           {availableAssignees.map((person, index) => (
             <button
               aria-label={person.label}
