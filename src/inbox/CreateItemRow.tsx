@@ -26,6 +26,20 @@ interface EditingItem {
 interface CreateItemRowProps {
   onCreate: (input: CreateItemInput) => void
   editing?: EditingItem
+  /**
+   * Suppresses the "+ Add todo" trigger button, keeping only the edit
+   * dialog (opened via `editing`). Set by a caller that renders its own
+   * "add" entry point elsewhere — see `Inbox.tsx`, which now owns the add
+   * trigger so it can sit on the tab row instead of above the list.
+   */
+  hideTrigger?: boolean
+  /**
+   * Opens the create dialog from outside, in place of the hidden trigger
+   * button — bump it (e.g. an incrementing counter) to pop the dialog open.
+   * Ignored on mount: only a *change* opens it, so a caller that starts this
+   * counter at a nonzero value doesn't pop the dialog open unprompted.
+   */
+  openSignal?: number
 }
 
 /**
@@ -42,7 +56,7 @@ interface CreateItemRowProps {
  * inline row above the list has room for.
  */
 export function CreateItemRow(props: CreateItemRowProps) {
-  const {onCreate, editing} = props
+  const {onCreate, editing, hideTrigger, openSignal} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const dialogId = useId()
   const formId = `${dialogId}-form`
@@ -61,6 +75,21 @@ export function CreateItemRow(props: CreateItemRowProps) {
 
   const openDialog = useCallback(() => setInternalOpen(true), [])
 
+  // The external counterpart to `openDialog` above — a caller with its own
+  // combined "+ Add" menu (see `AddMenu.tsx`) has nowhere to render this
+  // component's own trigger button, so it opens the dialog by bumping this
+  // instead. `useRef`, not a `useState` skip-first-render flag: this only
+  // ever needs to distinguish "first render" from "every render after," and
+  // a ref does that without asking for a re-render just to notice.
+  const skippedFirstOpenSignal = useRef(false)
+  useEffect(() => {
+    if (!skippedFirstOpenSignal.current) {
+      skippedFirstOpenSignal.current = true
+      return
+    }
+    if (openSignal !== undefined) setInternalOpen(true)
+  }, [openSignal])
+
   const closeDialog = useCallback(() => {
     editing?.onCancel()
     setInternalOpen(false)
@@ -78,7 +107,7 @@ export function CreateItemRow(props: CreateItemRowProps) {
   // Adjusted directly during render (React's own sanctioned way to react to
   // a changed prop) rather than in an effect, since these two are React
   // state — only the due date below, an imperative DOM write, belongs in one.
-  const [seededKey, setSeededKey] = useState(editing?.key)
+  const [seededKey, setSeededKey] = useState<string | undefined>(undefined)
   if (editing && editing.key !== seededKey) {
     setSeededKey(editing.key)
     setTitle(editing.title)
@@ -130,16 +159,18 @@ export function CreateItemRow(props: CreateItemRowProps) {
           default) and then centred its own label inside that width — a
           `Flex` row sizes it to its content instead, so it sits flush left
           like every other control in the list. */}
-      <Flex>
-        <Button
-          fontSize={1}
-          icon={AddIcon}
-          mode="bleed"
-          onClick={openDialog}
-          padding={2}
-          text={t('todos.addButton')}
-        />
-      </Flex>
+      {!hideTrigger && (
+        <Flex>
+          <Button
+            fontSize={1}
+            icon={AddIcon}
+            mode="bleed"
+            onClick={openDialog}
+            padding={2}
+            text={t('todos.addButton')}
+          />
+        </Flex>
+      )}
 
       {open && (
         <Dialog
