@@ -1,5 +1,21 @@
 # Plan 016: Let the open count escape the pane (`useInboxOpenCount`)
 
+> **Shipped (2026-09-14), design diverged from this plan — read before
+> reusing anything below as reference.** This plan's design (the provider
+> reusing each source's full `useItems()` via `BoundedSourceFeed`, exactly
+> as `Inbox.tsx` does) was implemented once and hit a real crash, reproduced
+> live: mounting `unpublishedDrafts`/`openTasks` this way throws
+> `useAddonDataset: missing context value`, because that context is only
+> reliably present inside the structure tool's own resolved pane tree, not
+> at `studio.components.layout`'s position — this plan's own "design
+> constraint" section anticipated the dismissals/snoozes drift risk but not
+> this one. What actually shipped instead: `InboxSource` gained an optional
+> `useOpenCount(dismissals, snoozes, now)` — a cheap, addon-dataset-free
+> count path a source can opt into — and the provider calls only that,
+> never a source's full `useItems()`. A source without it (there are none
+> among the built-ins after this change) simply doesn't contribute to the
+> total, rather than crash. See commits `8d47fc3` and `0092d91`.
+
 > **Executor instructions**: This is a real refactor with a real correctness
 > trap in it — read "Why this matters" and "The design constraint that
 > shapes everything" in full before writing any code; they explain *why*
