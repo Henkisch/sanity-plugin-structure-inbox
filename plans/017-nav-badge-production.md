@@ -1,5 +1,18 @@
 # Plan 017: A live badge on the Studio navbar, for real
 
+> **Shipped (2026-09-14), one real caveat inherited from Plan 016 — read
+> before treating the badge's number as authoritative.** Built and verified
+> exactly as written below. The one thing this plan didn't anticipate (it
+> predates the `useAddonDataset` crash discovered while shipping 016): the
+> badge's count only includes sources that safely contribute to
+> `useInboxOpenCount()` — today, `unpublishedDrafts` but not `openTasks`,
+> since task counting needs the addon dataset and that context isn't
+> present at the `layout` slot in this environment (see 016's own plan
+> note). In manual verification the pane's headline read "8 things" while
+> the badge showed `1` — correct per 016's design, but a real, visible gap
+> between the two numbers worth knowing about rather than assuming they'll
+> always match. See commit `4397d0f`.
+
 > **Executor instructions**: Follow this plan step by step. Every step ends
 > in a verification command — run it before moving to the next step. If a
 > STOP condition fires, stop and report rather than improvising. When done,

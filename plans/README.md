@@ -36,7 +36,7 @@ behaviour here, fix the comment in the same commit.
 | 014 | Stop a finished todo from silently reappearing after 90 days | P1 | M | — | DONE (merged) |
 | 015 | A pure helper (+ README recipe) for finding departed editors' leftover state | P2 | S | — | DONE (merged) |
 | 016 | Let the open count escape the pane (`useInboxOpenCount`) | P2 | L | — | DONE (merged) |
-| 017 | A live badge on the Studio navbar, for real | P2 | S | 016 | TODO |
+| 017 | A live badge on the Studio navbar, for real | P2 | S | 016 | DONE (merged) |
 | 018 | Ship the team-wide "who's sitting on what" view as a real Studio tool | P2 | L | — | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
