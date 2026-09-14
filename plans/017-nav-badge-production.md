@@ -28,7 +28,7 @@
 > Inbox. `src/studio/createInboxBadgeNavbar.tsx` was deleted; the
 > `useInboxOpenCount()` hook itself (Plan 016) was kept — it's still real,
 > useful API surface independent of whether anything visual is built on it.
-> See revert commit `<pending>`.
+> See revert commit `263c8f1`.
 
 > **Executor instructions**: Follow this plan step by step. Every step ends
 > in a verification command — run it before moving to the next step. If a
