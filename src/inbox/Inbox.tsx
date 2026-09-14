@@ -18,7 +18,7 @@ import {
   Text,
 } from '@sanity/ui'
 import {Menu, MenuButton, MenuItem} from '@sanity/ui/menu'
-import {type ReactNode, useCallback, useEffect, useMemo, useState} from 'react'
+import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {useCurrentUser, useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
@@ -38,6 +38,7 @@ import {mergeRows} from './mergeItems'
 import {MergedList} from './MergedList'
 import {SourceFeed, type SourceReport} from './SourceFeed'
 import {type InboxSource, type InboxView} from './types'
+import {useElementHeight} from './useElementHeight'
 
 interface InboxProps {
   sources: InboxSource[]
@@ -165,6 +166,15 @@ export function Inbox({sources}: InboxProps) {
   const {dismissals, snoozes} = useSharedInboxStore()
   const currentUser = useCurrentUser()
   const [view, setView] = useState<InboxView>('open')
+
+  // Caps the Inbox list at the sidebar's own actual rendered height, rather
+  // than an eyeballed pixel constant — the sidebar's height already varies
+  // with how many aside sources are configured, so a fixed cap could either
+  // clip earlier than necessary or leave the list towering over a short
+  // sidebar. `undefined` until the first measurement; `MergedList` falls
+  // back to a sane default for that one render.
+  const sidebarRef = useRef<HTMLDivElement>(null)
+  const sidebarHeight = useElementHeight(sidebarRef)
 
   // A snoozed item wakes on its own once `until` passes — see the identical
   // reasoning `InboxSection` used to carry itself, now shared by every main
@@ -646,6 +656,7 @@ export function Inbox({sources}: InboxProps) {
                   assigneeFilter={assigneeFilter}
                   dismissals={dismissals}
                   filterBar={filterBar}
+                  maxHeight={sidebarHeight}
                   order={mainOrder}
                   reports={reports}
                   snoozes={snoozes}
@@ -658,8 +669,10 @@ export function Inbox({sources}: InboxProps) {
                   sidebar. Every aside source's own card is persistent too:
                   each one already draws its own "All clear."/"Nothing
                   snoozed." empty state internally, so there is no reason
-                  left to hide the whole card while it has nothing due. */}
-              <Box gridColumn={1}>
+                  left to hide the whole card while it has nothing due.
+                  `ref` here is what `MergedList`'s own list height is capped
+                  against — see `sidebarHeight` above. */}
+              <Box gridColumn={1} ref={sidebarRef}>
                 <Stack gap={3}>
                   <InboxStats
                     assignableRows={assignableRows}

@@ -45,6 +45,14 @@ interface MergedListProps {
    * narrow this column and never the aside sources beside it.
    */
   filterBar?: ReactNode
+  /**
+   * Caps the list's own height, in pixels — typically the sidebar's actual
+   * rendered height (`Inbox.tsx` measures it live), so this column never
+   * grows taller than its neighbour. `undefined` before that measurement
+   * exists yet (the very first render), in which case a fixed fallback is
+   * used instead — see where this is read below.
+   */
+  maxHeight?: number
 }
 
 /**
@@ -60,7 +68,8 @@ interface MergedListProps {
  * one at a time.
  */
 export function MergedList(props: MergedListProps) {
-  const {reports, order, view, dismissals, snoozes, assigneeFilter, typeFilter, filterBar} = props
+  const {reports, order, view, dismissals, snoozes, assigneeFilter, typeFilter, filterBar, maxHeight} =
+    props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
   const allRows = useMemo(() => mergeRows(reports, order, view), [reports, order, view])
@@ -502,11 +511,11 @@ export function MergedList(props: MergedListProps) {
                 the persistent sidebar next to this column has its own
                 (roughly stable) height, and an Inbox list that could grow
                 taller than it forever made that neighbour look like an
-                afterthought. `560px` is a rough eyeball (~9 rows), not a
-                pixel-synced measurement against the sidebar's actual
-                rendered height — that would need a `ResizeObserver` and
-                isn't justified yet. */}
-            <Box style={{maxHeight: 560, overflowY: 'auto'}}>
+                afterthought. `maxHeight` is the sidebar's own live rendered
+                height (`Inbox.tsx` measures it with a `ResizeObserver`);
+                `560` (~9 rows) is only a placeholder for the one render
+                before that measurement exists. */}
+            <Box style={{maxHeight: maxHeight ?? 560, overflowY: 'auto'}}>
               <Stack gap={1} padding={1}>
                 {rows.map((row) => {
                 const report = reports[row.sourceName]
