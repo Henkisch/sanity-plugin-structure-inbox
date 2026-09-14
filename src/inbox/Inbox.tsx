@@ -339,14 +339,11 @@ export function Inbox({sources}: InboxProps) {
               and the ring's square corners showed past the circle). A
               wrapper button owns its own box model instead, leaving both
               components exactly as they render everywhere else. */}
-          {/* Explicit, increasing `zIndex` left to right: each avatar
-              overlaps the *previous* one's right edge (see `AvatarStack`'s
-              own negative-margin overlap, and kibo-ui's own avatar-stack at
-              https://www.kibo-ui.com/components/avatar-stack), so whichever
-              one is later in the stack has to paint on top of its neighbour
-              for that overlap to read as "in front of," not "tucked behind."
-              Plain DOM order alone left the browser to decide, which put the
-              earlier one on top instead. */}
+          {/* Explicit, decreasing `zIndex` left to right: the leftmost
+              avatar has the highest z-index and paints on top, each later
+              one tucked behind the one before it. Plain DOM order alone
+              left the browser to decide, which put the later one on top
+              instead. */}
           {availableAssignees.map((person, index) => (
             <button
               aria-label={person.label}
@@ -382,8 +379,8 @@ export function Inbox({sources}: InboxProps) {
                 // flush circles with no visible separation. Stacking extra
                 // negative margin on top of it widens the overlap enough
                 // for the on-top avatar's own ring to visibly bite into the
-                // one behind, matching kibo-ui's reference proportions.
-                marginLeft: index > 0 ? '-8px' : undefined,
+                // one behind.
+                marginLeft: index > 0 ? '-4px' : undefined,
                 padding: 0,
                 position: 'relative',
                 // `AvatarStack` wraps each child in its own `inline-block`
@@ -395,7 +392,7 @@ export function Inbox({sources}: InboxProps) {
                 // baseline, so it holds regardless of which one an avatar
                 // happens to render as.
                 verticalAlign: 'middle',
-                zIndex: index + 1,
+                zIndex: availableAssignees.length - index,
               }}
               type="button"
             >
@@ -426,11 +423,11 @@ export function Inbox({sources}: InboxProps) {
                 font: 'inherit',
                 // See the matching comment above: widens the built-in
                 // overlap enough for the ring to read as a visible cutout.
-                marginLeft: availableAssignees.length > 0 ? '-8px' : undefined,
+                marginLeft: availableAssignees.length > 0 ? '-4px' : undefined,
                 padding: 0,
                 position: 'relative',
                 verticalAlign: 'middle',
-                zIndex: availableAssignees.length + 1,
+                zIndex: 0,
               }}
               type="button"
             >
