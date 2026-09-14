@@ -1,36 +1,36 @@
-import {isDismissed, type DismissalState} from '../store/dismissals'
 import {isSnoozed, type SnoozeState} from '../store/snoozes'
 import {type InboxItem} from './types'
 
 export interface SplitItems {
   open: InboxItem[]
-  done: InboxItem[]
+  cleared: InboxItem[]
   snoozed: InboxItem[]
 }
 
 /**
- * Splits one source's items into open/done/snoozed.
+ * Splits one source's items into open/cleared/snoozed — purely from each
+ * item's own data, never from per-editor dismissal state. `InboxItem.cleared`
+ * is only ever set by a source that can verify real resolution (a task's own
+ * `status`, say); a source with no way to verify that never sets it, so its
+ * items are only ever open or snoozed here — being "acknowledged" doesn't
+ * move an item out of open, see `useDismissals`.
  *
- * Done wins over snoozed: a permanently finished item has no need to also be
- * asleep, so a dismissal is checked first and a snooze only decides between
- * what's left. Shared by every source feed — `InboxSection` (aside) and
- * `SourceFeed` (main) alike — so the three-way split can't drift between the
- * two rendering paths.
+ * Cleared wins over snoozed: an item Sanity itself confirms is resolved has
+ * no need to also be asleep.
  */
 export function splitItems(
   items: InboxItem[],
   sourceName: string,
-  dismissals: DismissalState,
   snoozes: SnoozeState,
   now: number,
 ): SplitItems {
   const open: InboxItem[] = []
-  const done: InboxItem[] = []
+  const cleared: InboxItem[] = []
   const snoozed: InboxItem[] = []
 
   for (const item of items) {
-    if (isDismissed(dismissals, sourceName, item.id, item.changedAt)) {
-      done.push(item)
+    if (item.cleared) {
+      cleared.push(item)
     } else if (isSnoozed(snoozes, sourceName, item.id, now, item.changedAt)) {
       snoozed.push(item)
     } else {
@@ -38,5 +38,5 @@ export function splitItems(
     }
   }
 
-  return {open, done, snoozed}
+  return {open, cleared, snoozed}
 }

@@ -52,7 +52,7 @@ interface InboxProps {
 const COLUMNS = [1, 1, 1, 3]
 
 const OPEN_TAB_ID = 'structure-inbox-open'
-const DONE_TAB_ID = 'structure-inbox-done'
+const CLEARED_TAB_ID = 'structure-inbox-cleared'
 const SNOOZED_TAB_ID = 'structure-inbox-snoozed'
 const PANEL_ID = 'structure-inbox-panel'
 
@@ -121,7 +121,6 @@ export function BoundedSection(props: BoundedSectionProps) {
 
 interface BoundedSourceFeedProps {
   source: InboxSource
-  dismissals: ReturnType<typeof useDismissals>
   snoozes: ReturnType<typeof useSnoozes>
   now: number
   onReport: (sourceName: string, report: SourceReport) => void
@@ -139,24 +138,18 @@ interface BoundedSourceFeedProps {
  * this directly without a full Studio source context.
  */
 export function BoundedSourceFeed(props: BoundedSourceFeedProps) {
-  const {source, dismissals, snoozes, now, onReport} = props
+  const {source, snoozes, now, onReport} = props
 
   const handleCatch = useCallback(
     (error: Error) => {
-      onReport(source.name, {source, error, open: [], done: [], snoozed: []})
+      onReport(source.name, {source, error, open: [], cleared: [], snoozed: []})
     },
     [source, onReport],
   )
 
   return (
     <SectionErrorBoundary fallback={null} onCatch={handleCatch}>
-      <SourceFeed
-        dismissals={dismissals}
-        now={now}
-        onReport={onReport}
-        snoozes={snoozes}
-        source={source}
-      />
+      <SourceFeed now={now} onReport={onReport} snoozes={snoozes} source={source} />
     </SectionErrorBoundary>
   )
 }
@@ -186,7 +179,7 @@ export function Inbox({sources}: InboxProps) {
   }, [])
 
   const showOpen = useCallback(() => setView('open'), [])
-  const showDone = useCallback(() => setView('done'), [])
+  const showCleared = useCallback(() => setView('cleared'), [])
   const showSnoozed = useCallback(() => setView('snoozed'), [])
 
   const [reports, setReports] = useState<Record<string, SourceReport>>({})
@@ -234,12 +227,13 @@ export function Inbox({sources}: InboxProps) {
   // to decide what's shown. Scoping this to just `view` used to mean the
   // filter bar itself would appear, disappear, and re-shuffle its chips as
   // an editor switched tabs (Snoozed showing one lone unassigned draft has
-  // nothing to filter on its own, even though Open and Done both do) — which
-  // reads as the controls being broken, not as them correctly reflecting a
-  // smaller tab. The chips themselves stay stable; `matchesInboxFilters`
-  // below still only ever filters whatever `view` is actually showing.
+  // nothing to filter on its own, even though Open and Cleared both do) —
+  // which reads as the controls being broken, not as them correctly
+  // reflecting a smaller tab. The chips themselves stay stable;
+  // `matchesInboxFilters` below still only ever filters whatever `view` is
+  // actually showing.
   const allRowsAnyView = useMemo(
-    () => (['open', 'done', 'snoozed'] as const).flatMap((v) => mergeRows(reports, mainOrder, v)),
+    () => (['open', 'cleared', 'snoozed'] as const).flatMap((v) => mergeRows(reports, mainOrder, v)),
     [reports, mainOrder],
   )
 
@@ -305,6 +299,7 @@ export function Inbox({sources}: InboxProps) {
   // above (which covers every tab at once, for the filter bar's own
   // available-assignee/-type lists).
   const openRows = useMemo(() => mergeRows(reports, mainOrder, 'open'), [reports, mainOrder])
+  const clearedRows = useMemo(() => mergeRows(reports, mainOrder, 'cleared'), [reports, mainOrder])
 
   // Only the main column counts toward the headline. The aside is context —
   // "three releases are scheduled" is not three things asking for your
@@ -586,10 +581,10 @@ export function Inbox({sources}: InboxProps) {
               <Tab
                 aria-controls={PANEL_ID}
                 fontSize={1}
-                id={DONE_TAB_ID}
-                label={t('tab.done')}
-                onClick={showDone}
-                selected={view === 'done'}
+                id={CLEARED_TAB_ID}
+                label={t('tab.cleared')}
+                onClick={showCleared}
+                selected={view === 'cleared'}
               />
               <Tab
                 aria-controls={PANEL_ID}
@@ -633,7 +628,6 @@ export function Inbox({sources}: InboxProps) {
 
       {main.map((source) => (
         <BoundedSourceFeed
-          dismissals={dismissals}
           key={source.name}
           now={now}
           onReport={handleReport}
@@ -646,7 +640,7 @@ export function Inbox({sources}: InboxProps) {
         <Container width={4}>
           <TabPanel
             aria-labelledby={
-              view === 'open' ? OPEN_TAB_ID : view === 'done' ? DONE_TAB_ID : SNOOZED_TAB_ID
+              view === 'open' ? OPEN_TAB_ID : view === 'cleared' ? CLEARED_TAB_ID : SNOOZED_TAB_ID
             }
             id={PANEL_ID}
           >
@@ -676,7 +670,7 @@ export function Inbox({sources}: InboxProps) {
                 <Stack gap={3}>
                   <InboxStats
                     assignableRows={assignableRows}
-                    dismissals={dismissals}
+                    clearedRows={clearedRows}
                     openRows={openRows}
                   />
 

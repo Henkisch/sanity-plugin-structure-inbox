@@ -46,7 +46,7 @@ function renderSection(props: {
   source: InboxSource
   dismissals?: Dismissals
   snoozes?: Snoozes
-  view?: 'open' | 'done' | 'snoozed'
+  view?: 'open' | 'cleared' | 'snoozed'
 }) {
   const dismissals = props.dismissals ?? fakeDismissals()
   const snoozes = props.snoozes ?? fakeSnoozes()
@@ -77,7 +77,7 @@ describe('InboxSection', () => {
     expect(screen.getByText('Write the launch email')).toBeTruthy()
   })
 
-  it('splits open vs. done by changedAt, not by the display timestamp', () => {
+  it('splits open vs. cleared by changedAt, not by the display timestamp', () => {
     // Regression for the gap plan 001 left open: `InboxSection` must read
     // `item.changedAt` to decide which tab an item lands in. `item.timestamp`
     // is display-only and may be a future due date — reverting the split to
@@ -88,7 +88,7 @@ describe('InboxSection', () => {
     const past = '2025-01-01T00:00:00.000Z'
 
     renderSection({
-      view: 'done',
+      view: 'cleared',
       source: {
         name: 'releases',
         title: 'Releases',
@@ -154,7 +154,7 @@ describe('InboxSection', () => {
 
   it('hides the create row outside the open view', () => {
     renderSection({
-      view: 'done',
+      view: 'cleared',
       source: {
         name: 'todos',
         title: 'Todos',

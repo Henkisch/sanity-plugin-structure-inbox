@@ -65,7 +65,8 @@ export function mergeRows(
     const report = reports[sourceName]
     if (!report) continue
 
-    const items = view === 'done' ? report.done : view === 'snoozed' ? report.snoozed : report.open
+    const items =
+      view === 'cleared' ? report.cleared : view === 'snoozed' ? report.snoozed : report.open
 
     for (const item of items) {
       rows.push({key: `${sourceName} ${item.id}`, sourceName, item})

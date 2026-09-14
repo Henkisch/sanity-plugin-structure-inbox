@@ -1,7 +1,6 @@
 import {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react'
 import {type LayoutProps} from 'sanity'
 
-import {type DismissalState} from '../store/dismissals'
 import {type SnoozeState} from '../store/snoozes'
 import {useDismissals, type Dismissals} from '../store/useDismissals'
 import {useSnoozes, type Snoozes} from '../store/useSnoozes'
@@ -67,7 +66,6 @@ export function useInboxOpenCount(): number | null {
 
 interface OpenCountFeedProps {
   source: InboxSource
-  dismissals: DismissalState
   snoozes: SnoozeState
   now: number
   onCount: (sourceName: string, count: number | null) => void
@@ -86,8 +84,8 @@ interface OpenCountFeedProps {
  * able to take the whole count provider down.
  */
 function OpenCountFeed(props: OpenCountFeedProps) {
-  const {source, dismissals, snoozes, now, onCount} = props
-  const count = source.useOpenCount?.(dismissals, snoozes, now) ?? null
+  const {source, snoozes, now, onCount} = props
+  const count = source.useOpenCount?.(snoozes, now) ?? null
 
   useEffect(() => {
     onCount(source.name, count)
@@ -145,13 +143,7 @@ export function createInboxCountLayout(config: ResolvedStructureInboxConfig) {
               key={source.name}
               onCatch={() => handleCount(source.name, null)}
             >
-              <OpenCountFeed
-                dismissals={dismissals.state}
-                now={now}
-                onCount={handleCount}
-                snoozes={snoozes.state}
-                source={source}
-              />
+              <OpenCountFeed now={now} onCount={handleCount} snoozes={snoozes.state} source={source} />
             </SectionErrorBoundary>
           ))}
           {props.renderDefault(props)}

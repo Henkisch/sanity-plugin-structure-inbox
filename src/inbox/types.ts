@@ -1,15 +1,15 @@
 import {type ComponentType} from 'react'
 
-import {type DismissalState} from '../store/dismissals'
 import {type SnoozeState} from '../store/snoozes'
 
 /**
  * Which slice of the inbox is on screen: the things still to do, the things
- * already ticked off, or the things put off until later.
+ * Sanity itself confirms are actually resolved, or the things put off until
+ * later.
  *
  * @public
  */
-export type InboxView = 'open' | 'done' | 'snoozed'
+export type InboxView = 'open' | 'cleared' | 'snoozed'
 
 /**
  * One actionable thing in an editor's inbox.
@@ -46,6 +46,15 @@ export interface InboxItem {
    * observed.
    */
   changedAt?: string
+  /**
+   * True only when the *source itself* fetched this item already resolved
+   * and can say so with real, Sanity-confirmed evidence (a task's own
+   * `status`, say) — never set from a per-editor dismissal. Absent (or
+   * `false`) for every item from a source with no `resolve`: there is
+   * nothing this plugin can verify for those, so they are never cleared,
+   * only ever open or acknowledged (see `useDismissals`).
+   */
+  cleared?: boolean
   icon?: ComponentType
   /** Colours the row. Use sparingly — everything urgent means nothing is. */
   tone?: 'default' | 'primary' | 'positive' | 'caution' | 'critical'
@@ -266,6 +275,10 @@ export interface InboxSource {
    * context unavailable here would crash instead of just under-counting
    * (see `unpublishedDrafts.ts` and `openTasks.ts` for two built-in sources
    * that hit exactly this, and how each does or doesn't provide this).
+   *
+   * No `dismissals` parameter: whether an item is open never depends on
+   * per-editor acknowledgement (see `splitItems.ts`'s own doc comment) —
+   * only a real, source-confirmed `InboxItem.cleared` moves it out of open.
    */
-  useOpenCount?: (dismissals: DismissalState, snoozes: SnoozeState, now: number) => number | null
+  useOpenCount?: (snoozes: SnoozeState, now: number) => number | null
 }

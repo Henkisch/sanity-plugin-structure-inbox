@@ -16,7 +16,6 @@ import {
 } from 'sanity'
 
 import {API_VERSION} from '../../constants'
-import {type DismissalState} from '../../store/dismissals'
 import {type SnoozeState} from '../../store/snoozes'
 import {splitItems} from '../splitItems'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
@@ -224,7 +223,7 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
     placement,
     audience: onlyMine ? 'mine' : 'everyone',
 
-    useOpenCount(dismissals: DismissalState, snoozes: SnoozeState, now: number): number | null {
+    useOpenCount(snoozes: SnoozeState, now: number): number | null {
       const client = useClient({apiVersion: API_VERSION})
       const schema = useSchema()
       const userId = useCurrentUser()?.id
@@ -232,8 +231,8 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
 
       return useMemo(() => {
         if (result.loading || result.error) return null
-        return splitItems(result.items, 'unpublishedDrafts', dismissals, snoozes, now).open.length
-      }, [result, dismissals, snoozes, now])
+        return splitItems(result.items, 'unpublishedDrafts', snoozes, now).open.length
+      }, [result, snoozes, now])
     },
 
     useItems(): InboxSourceResult {

@@ -112,7 +112,6 @@ function renderFeeds(
     <ThemeProvider theme={theme}>
       {sources.map((source) => (
         <BoundedSourceFeed
-          dismissals={dismissals}
           key={source.name}
           now={Date.now()}
           onReport={onReport}
@@ -141,7 +140,7 @@ describe('BoundedSourceFeed', () => {
     )
     expect(onReport).toHaveBeenCalledWith(
       'good',
-      expect.objectContaining({open: [], done: [], snoozed: []}),
+      expect.objectContaining({open: [], cleared: [], snoozed: []}),
     )
   })
 })
