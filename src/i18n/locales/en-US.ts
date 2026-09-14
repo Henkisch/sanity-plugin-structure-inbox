@@ -23,14 +23,14 @@ const enUS = {
   'inbox.waiting.generic_one': '{{count}} thing waiting',
   'inbox.waiting.generic_other': '{{count}} things waiting',
   'tab.open': 'Open',
-  'tab.done': 'Done',
+  'tab.cleared': 'Cleared',
   'tab.snoozed': 'Snoozed',
   'inbox.unconfigured.title': 'Nothing in your inbox yet',
   'inbox.unconfigured.description':
     'Pass sources to structureInbox() to fill this pane — open tasks, upcoming releases, forgotten drafts.',
 
   'source.empty': 'All clear.',
-  'source.noneDone': 'Nothing ticked off yet.',
+  'source.noneCleared': 'Nothing cleared yet.',
   'source.noneSnoozed': 'Nothing snoozed.',
   'audience.mine': 'Assigned to you',
   'audience.everyone': 'Everyone',
@@ -52,6 +52,8 @@ const enUS = {
 
   'undo.markedDone_one': '{{count}} marked as done',
   'undo.markedDone_other': '{{count}} marked as done',
+  'undo.acknowledged_one': '{{count}} acknowledged',
+  'undo.acknowledged_other': '{{count}} acknowledged',
   'undo.snoozed_one': '{{count}} snoozed',
   'undo.snoozed_other': '{{count}} snoozed',
   'undo.assigned_one': '{{count}} assigned to {{name}}',
@@ -62,9 +64,12 @@ const enUS = {
   'undo.done': 'Undone',
 
   'action.markDone': 'Mark as done',
-  'action.markDone.mine': 'Removes it from your inbox. Nothing changes for anyone else.',
   'action.markDone.resolves': 'Completes it for everyone, and removes it from your inbox.',
+  'action.markDone.mixed':
+    'Completes what it can right now, and marks the rest seen — nothing else changes for those.',
   'action.markNotDone': 'Mark as not done',
+  'action.acknowledge': 'Acknowledge',
+  'action.acknowledge.hint': 'Marks it seen. Nothing changes in Sanity, and it stays in Open.',
   'action.wakeNow': 'Wake now',
 
   'action.snooze': 'Snooze',

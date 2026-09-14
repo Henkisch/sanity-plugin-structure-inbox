@@ -26,7 +26,7 @@ function source(name: string, title: string): InboxSource {
 }
 
 function report(name: string, title: string, overrides: Partial<SourceReport> = {}): SourceReport {
-  return {source: source(name, title), open: [], done: [], snoozed: [], ...overrides}
+  return {source: source(name, title), open: [], cleared: [], snoozed: [], ...overrides}
 }
 
 function fakeDismissals(): Dismissals {
@@ -47,7 +47,7 @@ function selectItem(title: string) {
 function renderList(props: {
   reports: Record<string, SourceReport>
   order: string[]
-  view?: 'open' | 'done' | 'snoozed'
+  view?: 'open' | 'cleared' | 'snoozed'
   dismissals?: Dismissals
   snoozes?: Snoozes
 }) {
@@ -116,7 +116,7 @@ describe('MergedList', () => {
     expect(screen.getByText(/Unpublished drafts/)).toBeTruthy()
   })
 
-  it('marks a mixed selection done, calling resolve only where the source has one', async () => {
+  it('resolves a real source for real and only acknowledges the one with no resolve', async () => {
     const resolve = vi.fn().mockResolvedValue(undefined)
     const reports = {
       tasks: report('tasks', 'Tasks', {open: [item('t1', {title: 'Task one'})], resolve}),
@@ -129,19 +129,22 @@ describe('MergedList', () => {
     selectItem('Draft one')
     fireEvent.click(screen.getByText('action.markDone'))
 
-    await vi.waitFor(() => expect(dismissals.dismiss).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(resolve).toHaveBeenCalledTimes(1))
     expect(resolve).toHaveBeenCalledWith(expect.objectContaining({id: 't1'}))
-    expect(dismissals.dismiss).toHaveBeenCalledWith('tasks', 't1')
+    // The task really resolved — it never gets dismissed/acknowledged, since
+    // Sanity's own state is what will move it to Cleared next fetch. The
+    // draft has no `resolve`, so it's the *only* one acknowledged.
+    expect(dismissals.dismiss).toHaveBeenCalledTimes(1)
     expect(dismissals.dismiss).toHaveBeenCalledWith('drafts', 'd1')
   })
 
-  it("restores a done-view selection through each row's own source", () => {
+  it("restores a cleared-view selection through each row's own source", () => {
     const reports = {
-      drafts: report('drafts', 'Drafts', {done: [item('d1', {title: 'Draft one'})]}),
-      tasks: report('tasks', 'Tasks', {done: [item('t1', {title: 'Task one'})]}),
+      drafts: report('drafts', 'Drafts', {cleared: [item('d1', {title: 'Draft one'})]}),
+      tasks: report('tasks', 'Tasks', {cleared: [item('t1', {title: 'Task one'})]}),
     }
 
-    const {dismissals} = renderList({reports, order: ['drafts', 'tasks'], view: 'done'})
+    const {dismissals} = renderList({reports, order: ['drafts', 'tasks'], view: 'cleared'})
 
     selectItem('Draft one')
     selectItem('Task one')
@@ -151,13 +154,13 @@ describe('MergedList', () => {
     expect(dismissals.restore).toHaveBeenCalledWith('tasks', 't1')
   })
 
-  it('snoozes a selection regardless of which source it came from', async () => {
+  it('snoozes a selection regardless of which source it came from, and acknowledges it too', async () => {
     const reports = {
       drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]}),
       tasks: report('tasks', 'Tasks', {open: [item('t1', {title: 'Task one'})]}),
     }
 
-    const {snoozes} = renderList({reports, order: ['drafts', 'tasks']})
+    const {snoozes, dismissals} = renderList({reports, order: ['drafts', 'tasks']})
 
     selectItem('Draft one')
     selectItem('Task one')
@@ -168,6 +171,11 @@ describe('MergedList', () => {
     await vi.waitFor(() => expect(snoozes.snooze).toHaveBeenCalledTimes(2))
     expect(snoozes.snooze).toHaveBeenCalledWith('drafts', 'd1', expect.any(String))
     expect(snoozes.snooze).toHaveBeenCalledWith('tasks', 't1', expect.any(String))
+
+    // Snoozing also marks the item seen, so it doesn't read as freshly-unseen
+    // the moment it wakes back into Open — see `plans/019-cleared-means-sanity-said-so.md`.
+    expect(dismissals.dismiss).toHaveBeenCalledWith('drafts', 'd1')
+    expect(dismissals.dismiss).toHaveBeenCalledWith('tasks', 't1')
   })
 
   it('selects a row by clicking anywhere on it, not just its checkbox', async () => {
@@ -217,11 +225,13 @@ describe('MergedList', () => {
 
     const selectAll = screen.getByTitle('selection.selectAll')
     fireEvent.click(selectAll)
-    expect(screen.getByText('action.markDone')).toBeTruthy()
+    // No `resolve` on this source, so the action bar offers "Acknowledge",
+    // not "Mark as done" — see `SelectionActions.tsx`'s own doc comment.
+    expect(screen.getByText('action.acknowledge')).toBeTruthy()
     expect(selectAll).toHaveProperty('checked', true)
 
     fireEvent.click(selectAll)
-    await vi.waitFor(() => expect(screen.queryByText('action.markDone')).toBeNull())
+    await vi.waitFor(() => expect(screen.queryByText('action.acknowledge')).toBeNull())
   })
 
   it('marks the select-all header indeterminate when only some rows are selected', () => {
@@ -240,7 +250,7 @@ describe('MergedList', () => {
     expect(selectAll.indeterminate).toBe(true)
   })
 
-  it('brings a mistakenly-completed selection back with undo', async () => {
+  it('brings a mistakenly-acknowledged selection back with undo', async () => {
     const reports = {
       drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]}),
     }
@@ -248,14 +258,13 @@ describe('MergedList', () => {
     const {dismissals} = renderList({reports, order: ['drafts']})
 
     selectItem('Draft one')
-    fireEvent.click(screen.getByText('action.markDone'))
+    // No `resolve` on this source, so the button reads "Acknowledge" — see
+    // `SelectionActions.tsx`'s own doc comment on why the label depends on
+    // `resolvableCount`.
+    fireEvent.click(screen.getByText('action.acknowledge'))
 
     await vi.waitFor(() => expect(dismissals.dismiss).toHaveBeenCalledWith('drafts', 'd1'))
 
-    // A generous timeout, not the library default: this toast only appears
-    // after `confirmSelection`'s own real `setTimeout(EXIT_ANIMATION_MS)`
-    // resolves, and a slow, loaded test run can push that past the default
-    // 1000ms window on its own, with nothing actually wrong.
     fireEvent.click(await screen.findByText('selection.undo', {}, {timeout: 5000}))
     expect(dismissals.restore).toHaveBeenCalledWith('drafts', 'd1')
   })
@@ -265,7 +274,7 @@ describe('MergedList', () => {
       drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]}),
     }
 
-    const {snoozes} = renderList({reports, order: ['drafts']})
+    const {snoozes, dismissals} = renderList({reports, order: ['drafts']})
 
     selectItem('Draft one')
     fireEvent.change(screen.getByDisplayValue('action.snooze'), {target: {value: 'tomorrow'}})
@@ -280,6 +289,8 @@ describe('MergedList', () => {
     // 1000ms window on its own, with nothing actually wrong.
     fireEvent.click(await screen.findByText('selection.undo', {}, {timeout: 5000}))
     expect(snoozes.wake).toHaveBeenCalledWith('drafts', 'd1')
+    // Undo reverses the acknowledge-on-snooze too, not just the snooze itself.
+    expect(dismissals.restore).toHaveBeenCalledWith('drafts', 'd1')
   })
 
   it('confirms who a selection was assigned to, so a click landing is never a guess', async () => {
