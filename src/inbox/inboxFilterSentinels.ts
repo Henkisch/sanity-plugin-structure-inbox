@@ -1,13 +1,13 @@
 import {type InboxItem} from './types'
 
 /**
- * The member `assigneeFilter` uses for "nobody" — a real assignee's own
- * label is never this exact string, so it's safe to use as a marker
- * alongside real labels in the same set. `assigneeFilter` and `typeFilter`
- * share one convention: an empty set means "no filter, show everything," not
- * "hide everything" — Jira-style multi-select, where checking several
- * people (or nobody plus several people) narrows to their union, and
- * checking none is the same as checking them all.
+ * The member `assigneeFilter` uses for "nobody" — a real assignee's own id
+ * is never this exact string, so it's safe to use as a marker alongside
+ * real ids in the same set. `assigneeFilter` and `typeFilter` share one
+ * convention: an empty set means "no filter, show everything," not "hide
+ * everything" — Jira-style multi-select, where checking several people (or
+ * nobody plus several people) narrows to their union, and checking none is
+ * the same as checking them all.
  */
 export const ASSIGNEE_UNASSIGNED = '__unassigned__'
 
@@ -25,7 +25,10 @@ export function matchesInboxFilters(
   typeFilter: ReadonlySet<string>,
 ): boolean {
   if (assigneeFilter.size > 0) {
-    const key = row.item.assignee?.label ?? ASSIGNEE_UNASSIGNED
+    // By id, never `label` — two project members can share a display name
+    // (a real case, not a hypothetical one), and keying on the text they
+    // happen to render as would silently merge them into one filter.
+    const key = row.item.assignee?.id ?? ASSIGNEE_UNASSIGNED
     if (!assigneeFilter.has(key)) return false
   }
   if (typeFilter.size > 0 && !typeFilter.has(row.sourceName)) return false

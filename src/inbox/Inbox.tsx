@@ -66,7 +66,6 @@ interface BoundedSectionProps {
   dismissals: ReturnType<typeof useDismissals>
   snoozes: ReturnType<typeof useSnoozes>
   onCount: (sourceName: string, count: number) => void
-  onVisibleCount?: (sourceName: string, count: number) => void
   view: InboxView
 }
 
@@ -91,7 +90,7 @@ interface BoundedSectionProps {
  * context that a unit test for this boundary should not have to carry.
  */
 export function BoundedSection(props: BoundedSectionProps) {
-  const {source, compact, dismissals, snoozes, onCount, onVisibleCount, view} = props
+  const {source, compact, dismissals, snoozes, onCount, view} = props
 
   const renderFallback = useCallback(
     (error: Error): ReactNode => (
@@ -108,7 +107,6 @@ export function BoundedSection(props: BoundedSectionProps) {
         compact={compact}
         dismissals={dismissals}
         onCount={onCount}
-        onVisibleCount={onVisibleCount}
         snoozes={snoozes}
         source={source}
         view={view}
@@ -192,13 +190,6 @@ export function Inbox({sources}: InboxProps) {
   // `InboxSection` requires the prop.
   const ignoreCount = useCallback(() => {}, [])
 
-  const [asideVisibleCounts, setAsideVisibleCounts] = useState<Record<string, number>>({})
-  const handleAsideVisibleCount = useCallback((sourceName: string, count: number) => {
-    setAsideVisibleCounts((current) =>
-      current[sourceName] === count ? current : {...current, [sourceName]: count},
-    )
-  }, [])
-
   const {main, aside} = useMemo(
     () => ({
       main: sources.filter((source) => (source.placement ?? 'main') === 'main'),
@@ -244,16 +235,16 @@ export function Inbox({sources}: InboxProps) {
   )
 
   // Every assignee present anywhere, not the full project roster — a chip
-  // for someone with nothing in any view would still be a dead filter.
-  // Keyed by label: nothing upstream hands back a stable id today, and two
-  // people sharing a display name is the same accepted edge case the parked
-  // "team view" grouping already lived with.
+  // for someone with nothing in any view would still be a dead filter. Keyed
+  // by id, not label: two project members can share a display name (a real
+  // case this plugin has actually hit), and keying on the text they happen
+  // to render as would silently merge them into one chip.
   const availableAssignees = useMemo(() => {
-    const byLabel = new Map<string, {label: string; imageUrl?: string}>()
+    const byId = new Map<string, {id: string; label: string; imageUrl?: string}>()
     for (const row of allRowsAnyView) {
-      if (row.item.assignee) byLabel.set(row.item.assignee.label, row.item.assignee)
+      if (row.item.assignee) byId.set(row.item.assignee.id, row.item.assignee)
     }
-    return [...byLabel.values()].sort((a, b) => a.label.localeCompare(b.label))
+    return [...byId.values()].sort((a, b) => a.label.localeCompare(b.label))
   }, [allRowsAnyView])
 
   // "Unassigned" only counts for a row whose source actually offers
@@ -326,13 +317,6 @@ export function Inbox({sources}: InboxProps) {
     [openRows, reports],
   )
 
-  // Still tracked — an aside *source* like Releases still only draws its own
-  // card once it actually has something to show — but no longer decides
-  // whether the aside column itself exists: `InboxStats` below makes that
-  // column permanent, the "persistent sidebar" this pane always wanted, with
-  // or without any `aside` sources configured at all.
-  const asideHasContent = aside.some((source) => (asideVisibleCounts[source.name] ?? 1) > 0)
-
   // Rendered here (state and available-lists live in this component, for
   // `openCount` above) but handed down to `MergedList` to actually place —
   // these filters only ever govern that one column, never the aside sources
@@ -365,19 +349,42 @@ export function Inbox({sources}: InboxProps) {
           {availableAssignees.map((person, index) => (
             <button
               aria-label={person.label}
-              aria-pressed={assigneeFilter.has(person.label)}
-              key={person.label}
-              onClick={() => toggleAssignee(person.label)}
+              aria-pressed={assigneeFilter.has(person.id)}
+              key={person.id}
+              onClick={() => toggleAssignee(person.id)}
+              // `aria-label` alone names it for assistive tech but draws no
+              // visible tooltip — `title` is what gives an icon-only avatar
+              // the same hover-to-see-the-name Studio's own top-right avatar
+              // already has, which matters more here: several of these can
+              // render as bare initials with no photo at all.
+              title={person.label}
               style={{
                 background: 'none',
-                border: 'none',
+                // A ring matching the header's own background, not `none` —
+                // the same "cutout" every avatar-stack that reads as clean
+                // separation (rather than photos just smashed together)
+                // uses. Measured off this exact header rather than guessed:
+                // Sanity UI exposes no theme custom property for it, and
+                // this plugin doesn't attempt light/dark-adaptive color
+                // anywhere else either, so a fixed value matches the
+                // existing pattern rather than being a new exception.
+                border: '2px solid rgb(13, 14, 18)',
                 borderRadius: '50%',
-                boxShadow: assigneeFilter.has(person.label) ? '0 0 0 2px currentColor' : 'none',
+                boxShadow: assigneeFilter.has(person.id) ? '0 0 0 2px currentColor' : 'none',
                 color: 'inherit',
                 cursor: 'pointer',
                 font: 'inherit',
                 padding: 0,
                 position: 'relative',
+                // `AvatarStack` wraps each child in its own `inline-block`
+                // div with the browser default `vertical-align: baseline` —
+                // fine when every avatar renders the same way, but a photo
+                // (`<img>`) and initials-only text sit on different
+                // intrinsic baselines, so the two visibly drifted apart by
+                // a couple of pixels. `middle` aligns by box, not text
+                // baseline, so it holds regardless of which one an avatar
+                // happens to render as.
+                verticalAlign: 'middle',
                 zIndex: index + 1,
               }}
               type="button"
@@ -390,9 +397,18 @@ export function Inbox({sources}: InboxProps) {
               aria-label={t('assignee.unassigned')}
               aria-pressed={assigneeFilter.has(ASSIGNEE_UNASSIGNED)}
               onClick={() => toggleAssignee(ASSIGNEE_UNASSIGNED)}
+              title={t('assignee.unassigned')}
               style={{
                 background: 'none',
-                border: 'none',
+                // A ring matching the header's own background, not `none` —
+                // the same "cutout" every avatar-stack that reads as clean
+                // separation (rather than photos just smashed together)
+                // uses. Measured off this exact header rather than guessed:
+                // Sanity UI exposes no theme custom property for it, and
+                // this plugin doesn't attempt light/dark-adaptive color
+                // anywhere else either, so a fixed value matches the
+                // existing pattern rather than being a new exception.
+                border: '2px solid rgb(13, 14, 18)',
                 borderRadius: '50%',
                 boxShadow: assigneeFilter.has(ASSIGNEE_UNASSIGNED) ? '0 0 0 2px currentColor' : 'none',
                 color: 'inherit',
@@ -400,6 +416,7 @@ export function Inbox({sources}: InboxProps) {
                 font: 'inherit',
                 padding: 0,
                 position: 'relative',
+                verticalAlign: 'middle',
                 zIndex: availableAssignees.length + 1,
               }}
               type="button"
@@ -594,9 +611,10 @@ export function Inbox({sources}: InboxProps) {
               </Box>
 
               {/* Always rendered now, `InboxStats` first — the persistent
-                  sidebar. `asideHasContent` still gates the aside *sources'*
-                  own cards beneath it (Releases stays hidden until it has
-                  something to show), just not the column itself. */}
+                  sidebar. Every aside source's own card is persistent too:
+                  each one already draws its own "All clear."/"Nothing
+                  snoozed." empty state internally, so there is no reason
+                  left to hide the whole card while it has nothing due. */}
               <Box gridColumn={1}>
                 <Stack gap={3}>
                   <InboxStats
@@ -605,7 +623,15 @@ export function Inbox({sources}: InboxProps) {
                     openRows={openRows}
                   />
 
-                  {asideHasContent && (
+                  {/* Always `view="open"`, never the pane's own tab: an
+                      aside source offers no dismiss/snooze action of its
+                      own (InboxSection dropped that whole mechanism for
+                      aside content), so nothing can ever move a release
+                      into Done or Snoozed through this UI — following the
+                      Open/Done/Snoozed tabs here just meant Releases sat
+                      showing "Nothing snoozed." on a tab that can never
+                      hold anything, for every aside source there ever is. */}
+                  {aside.length > 0 && (
                     <Stack gap={3}>
                       {aside.map((source) => (
                         <BoundedSection
@@ -613,10 +639,9 @@ export function Inbox({sources}: InboxProps) {
                           dismissals={dismissals}
                           key={source.name}
                           onCount={ignoreCount}
-                          onVisibleCount={handleAsideVisibleCount}
                           snoozes={snoozes}
                           source={source}
-                          view={view}
+                          view="open"
                         />
                       ))}
                     </Stack>

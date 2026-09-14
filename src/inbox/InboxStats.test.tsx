@@ -53,7 +53,7 @@ describe('countUnassigned', () => {
   it('counts only rows with nobody on them', () => {
     const rows = [
       row('tasks', {id: '1'}),
-      row('tasks', {id: '2', assignee: {label: 'Ada'}}),
+      row('tasks', {id: '2', assignee: {id: 'ada', label: 'Ada'}}),
       row('tasks', {id: '3'}),
     ]
     expect(countUnassigned(rows)).toBe(2)
@@ -63,19 +63,33 @@ describe('countUnassigned', () => {
 describe('groupByAssigneeLoad', () => {
   it('groups and counts by assignee, busiest first', () => {
     const rows = [
-      row('tasks', {id: '1', assignee: {label: 'Ada'}}),
-      row('tasks', {id: '2', assignee: {label: 'Bea'}}),
-      row('tasks', {id: '3', assignee: {label: 'Ada'}}),
+      row('tasks', {id: '1', assignee: {id: 'ada', label: 'Ada'}}),
+      row('tasks', {id: '2', assignee: {id: 'bea', label: 'Bea'}}),
+      row('tasks', {id: '3', assignee: {id: 'ada', label: 'Ada'}}),
     ]
     expect(groupByAssigneeLoad(rows)).toEqual([
-      {label: 'Ada', imageUrl: undefined, count: 2},
-      {label: 'Bea', imageUrl: undefined, count: 1},
+      {id: 'ada', label: 'Ada', imageUrl: undefined, count: 2},
+      {id: 'bea', label: 'Bea', imageUrl: undefined, count: 1},
+    ])
+  })
+
+  it('does not merge two different people who happen to share a display name', () => {
+    const rows = [
+      row('tasks', {id: '1', assignee: {id: 'ada-1', label: 'Ada'}}),
+      row('tasks', {id: '2', assignee: {id: 'ada-2', label: 'Ada'}}),
+    ]
+    expect(groupByAssigneeLoad(rows)).toEqual([
+      {id: 'ada-1', label: 'Ada', imageUrl: undefined, count: 1},
+      {id: 'ada-2', label: 'Ada', imageUrl: undefined, count: 1},
     ])
   })
 
   it('excludes unassigned rows entirely', () => {
-    const rows = [row('tasks', {id: '1'}), row('tasks', {id: '2', assignee: {label: 'Ada'}})]
-    expect(groupByAssigneeLoad(rows)).toEqual([{label: 'Ada', imageUrl: undefined, count: 1}])
+    const rows = [
+      row('tasks', {id: '1'}),
+      row('tasks', {id: '2', assignee: {id: 'ada', label: 'Ada'}}),
+    ]
+    expect(groupByAssigneeLoad(rows)).toEqual([{id: 'ada', label: 'Ada', imageUrl: undefined, count: 1}])
   })
 })
 
@@ -109,7 +123,7 @@ describe('InboxStats', () => {
   it('renders the age breakdown, unassigned count and cleared-today count', () => {
     const rows = [
       row('tasks', {id: '1', timestamp: new Date(NOW).toISOString()}),
-      row('tasks', {id: '2', assignee: {label: 'Ada'}}),
+      row('tasks', {id: '2', assignee: {id: 'ada', label: 'Ada'}}),
     ]
 
     renderWithTheme(

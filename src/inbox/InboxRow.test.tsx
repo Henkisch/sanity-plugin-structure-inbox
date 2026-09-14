@@ -91,7 +91,7 @@ describe('InboxRow', () => {
     renderRow(
       <InboxRow
         assignableUsers={[{id: 'user-1', label: 'Ada'}]}
-        item={item({assignee: {label: 'Henrik Larsson'}})}
+        item={item({assignee: {id: 'henrik', label: 'Henrik Larsson'}})}
         onReassign={onReassign}
         onSelectedChange={onSelectedChange}
         selected={false}
@@ -101,7 +101,7 @@ describe('InboxRow', () => {
     fireEvent.click(screen.getByTitle('Henrik Larsson'))
     fireEvent.click(screen.getByText('Ada'))
 
-    expect(onReassign).toHaveBeenCalledWith(item({assignee: {label: 'Henrik Larsson'}}), 'user-1')
+    expect(onReassign).toHaveBeenCalledWith(item({assignee: {id: 'henrik', label: 'Henrik Larsson'}}), 'user-1')
     // Clicking the avatar to open the picker must not also select or open
     // the row underneath it.
     expect(onSelectedChange).not.toHaveBeenCalled()
@@ -114,7 +114,7 @@ describe('InboxRow', () => {
     renderRow(
       <InboxRow
         assignableUsers={[{id: 'user-1', label: 'Ada'}]}
-        item={item({assignee: {label: 'Henrik Larsson'}})}
+        item={item({assignee: {id: 'henrik', label: 'Henrik Larsson'}})}
         onReassign={vi.fn()}
         onSelectedChange={vi.fn()}
         onUnassign={onUnassign}
@@ -125,7 +125,7 @@ describe('InboxRow', () => {
     fireEvent.click(screen.getByTitle('Henrik Larsson'))
     fireEvent.click(screen.getByText('assignee.unassign'))
 
-    expect(onUnassign).toHaveBeenCalledWith(item({assignee: {label: 'Henrik Larsson'}}))
+    expect(onUnassign).toHaveBeenCalledWith(item({assignee: {id: 'henrik', label: 'Henrik Larsson'}}))
   })
 
   it('does not offer unassign for an item with no assignee yet, even if the source supports it', () => {

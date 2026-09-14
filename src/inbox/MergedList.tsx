@@ -479,7 +479,12 @@ export function MergedList(props: MergedListProps) {
                   that lines up with it, which is why this is added as an
                   explicit inner `paddingLeft` rather than by bumping the
                   Card's own padding a full step. */}
-              <Flex align="center" paddingLeft={1}>
+              {/* A native `<label>`, not a `Flex` with a separately-clickable
+                  `Checkbox` — wrapping the checkbox and its own text in one
+                  real label is what makes clicking the words "Select all"
+                  toggle it too, for free, the same as any other checkbox
+                  label on the web. */}
+              <Flex align="center" as="label" paddingLeft={1} style={{cursor: 'pointer'}}>
                 <Checkbox
                   checked={allSelected}
                   indeterminate={someSelected}

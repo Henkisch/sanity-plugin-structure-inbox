@@ -74,7 +74,7 @@ export function todos(options: TodosOptions = {}): InboxSource {
             description: todo.description,
             dueBy: todo.dueBy,
             assignee: currentUser
-              ? {label: currentUser.name, imageUrl: currentUser.profileImage}
+              ? {id: currentUser.id, label: currentUser.name, imageUrl: currentUser.profileImage}
               : undefined,
           })),
         [state.items, currentUser],

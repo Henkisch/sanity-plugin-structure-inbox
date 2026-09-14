@@ -41,25 +41,31 @@ export function countUnassigned(assignableRows: readonly MergedRow[]): number {
 }
 
 export interface AssigneeLoad {
+  id: string
   label: string
   imageUrl?: string
   count: number
 }
 
-/** Every distinct assignee across `rows`, with how many open items each has, busiest first. */
+/**
+ * Every distinct assignee across `rows`, with how many open items each has,
+ * busiest first. Keyed by id, not label: two project members can share a
+ * display name (a real case, not a hypothetical one), and keying on the
+ * text they happen to render as would silently merge their counts.
+ */
 export function groupByAssigneeLoad(rows: readonly MergedRow[]): AssigneeLoad[] {
-  const byLabel = new Map<string, AssigneeLoad>()
+  const byId = new Map<string, AssigneeLoad>()
 
   for (const row of rows) {
     const assignee = row.item.assignee
     if (!assignee) continue
 
-    const existing = byLabel.get(assignee.label)
+    const existing = byId.get(assignee.id)
     if (existing) existing.count += 1
-    else byLabel.set(assignee.label, {label: assignee.label, imageUrl: assignee.imageUrl, count: 1})
+    else byId.set(assignee.id, {id: assignee.id, label: assignee.label, imageUrl: assignee.imageUrl, count: 1})
   }
 
-  return [...byLabel.values()].sort((a, b) => b.count - a.count)
+  return [...byId.values()].sort((a, b) => b.count - a.count)
 }
 
 /** Same local calendar day as `now` — "today," not "the last 24 hours." */
@@ -186,7 +192,7 @@ export function InboxStats(props: InboxStatsProps) {
             </Text>
             <Stack gap={2}>
               {assigneeLoad.map((person) => (
-                <Flex align="center" gap={2} justify="space-between" key={person.label}>
+                <Flex align="center" gap={2} justify="space-between" key={person.id}>
                   <Flex align="center" gap={2}>
                     <Avatar initials={initials(person.label)} size={0} src={person.imageUrl} />
                     <Text size={1}>{person.label}</Text>

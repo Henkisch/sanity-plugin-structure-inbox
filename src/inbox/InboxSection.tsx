@@ -21,13 +21,6 @@ interface InboxSectionProps {
   compact?: boolean
   /** Reports the open count so the pane can show a total. */
   onCount: (sourceName: string, count: number) => void
-  /**
-   * Reports the count for whichever view is active — unlike `onCount`, which
-   * always means "open". Used by the aside column to hide itself when every
-   * aside source has nothing to show for the current tab; not needed by the
-   * headline, so it's optional.
-   */
-  onVisibleCount?: (sourceName: string, count: number) => void
 }
 
 /**
@@ -44,7 +37,7 @@ interface InboxSectionProps {
  * rules of hooks the moment a Studio's config changed.
  */
 export function InboxSection(props: InboxSectionProps) {
-  const {source, dismissals, snoozes, view, compact = false, onCount, onVisibleCount} = props
+  const {source, dismissals, snoozes, view, compact = false, onCount} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
   const {items, loading, error, create, assess, assign, remove, update} = source.useItems()
@@ -91,10 +84,6 @@ export function InboxSection(props: InboxSectionProps) {
   // interleaving them was what made a done or snoozed row look like an open
   // one.
   const visible = view === 'done' ? done : view === 'snoozed' ? snoozed : open
-
-  useEffect(() => {
-    onVisibleCount?.(source.name, visible.length)
-  }, [onVisibleCount, source.name, visible.length])
 
   const isEmpty = visible.length === 0
   const editingItem = editingId ? visible.find((item) => item.id === editingId) : undefined

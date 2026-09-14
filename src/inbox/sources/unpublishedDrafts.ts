@@ -243,10 +243,11 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
       // editor can vouch for personally — themselves — uses the photo
       // `useCurrentUser` already has instead.
       const assigneesById = useMemo(() => {
-        const byId = new Map<string, {label: string; imageUrl?: string}>()
+        const byId = new Map<string, {id: string; label: string; imageUrl?: string}>()
         for (const user of assignable ?? []) {
           const isSelf = user.id === userId
           byId.set(user.id, {
+            id: user.id,
             label: user.displayName || user.email || user.id,
             imageUrl: (isSelf && currentUser?.profileImage) || user.imageUrl,
           })

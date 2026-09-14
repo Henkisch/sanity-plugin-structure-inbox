@@ -195,7 +195,7 @@ describe('InboxSection', () => {
         name: 'drafts',
         title: 'Drafts',
         useItems: () => ({
-          items: [item('1', {title: 'Assign me', assignee: {label: 'Henrik Larsson'}})],
+          items: [item('1', {title: 'Assign me', assignee: {id: 'henrik', label: 'Henrik Larsson'}})],
           assign: {users: [{id: 'user-1', label: 'Ada'}], toUser},
         }),
       },

@@ -224,10 +224,11 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
       // has everyone's display name and photo except a reliable one for the
       // current user, whose own profile fills that gap instead.
       const assigneesById = useMemo(() => {
-        const byId = new Map<string, {label: string; imageUrl?: string}>()
+        const byId = new Map<string, {id: string; label: string; imageUrl?: string}>()
         for (const user of assignable ?? []) {
           const isSelf = user.id === userId
           byId.set(user.id, {
+            id: user.id,
             label: user.displayName || user.email || user.id,
             imageUrl: (isSelf && currentUser?.profileImage) || user.imageUrl,
           })

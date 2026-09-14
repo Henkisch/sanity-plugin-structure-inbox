@@ -89,7 +89,7 @@ describe('MergedList', () => {
         open: [
           item('t1', {
             title: 'Follow up',
-            assignee: {label: 'Ada Lovelace'},
+            assignee: {id: 'ada', label: 'Ada Lovelace'},
           }),
         ],
       }),

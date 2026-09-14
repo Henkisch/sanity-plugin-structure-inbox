@@ -101,14 +101,14 @@ export function initials(label: string): string {
  * this way, for both the ring and the `as="button"` tag swap, is what broke
  * its icon's positioning the first time this was tried.
  *
- * A `Card`, not an `Avatar`, for the circle itself: `Avatar` with neither
- * `initials` nor `src` still picks a background from its own themed palette
+ * A plain filled circle, not an `Avatar`: `Avatar` with neither `initials`
+ * nor `src` still picks a background from its own themed palette
  * (deterministic, not random — but not this component's to control), and in
  * this theme that happened to land on the exact same colour `Text muted`
  * renders in, making the icon on top of it disappear against its own
- * background. `Card tone="transparent"` paired with `Text muted` is the same
- * combination this codebase already leans on everywhere else for guaranteed
- * contrast (see `SectionCard`'s own header icon), so it can't coincide again.
+ * background. A `Card tone="transparent"` sidestepped that but rendered
+ * closer to see-through than solid — a fixed, opaque hex, not a theme tone,
+ * is what actually guarantees both "solid" and "not the same as the icon."
  */
 const UNASSIGNED_AVATAR_DIAMETER: Record<0 | 1 | 2, number> = {0: 19, 1: 25, 2: 35}
 
@@ -120,7 +120,7 @@ export function UnassignedAvatar({size = 1}: {size?: 0 | 1 | 2}) {
           is Sanity's own small integer scale (fixed px steps), not an
           arbitrary pixel value — passing the diameter through it left visible
           straight edges instead of a full circle. */}
-      <Card style={{borderRadius: '50%', height: '100%', width: '100%'}} tone="transparent" />
+      <Box style={{background: '#6b7280', borderRadius: '50%', height: '100%', width: '100%'}} />
       <Flex
         align="center"
         justify="center"
@@ -328,7 +328,7 @@ export function InboxRow(props: InboxRowProps) {
                   <MenuItem
                     key={user.id}
                     onClick={() => onReassign?.(item, user.id)}
-                    pressed={user.label === assignee?.label}
+                    pressed={user.id === assignee?.id}
                     text={user.label}
                   />
                 ))}

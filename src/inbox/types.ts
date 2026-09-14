@@ -62,8 +62,13 @@ export interface InboxItem {
    * Who this item is assigned to, if anyone — rendered as a small avatar
    * rather than restated in text (a Jira-style issue card, not another line
    * of "Assigned to you" next to text that already said so).
+   *
+   * `id` is the source's own stable user id (never derived from `label`) —
+   * grouping or filtering by `label` alone breaks the moment two project
+   * members share a display name, which is a real, not hypothetical, case.
    */
   assignee?: {
+    id: string
     label: string
     imageUrl?: string
   }
