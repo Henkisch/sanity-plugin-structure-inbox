@@ -377,12 +377,12 @@ export function Inbox({sources}: InboxProps) {
                 // A ring matching the header's own background, not `none` —
                 // the same "cutout" every avatar-stack that reads as clean
                 // separation (rather than photos just smashed together)
-                // uses. Measured off this exact header rather than guessed:
-                // Sanity UI exposes no theme custom property for it, and
-                // this plugin doesn't attempt light/dark-adaptive color
-                // anywhere else either, so a fixed value matches the
-                // existing pattern rather than being a new exception.
-                border: '2px solid rgb(13, 14, 18)',
+                // uses. `--card-bg-color` is the ancestor `<Card>`'s own CSS
+                // custom property (set by Sanity UI, not this plugin), so
+                // this tracks whatever that Card's background actually is —
+                // including a theme or scheme switch — instead of a color
+                // measured once off the dark theme and frozen.
+                border: '2px solid var(--card-bg-color)',
                 borderRadius: '50%',
                 boxShadow: assigneeFilter.has(person.id) ? '0 0 0 2px currentColor' : 'none',
                 color: 'inherit',
@@ -426,12 +426,12 @@ export function Inbox({sources}: InboxProps) {
                 // A ring matching the header's own background, not `none` —
                 // the same "cutout" every avatar-stack that reads as clean
                 // separation (rather than photos just smashed together)
-                // uses. Measured off this exact header rather than guessed:
-                // Sanity UI exposes no theme custom property for it, and
-                // this plugin doesn't attempt light/dark-adaptive color
-                // anywhere else either, so a fixed value matches the
-                // existing pattern rather than being a new exception.
-                border: '2px solid rgb(13, 14, 18)',
+                // uses. `--card-bg-color` is the ancestor `<Card>`'s own CSS
+                // custom property (set by Sanity UI, not this plugin), so
+                // this tracks whatever that Card's background actually is —
+                // including a theme or scheme switch — instead of a color
+                // measured once off the dark theme and frozen.
+                border: '2px solid var(--card-bg-color)',
                 borderRadius: '50%',
                 boxShadow: assigneeFilter.has(ASSIGNEE_UNASSIGNED) ? '0 0 0 2px currentColor' : 'none',
                 color: 'inherit',
