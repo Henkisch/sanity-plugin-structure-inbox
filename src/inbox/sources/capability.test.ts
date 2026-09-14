@@ -5,17 +5,19 @@ import {describe, expect, it, vi} from 'vitest'
  * anything from this package pulls the whole module graph below into scope —
  * even for a consumer who configured neither `openTasks` nor
  * `upcomingReleases`. This mock leaves out `useAddonDataset`,
- * `useActiveReleases` and `useUserListWithPermissions`, the beta/internal
- * exports those sources reach through `optionalHook`, to prove that omission
- * no longer throws.
+ * `useActiveReleases`, `useUserListWithPermissions` and
+ * `getReleaseIdFromReleaseDocumentId`, the beta/internal exports those
+ * sources reach through `optionalHook`, to prove that omission no longer
+ * throws.
  *
  * Everything else here is exactly what the rest of the graph touches while
  * evaluating (`definePlugin`, called immediately in `plugin.tsx`;
  * `defineLocaleResourceBundle`, called immediately in `i18n/index.ts`) or
  * merely references as a binding (`useTranslation`, `useRelativeTime`,
  * `useClient`, `useCurrentUser`, `useSchema` — each only called from inside a
- * component body, never at import time, so a bare function stands in). Eight
- * names in total — short of the ten this plan's STOP condition warns about.
+ * component body, never at import time, so a bare function stands in). Nine
+ * names in total — still short of the ten this plan's STOP condition warns
+ * about.
  */
 vi.mock('sanity', () => ({
   definePlugin: (factory: unknown) => factory,
@@ -35,6 +37,7 @@ vi.mock('sanity', () => ({
   useAddonDataset: undefined,
   useActiveReleases: undefined,
   useUserListWithPermissions: undefined,
+  getReleaseIdFromReleaseDocumentId: undefined,
 }))
 
 describe('optionalHook', () => {

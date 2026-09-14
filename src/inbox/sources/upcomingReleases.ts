@@ -9,6 +9,29 @@ import type {useActiveReleases as UseActiveReleasesType} from 'sanity'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {optionalHook} from './capability'
 
+// `getReleaseIdFromReleaseDocumentId` strips the `_.releases.` prefix a
+// release's own document id carries — the Releases tool's `release` intent
+// wants the bare id (`params.id`), not the document id `release._id` already
+// is. `@internal` in Sanity's own typings, same as `useActiveReleases`, so
+// reached the same defensive way — see `capability.ts`. The identity
+// fallback degrades to passing the untransformed id through: worst case a
+// stale export means this intent 404s instead of navigating, no worse than
+// the row having no `intent` at all.
+const getReleaseIdFromReleaseDocumentId = optionalHook<(documentId: string) => string>(
+  'getReleaseIdFromReleaseDocumentId',
+  (documentId) => documentId,
+)
+
+/**
+ * The Releases tool's own globally-registered intent name (`getIntentState`
+ * in Sanity's `sanity/schedules` plugin maps `'release'` to
+ * `{releaseId: params.id}`) — a protocol string, not an export, so it is
+ * hardcoded rather than imported: even if the constant Sanity happens to
+ * export under this name ever moved, the intent handler still matches on
+ * this literal value.
+ */
+const RELEASE_INTENT = 'release'
+
 type ReleasesState = ReturnType<typeof UseActiveReleasesType>
 
 /**
@@ -79,6 +102,13 @@ export function upcomingReleases(options: UpcomingReleasesOptions = {}): InboxSo
               // Scheduled releases are the ones with a deadline attached, so
               // they are the ones worth colouring.
               tone: release.state === 'scheduled' ? 'primary' : 'default',
+              // Opens the release itself in the Releases tool — there is
+              // nothing to bulk-select or mark done here, only somewhere to
+              // go look, the same as a draft or a task's own row.
+              intent: {
+                type: RELEASE_INTENT,
+                params: {id: getReleaseIdFromReleaseDocumentId(release._id)},
+              },
             }
           }),
         [data],

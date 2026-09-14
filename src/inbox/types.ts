@@ -48,9 +48,14 @@ export interface InboxItem {
   tone?: 'default' | 'primary' | 'positive' | 'caution' | 'critical'
   /**
    * Where clicking the row takes the editor. Omit for an item with nowhere to go.
+   *
+   * `'release'` is Sanity's own globally-registered intent for opening a
+   * release in the Releases tool (`params: {id: <short release id>}`, not a
+   * document id) — see `upcomingReleases.ts`, the one built-in source that
+   * uses it.
    */
   intent?: {
-    type: 'edit' | 'create'
+    type: 'edit' | 'create' | 'release'
     params: {id?: string; type?: string; [key: string]: string | undefined}
   }
   /**
