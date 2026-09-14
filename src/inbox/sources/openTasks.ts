@@ -89,19 +89,43 @@ interface TaskRow {
   targetType?: string
 }
 
-const QUERY = `*[
-  _type == "tasks.task" &&
-  defined(title) &&
-  ($assignedTo == null || assignedTo == $assignedTo) &&
-  (
-    status == "open" ||
-    (status == "closed" && _updatedAt > $clearedSince)
-  )
-] | order(coalesce(dueBy, _updatedAt) asc)[0...$limit]{
-  _id, _updatedAt, title, dueBy, assignedTo, status,
-  "targetId": target.document._ref,
-  "targetType": target.documentType
+// Two independently-capped slices, not one combined order-then-slice: a
+// closed row's only meaningful recency is *when it closed*, the opposite
+// direction from an open row's "how soon is it due" — sharing one
+// ascending `coalesce(dueBy, _updatedAt)` sort put the two on the same
+// axis, and a project with `limit` or more open tasks silently sliced the
+// task someone had just closed off the end of the array entirely (found by
+// closing one live and watching it vanish from both tabs, not from reading
+// the query). Each bucket keeps its own natural order and its own `limit`,
+// so one can never crowd the other out.
+const QUERY = `{
+  "open": *[
+    _type == "tasks.task" &&
+    defined(title) &&
+    ($assignedTo == null || assignedTo == $assignedTo) &&
+    status == "open"
+  ] | order(coalesce(dueBy, _updatedAt) asc)[0...$limit]{
+    _id, _updatedAt, title, dueBy, assignedTo, status,
+    "targetId": target.document._ref,
+    "targetType": target.documentType
+  },
+  "cleared": *[
+    _type == "tasks.task" &&
+    defined(title) &&
+    ($assignedTo == null || assignedTo == $assignedTo) &&
+    status == "closed" &&
+    _updatedAt > $clearedSince
+  ] | order(_updatedAt desc)[0...$limit]{
+    _id, _updatedAt, title, dueBy, assignedTo, status,
+    "targetId": target.document._ref,
+    "targetType": target.documentType
+  }
 }`
+
+interface TaskQueryResult {
+  open: TaskRow[]
+  cleared: TaskRow[]
+}
 
 /**
  * `useItems`'s own intermediate shape, before `assignedTo` ids are resolved
@@ -190,50 +214,45 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
       }
 
       const assignedTo = onlyMine ? (userId ?? null) : null
-      // `limit` caps the combined open+recently-closed set, not each bucket
-      // separately: one query, one `order().slice()`, same as before this
-      // widened — a closed row only ever displaces an open one when the
-      // Studio has more open tasks than `limit`, which the badge and count
-      // already treat as "there's more than fits" today. A per-bucket cap
-      // would need two queries (or one with two slices spliced together) to
-      // guarantee `limit` opens are never crowded out by closures — not
-      // worth the extra round trip for a default 7-day window this narrow.
       // eslint-disable-next-line react/purity -- see `unpublishedDrafts.ts`'s own `before`: read once per recompute, not a live clock.
       const clearedSince = new Date(Date.now() - clearedWithinDays * 24 * 60 * 60 * 1000).toISOString()
       const params = {assignedTo, limit, clearedSince}
-      const fetch$ = client.observable.fetch<TaskRow[]>(QUERY, params)
+      const fetch$ = client.observable.fetch<TaskQueryResult>(QUERY, params)
 
       // Live rather than fetched once: a task closed, reassigned, or its due
       // date changed by someone else used to only leave (or enter) this list
       // once the editor navigated away and back.
       return liveQuery$(client, QUERY, params, fetch$).pipe(
-        map((rows): RawTaskResult => ({
-          items: rows.map((row): InboxItem => ({
-            id: row._id,
-            title: row.title || row._id,
-            subtitle: row.dueBy ? (isOverdue(row.dueBy) ? 'Overdue' : 'Due') : undefined,
-            timestamp: row.dueBy || row._updatedAt,
-            changedAt: row._updatedAt,
-            tone: isOverdue(row.dueBy) ? 'critical' : 'default',
-            // A task's own title is thin ("Follow up: X") — the document
-            // it targets is the substantial thing to look at, so clicking
-            // the row opens that instead of an editor for the task itself.
-            intent:
-              row.targetId && row.targetType
-                ? {type: 'edit', params: {id: row.targetId, type: row.targetType}}
-                : undefined,
-            // Real, Sanity-confirmed evidence, not a dismissal — see `cleared`
-            // on `InboxItem`. This is the one source that can set it at all.
-            cleared: row.status === 'closed',
-          })),
-          // Row-level `assignedTo` from the query, kept alongside `items`
-          // rather than folded into them here: resolving it to a
-          // label/photo needs `assignable` (and the current user's own
-          // profile for a self-match), neither of which this pipe closes
-          // over — see the `items` memo below, the same two-step split
-          // `unpublishedDrafts.ts` uses for the same reason.
-          rowAssignees: new Map(rows.map((row) => [row._id, row.assignedTo])),
-        })),
+        map(({open, cleared}): RawTaskResult => {
+          const rows = [...open, ...cleared]
+          return {
+            items: rows.map((row): InboxItem => ({
+              id: row._id,
+              title: row.title || row._id,
+              subtitle: row.dueBy ? (isOverdue(row.dueBy) ? 'Overdue' : 'Due') : undefined,
+              timestamp: row.dueBy || row._updatedAt,
+              changedAt: row._updatedAt,
+              tone: isOverdue(row.dueBy) ? 'critical' : 'default',
+              // A task's own title is thin ("Follow up: X") — the document
+              // it targets is the substantial thing to look at, so clicking
+              // the row opens that instead of an editor for the task itself.
+              intent:
+                row.targetId && row.targetType
+                  ? {type: 'edit', params: {id: row.targetId, type: row.targetType}}
+                  : undefined,
+              // Real, Sanity-confirmed evidence, not a dismissal — see `cleared`
+              // on `InboxItem`. This is the one source that can set it at all.
+              cleared: row.status === 'closed',
+            })),
+            // Row-level `assignedTo` from the query, kept alongside `items`
+            // rather than folded into them here: resolving it to a
+            // label/photo needs `assignable` (and the current user's own
+            // profile for a self-match), neither of which this pipe closes
+            // over — see the `items` memo below, the same two-step split
+            // `unpublishedDrafts.ts` uses for the same reason.
+            rowAssignees: new Map(rows.map((row) => [row._id, row.assignedTo])),
+          }
+        }),
         startWith<RawTaskResult>({items: [], loading: true, rowAssignees: new Map()}),
         catchError((error: Error) => of<RawTaskResult>({items: [], error, rowAssignees: new Map()})),
       )

@@ -38,7 +38,7 @@ behaviour here, fix the comment in the same commit.
 | 016 | Let the open count escape the pane (`useInboxOpenCount`) | P2 | L | — | DONE (merged) |
 | 017 | A live badge on the Studio navbar, for real | P2 | S | 016 | REJECTED (built, verified working, then pulled by the maintainer — see plan file) |
 | 018 | Ship the team-wide "who's sitting on what" view as a real Studio tool | P2 | L | — | DONE (merged) |
-| 019 | "Cleared" means Sanity said so — split resolution from acknowledgement | P1 | XL | — | IN PROGRESS (code shipped, typecheck/lint/test green; manual browser verification pending) |
+| 019 | "Cleared" means Sanity said so — split resolution from acknowledgement | P1 | XL | — | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale)
@@ -49,6 +49,17 @@ holds up "over a long time horizon... things get finished, some stay
 unfinished." 014 is a real correctness bug (not a direction option) found
 during that pass; 015 is a direction/tooling gap in the same spirit as
 `buildDigest`. Neither depends on the other or on 010–013.
+
+Plan 019 (2026-09-14, against commit `fe426b3`) reworks Open/Done/Snoozed into
+Open/Cleared/Snoozed, splitting a real, source-confirmed resolution from a
+personal "Acknowledge" that changes nothing in Sanity. Its own Step 3 design
+decision — whether `limit` should cap `openTasks`' open and recently-closed
+tasks together or separately — was first shipped as "together," then proven
+wrong during this plan's own live browser verification: closing a task in a
+Studio that already had `limit`-or-more open tasks silently sliced the
+just-closed task off the end of the result before it ever reached Cleared.
+Fixed to two independently-capped GROQ slices; see the code comment above
+`QUERY` in `openTasks.ts`.
 
 Plans 016–018 (2026-09-14, against commit `d2cc473`) turn two earlier spikes
 into production plans, at the maintainer's request: 016+017 are Plan 011's

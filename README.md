@@ -108,7 +108,10 @@ this plugin where "cleared" can mean something Sanity itself confirms rather
 than just "this editor stopped seeing it." `openTasks` widens its own query to
 also fetch tasks closed within the last `clearedWithinDays` (default `7`), so
 closing a task elsewhere still shows up in this editor's Cleared tab for a
-while, the same way it would in Sanity's own Tasks panel.
+while, the same way it would in Sanity's own Tasks panel. `limit` applies to
+open and recently-closed tasks separately, not to the two combined — a
+Studio with `limit` or more open tasks would otherwise silently push a
+just-closed task off the end of the list before it ever reached Cleared.
 
 Both `useAddonDataset` and the `tasks.task` document shape are marked beta in
 Sanity's own typings. `useAddonDataset` is reached only through a lookup that
