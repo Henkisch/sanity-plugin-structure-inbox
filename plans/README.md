@@ -35,6 +35,9 @@ behaviour here, fix the comment in the same commit.
 | 013 | Bulk "save a copy to my todos" selection action | P2 | S | — | DONE (merged) |
 | 014 | Stop a finished todo from silently reappearing after 90 days | P1 | M | — | DONE (merged) |
 | 015 | A pure helper (+ README recipe) for finding departed editors' leftover state | P2 | S | — | DONE (merged) |
+| 016 | Let the open count escape the pane (`useInboxOpenCount`) | P2 | L | — | TODO |
+| 017 | A live badge on the Studio navbar, for real | P2 | S | 016 | TODO |
+| 018 | Ship the team-wide "who's sitting on what" view as a real Studio tool | P2 | L | — | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale)
@@ -45,6 +48,17 @@ holds up "over a long time horizon... things get finished, some stay
 unfinished." 014 is a real correctness bug (not a direction option) found
 during that pass; 015 is a direction/tooling gap in the same spirit as
 `buildDigest`. Neither depends on the other or on 010–013.
+
+Plans 016–018 (2026-09-14, against commit `d2cc473`) turn two earlier spikes
+into production plans, at the maintainer's request: 016+017 are Plan 011's
+nav-badge spike, split into a prerequisite refactor (016, extracting the
+open count into a shared, always-mounted provider — **017 depends on 016**
+and must not be executed first) and the actual badge feature (017); 018 is
+Plan 012's team-view spike, shipped as a new, separate, opt-in Studio tool.
+Batch-1's Direction A is now half-implemented by 016 (see that direction's
+own updated note below); Direction B was re-investigated and downgraded —
+its premise no longer holds against the current 4-source lineup, see its
+own note below — no plan was written for it.
 
 Plans 010–013 came from a `next`/roadmap `/improve` run (2026-09-13, against
 commit `2218e06`), scoped to the direction category only — see "Direction
@@ -461,11 +475,33 @@ not re-audited from scratch:
   `useInboxCount(sources)` would let a navbar or dashboard widget show "3
   waiting" without rendering the pane. Additive and cheap now; breaking after
   1.0.
+  **Update, 2026-09-14: the "let the count escape the pane" half is now
+  planned** — Plan 016 (`plans/016-inbox-open-count-provider.md`) ships
+  exactly this as `useInboxOpenCount()`, and Plan 017 builds a live navbar
+  badge on top of it. The "make sources refreshable" half (a stale pane's
+  own `Try again`/manual re-fetch) is **not** covered by either plan — it
+  remains open, and overlaps with the existing "'Try again' is inert"
+  finding below; a future plan could tackle both together.
 - **B. Spike a data-first source descriptor before publishing.** `useItems` as
   a hook is why no source has a test — you need a renderer. Two of three
   sources are already just query + mapper. A `{query, params, toItem}` shape
   alongside the hook makes the common case pure and testable, with the hook as
   the escape hatch. Cost: two ways to declare a source. Scope as a spike.
+  **Re-investigated, 2026-09-14 — premise no longer holds, downgraded to
+  rejected.** This was true of the 3-source lineup on 2026-09-09. Checked
+  against the current 4 built-in sources: `openTasks.ts` (241 lines) and
+  `unpublishedDrafts.ts` (349 lines) are now both genuinely complex —
+  multi-query joins, `assign`/`resolve`/`assess` mutations, addon-dataset
+  reads — not "query + mapper." `todos.ts` (91 lines) has no GROQ query at
+  all (a client-side store, not a fetch), so a `{query, params, toItem}`
+  shape doesn't describe it either. Only `upcomingReleases.ts` (99 lines)
+  still fits the simple shape today — one source out of four, not "two of
+  three." The stated payoff ("makes *the common case* pure and testable")
+  no longer matches which case is actually common in this codebase now.
+  **Not recommending a spike.** Revisit only if a future built-in source is
+  genuinely simple query+mapper shaped *and* there are enough of those to
+  matter — a one-off shape for a single source isn't worth a second way to
+  declare a source.
 - **C. Snooze.** The store already compares timestamps and prunes by TTL, so
   "not now" is close to a predicate change. But it adds a second verb, which
   reopens the deliberate one-verb decision recorded in
