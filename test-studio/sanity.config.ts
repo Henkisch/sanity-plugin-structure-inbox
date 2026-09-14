@@ -1,5 +1,6 @@
 import {visionTool} from '@sanity/vision'
 import {defineConfig} from 'sanity'
+import {linkChecker} from 'sanity-plugin-link-checker'
 import {
   openTasks,
   structureInbox,
@@ -8,6 +9,7 @@ import {
   unpublishedDrafts,
   upcomingReleases,
 } from 'sanity-plugin-structure-inbox'
+import {linkCheckerFindings} from 'sanity-plugin-structure-inbox/link-checker'
 import {structureTool} from 'sanity/structure'
 import {type StructureResolver} from 'sanity/structure'
 
@@ -45,6 +47,10 @@ export default defineConfig([
     dataset,
     plugins: [
       structureTool({structure}),
+      // The plugin that actually runs scans and writes the report document
+      // `linkCheckerFindings()` below reads — the Inbox source has nothing
+      // to show without this also being installed.
+      linkChecker(),
       // `showInList` is off by default; this workspace turns it on so both the
       // visible entry and the invisible resolution get exercised somewhere.
       structureInbox({
@@ -61,6 +67,7 @@ export default defineConfig([
           unpublishedDrafts({olderThanDays: 0}),
           upcomingReleases(),
           todos(),
+          linkCheckerFindings(),
         ],
       }),
       visionTool(),

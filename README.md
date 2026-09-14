@@ -526,6 +526,57 @@ Inbox pane, just grouped differently. This plugin adds no visibility
 gating of its own; restricting who can open the tool itself is your
 Studio's own access-control setup to make, same as any other tool.
 
+## Optional: broken links via `sanity-plugin-link-checker`
+
+[`sanity-plugin-link-checker`](https://www.sanity.io/plugins/sanity-plugin-link-checker)
+scans your dataset for dangling references and dead external links and keeps
+its findings in one report document. `linkCheckerFindings()` reads that
+report as an Inbox source — a broken reference or dead link shows up
+alongside your tasks and drafts instead of only in that plugin's own tool.
+
+It's a **separate entry point**, not part of this package's main export,
+because `sanity-plugin-link-checker` is a whole other, independently
+versioned plugin — pulling it into the main barrel would make it a hard
+dependency of every Studio using this package, even one that has never
+heard of link checking. `sanity-plugin-link-checker` is listed as an
+optional peer dependency; only a Studio that imports from this entry point
+needs it installed:
+
+```ts
+import {structureInbox} from 'sanity-plugin-structure-inbox'
+import {linkCheckerFindings} from 'sanity-plugin-structure-inbox/link-checker'
+import {linkChecker} from 'sanity-plugin-link-checker'
+
+export default defineConfig({
+  plugins: [
+    structureTool(),
+    linkChecker(), // runs the scans this source reads
+    structureInbox({
+      sources: [
+        // ...your other sources
+        linkCheckerFindings(),
+      ],
+    }),
+  ],
+})
+```
+
+No `resolve`: confirming a link is actually fixed means re-running that
+plugin's own scan, which is its job, not this pane's — ticking an item here
+only acknowledges it (see above), the same as any other source with nothing
+this plugin can independently verify. For the same reason it never appears
+in Cleared: unlike a task's own `status`, there's no persisted "confirmed
+fixed" flag to read — a fixed finding just stops appearing in the next
+scan, the same way a published draft's document just stops existing.
+
+By default only confirmed-`broken` links and dangling references show up —
+not `unverifiable` ones. Per `sanity-plugin-link-checker`'s own README, a
+browser-only check "mostly come[s] back unverifiable rather than a real
+answer" without its Document Function deployed; including those by default
+would flood the inbox with noise nobody's confirmed is actually broken.
+Pass `includeUnverifiable: true` once that Function is deployed, or if the
+noise is acceptable for your project.
+
 ## How it works
 
 Worth knowing, because it explains the one limitation below.
