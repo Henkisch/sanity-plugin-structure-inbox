@@ -180,10 +180,6 @@ function MyBadge() {
 }
 ```
 
-This same number is also shown, live, as a small badge on the Studio's own
-navbar by default whenever `structureInbox()` is registered — no setup
-required.
-
 A source contributes to this count only if it defines `useOpenCount`
 (alongside its own `useItems`) — see "Writing your own" below for what that
 is and when a source needs it.
@@ -271,8 +267,8 @@ export function needsReview(): InboxSource {
 
 A source can also offer `useOpenCount(dismissals, snoozes, now)` — a
 cheaper alternative to `useItems()` that only reports a live open count,
-read by `useInboxOpenCount()` (see above) and the navbar badge. It matters
-because that count is computed from *outside* the Inbox pane, at a point in
+read by `useInboxOpenCount()` (see above). It matters because that count
+is computed from *outside* the Inbox pane, at a point in
 the Studio's component tree where some hooks a source's own `useItems()`
 might depend on (Sanity's addon dataset, for one) aren't guaranteed to be
 available — a source that omits `useOpenCount` simply doesn't contribute to
