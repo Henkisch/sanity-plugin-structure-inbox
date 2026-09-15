@@ -156,10 +156,6 @@ const enUS = {
   'todoSuggest.error': 'Could not reach AI.',
   'todoSuggest.add': 'Add',
   'todoSuggest.dismiss': 'Dismiss',
-  'stats.age.title': 'Open items by age',
-  'stats.age.recent': '{{count}} new',
-  'stats.age.week': '{{count}} this week',
-  'stats.age.old': '{{count}} older',
   'stats.clearedToday': 'Cleared today',
   'stats.load.title': 'Open items by assignee',
 }

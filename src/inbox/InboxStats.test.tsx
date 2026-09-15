@@ -2,13 +2,7 @@ import {cleanup, fireEvent, screen} from '@testing-library/react'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {renderWithTheme} from '../test/renderWithTheme'
-import {
-  bucketByAge,
-  countClearedToday,
-  countUnassigned,
-  groupByAssigneeLoad,
-  InboxStats,
-} from './InboxStats'
+import {countClearedToday, countUnassigned, groupByAssigneeLoad, InboxStats} from './InboxStats'
 import {type MergedRow} from './mergeItems'
 import {type InboxItem} from './types'
 
@@ -33,28 +27,6 @@ function row(
 
 const NOW = Date.parse('2026-06-15T12:00:00.000Z')
 const DAY = 24 * 60 * 60 * 1000
-
-describe('bucketByAge', () => {
-  it('buckets a same-day item as 0-2', () => {
-    const rows = [row('drafts', {id: '1', timestamp: new Date(NOW).toISOString()})]
-    expect(bucketByAge(rows, NOW)).toEqual({'0-2': 1, '3-7': 0, '8+': 0})
-  })
-
-  it('buckets a 5-day-old item as 3-7', () => {
-    const rows = [row('drafts', {id: '1', timestamp: new Date(NOW - 5 * DAY).toISOString()})]
-    expect(bucketByAge(rows, NOW)).toEqual({'0-2': 0, '3-7': 1, '8+': 0})
-  })
-
-  it('buckets a 10-day-old item as 8+', () => {
-    const rows = [row('drafts', {id: '1', timestamp: new Date(NOW - 10 * DAY).toISOString()})]
-    expect(bucketByAge(rows, NOW)).toEqual({'0-2': 0, '3-7': 0, '8+': 1})
-  })
-
-  it('treats an item with no timestamp as the oldest bucket, not dropped', () => {
-    const rows = [row('todos', {id: '1'})]
-    expect(bucketByAge(rows, NOW)).toEqual({'0-2': 0, '3-7': 0, '8+': 1})
-  })
-})
 
 describe('countUnassigned', () => {
   it('counts only rows with nobody on them', () => {
@@ -132,7 +104,7 @@ vi.mock('sanity', async (importOriginal) => {
 })
 
 describe('InboxStats', () => {
-  it('renders the age breakdown, unassigned count and cleared-today count', () => {
+  it('renders the unassigned count and cleared-today count', () => {
     const rows = [
       row('tasks', {id: '1', timestamp: new Date(NOW).toISOString()}),
       row('tasks', {id: '2', assignee: {id: 'ada', label: 'Ada'}}),

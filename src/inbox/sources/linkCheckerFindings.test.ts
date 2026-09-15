@@ -23,6 +23,11 @@ function schemaWithSingleReference(fieldName: string, toType: string) {
   )
 }
 
+/** A schema whose `post` type has a plain top-level string/text field — the one shape a broken *link* fix can safely strip a dead URL out of. */
+function schemaWithTextField(fieldName: string) {
+  return fakeSchema({}, {post: {fields: [{name: fieldName, type: {jsonType: 'string'}}]}})
+}
+
 function brokenReference(overrides: Partial<BrokenReference> = {}): BrokenReference {
   return {
     kind: 'reference',
@@ -173,11 +178,32 @@ describe('toItems', () => {
       expect(items[0].fixable).toBe(false)
     })
 
-    it('is not fixable for a broken link — retargeting only applies to references', () => {
-      const finding = brokenLink()
-      const items = toItems(report([finding]), schemaWithSingleReference('link', 'post'), false, 50)
+    it('is not fixable for a broken link with a nested (Portable Text) field path — no safe patch path for that shape yet', () => {
+      const finding = brokenLink() // default fieldPath: 'body[0].markDefs[0].link'
+      const items = toItems(report([finding]), schemaWithTextField('link'), false, 50)
 
-      expect(items[0].fixable).toBeUndefined()
+      expect(items[0].fixable).toBe(false)
+    })
+
+    it('marks a confirmed-broken link fixable when its field is a plain top-level string/text field', () => {
+      const finding = brokenLink({fieldPath: 'body', result: {status: 'broken', httpStatus: 404}})
+      const items = toItems(report([finding]), schemaWithTextField('body'), false, 50)
+
+      expect(items[0].fixable).toBe(true)
+    })
+
+    it('is not fixable for a merely unverifiable link, even in an otherwise-eligible field — nothing confirmed dead to remove', () => {
+      const finding = brokenLink({fieldPath: 'body', result: {status: 'unverifiable', reason: 'cors'}})
+      const items = toItems(report([finding]), schemaWithTextField('body'), true, 50)
+
+      expect(items[0].fixable).toBe(false)
+    })
+
+    it('is not fixable for a broken link whose field is not a string/text type', () => {
+      const finding = brokenLink({fieldPath: 'author'})
+      const items = toItems(report([finding]), schemaWithSingleReference('author', 'author'), false, 50)
+
+      expect(items[0].fixable).toBe(false)
     })
   })
 })

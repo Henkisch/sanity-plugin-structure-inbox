@@ -143,6 +143,32 @@ function singleReferenceTargetType(
   return to[0]?.name
 }
 
+/**
+ * Whether a broken *link* finding's `fieldPath` names a plain top-level
+ * string/text field — the one shape `proposeFix` below can safely strip a
+ * dead URL out of by itself. `jsonType === 'string'` (not `field.type.name`)
+ * is what actually distinguishes this: a project could name a custom type
+ * `'blurb'` that still compiles down to a plain string, and this should
+ * still catch it. A broken link buried in Portable Text (a `markDefs` link
+ * annotation) is a different, harder shape — real path construction into a
+ * specific block/mark, not a plain field `set` — and isn't handled here; see
+ * `singleReferenceTargetType`'s own doc comment for why a display-only,
+ * possibly-nested `fieldPath` can't safely become a patch path in general.
+ */
+function singleTextFieldEligible(
+  schema: ReturnType<typeof useSchema>,
+  fromType: string,
+  fieldPath: string,
+): boolean {
+  if (!SIMPLE_FIELD_PATH.test(fieldPath)) return false
+
+  const objectType = schema.get(fromType)
+  if (!objectType || !('fields' in objectType)) return false
+
+  const field = objectType.fields.find((candidate) => candidate.name === fieldPath)
+  return field?.type.jsonType === 'string'
+}
+
 function toItem(finding: ScanFinding, fallbackChangedAt: string, schema: ReturnType<typeof useSchema>): InboxItem {
   const typeTitle = schema.get(finding.fromType)?.title || finding.fromType
   // A finding carries no timestamp of its own — `docStateUpdatedAt` is the
@@ -179,6 +205,11 @@ function toItem(finding: ScanFinding, fallbackChangedAt: string, schema: ReturnT
     // here when `includeUnverifiable` is on) is a maybe — coloured less
     // urgently so it never reads as equally certain.
     tone: finding.result.status === 'broken' ? 'critical' : 'caution',
+    // Only a confirmed-dead link is offered a fix — stripping a merely
+    // `unverifiable` one could be removing a link that's actually fine.
+    fixable:
+      finding.result.status === 'broken' &&
+      singleTextFieldEligible(schema, finding.fromType, finding.fieldPath),
   }
 }
 
@@ -472,10 +503,47 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
       // dataset. The actual write, in `apply` below, is a plain
       // deterministic patch this code fully controls: the model never
       // decides *how* to mutate anything, only *which* id to use.
+      // Unlike the reference fix above, a broken *link* has nothing for an
+      // LLM to judge: the URL is already confirmed dead by a real HTTP
+      // check (see this source's own module-level notes on why detection
+      // itself is never handed to Agent Actions), so removing it from the
+      // field is correct every time, not a candidate to weigh. `proposeFix`
+      // still returns the same shape everything else does (a summary plus
+      // an `apply`), just without an Agent Actions round-trip to get there —
+      // "insight, then action" doesn't require the insight to come from an
+      // AI call when there's no real judgment call being made.
+      const proposeLinkFix = useCallback(
+        async (finding: Extract<ScanFinding, {kind: 'link'}>): Promise<FixProposal | null> => {
+          if (!singleTextFieldEligible(schema, finding.fromType, finding.fieldPath)) return null
+
+          const current = await client.fetch<string | null>(
+            `*[_id == $id][0].${finding.fieldPath}`,
+            {id: finding.fromId},
+          )
+          // Not a string (field cleared, or `fieldPath` no longer resolves
+          // the way it did at scan time), or the dead URL isn't even in
+          // there anymore (already edited by hand since the scan) — either
+          // way, nothing left for this to safely remove.
+          if (typeof current !== 'string' || !current.includes(finding.href)) return null
+
+          const updated = current.split(finding.href).join('').replace(/ {2,}/g, ' ').trim()
+
+          return {
+            summary: `Remove the broken link (${finding.href})`,
+            apply: async () => {
+              await client.patch(finding.fromId).set({[finding.fieldPath]: updated}).commit()
+            },
+          }
+        },
+        [client, schema],
+      )
+
       const proposeFix = useCallback(
         async (item: InboxItem): Promise<FixProposal | null> => {
           const finding = findingsByKey.get(item.id)
-          if (!finding || finding.kind !== 'reference') return null
+          if (!finding) return null
+          if (finding.kind === 'link') return proposeLinkFix(finding)
+          if (finding.kind !== 'reference') return null
 
           const targetType = singleReferenceTargetType(schema, finding.fromType, finding.fieldPath)
           if (!targetType) return null
@@ -532,7 +600,7 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
             },
           }
         },
-        [client, findingsByKey, schema],
+        [client, findingsByKey, proposeLinkFix, schema],
       )
 
       return useMemo(

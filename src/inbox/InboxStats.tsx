@@ -8,32 +8,6 @@ import {initials, UnassignedAvatar} from './InboxRow'
 import {type MergedRow} from './mergeItems'
 import {type SuggestTodosState} from './types'
 
-const DAY_MS = 24 * 60 * 60 * 1000
-
-export type AgeBucket = '0-2' | '3-7' | '8+'
-
-/**
- * Buckets by `item.timestamp` — the same field `mergeItems.ts`'s own sort
- * already treats as "when this became relevant" (see `compareMergedRows`
- * there). An item with no parseable timestamp falls into the oldest bucket
- * rather than being silently dropped: "we don't even know when this showed
- * up" is at least as much a sign of falling behind as a genuinely old one.
- */
-export function bucketByAge(rows: readonly MergedRow[], now: number): Record<AgeBucket, number> {
-  const buckets: Record<AgeBucket, number> = {'0-2': 0, '3-7': 0, '8+': 0}
-
-  for (const row of rows) {
-    const time = row.item.timestamp ? Date.parse(row.item.timestamp) : NaN
-    const ageDays = Number.isFinite(time) ? (now - time) / DAY_MS : Infinity
-
-    if (ageDays <= 2) buckets['0-2'] += 1
-    else if (ageDays <= 7) buckets['3-7'] += 1
-    else buckets['8+'] += 1
-  }
-
-  return buckets
-}
-
 /** Rows whose source offers `assign` (so "unassigned" is a meaningful state) but nobody's on them. */
 export function countUnassigned(assignableRows: readonly MergedRow[]): number {
   return assignableRows.filter((row) => !row.item.assignee).length
@@ -148,7 +122,6 @@ export function InboxStats(props: InboxStatsProps) {
   // mount, same as `Inbox.tsx`'s own `now` state above it.
   const [now] = useState(() => Date.now())
 
-  const ageBuckets = useMemo(() => bucketByAge(openRows, now), [openRows, now])
   const unassignedCount = useMemo(() => countUnassigned(assignableRows), [assignableRows])
   const assigneeLoad = useMemo(() => groupByAssigneeLoad(openRows), [openRows])
   const clearedToday = useMemo(() => countClearedToday(clearedRows, now), [clearedRows, now])
@@ -176,25 +149,6 @@ export function InboxStats(props: InboxStatsProps) {
       </Card>
 
       <Stack gap={4} padding={4}>
-        <Stack gap={2}>
-          <Text muted size={0} weight="semibold">
-            {t('stats.age.title')}
-          </Text>
-          <Flex gap={3}>
-            <Text size={1}>{t('stats.age.recent', {count: ageBuckets['0-2']})}</Text>
-            <Text muted size={1}>
-              ·
-            </Text>
-            <Text size={1}>{t('stats.age.week', {count: ageBuckets['3-7']})}</Text>
-            <Text muted size={1}>
-              ·
-            </Text>
-            <Text size={1} weight={ageBuckets['8+'] > 0 ? 'semibold' : undefined}>
-              {t('stats.age.old', {count: ageBuckets['8+']})}
-            </Text>
-          </Flex>
-        </Stack>
-
         <Flex justify="space-between">
           <Text size={1}>{t('stats.clearedToday')}</Text>
           <Text size={1}>{clearedToday}</Text>

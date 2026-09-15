@@ -52,7 +52,7 @@ interface InboxProps {
  * depends on the Studio's left nav (collapsed or expanded) as much as the
  * browser window, so a breakpoint keyed to the viewport stacked (or didn't)
  * at the wrong moments relative to how much room this pane actually had.
- * Below 1280px of the pane's *own* width, a sidebar next to the list would
+ * Below 1024px of the pane's *own* width, a sidebar next to the list would
  * be a sliver — stack instead.
  *
  * Two elements, not one: a container query cannot match the container it is
@@ -78,7 +78,7 @@ const ResponsiveColumns = styled.div`
   gap: 20px;
   grid-template-columns: 1fr;
 
-  @container (min-width: 1280px) {
+  @container (min-width: 1024px) {
     grid-template-columns: 2fr 1fr;
   }
 `
@@ -761,13 +761,17 @@ export function Inbox({sources}: InboxProps) {
               `SelectionActions` already handles the same width constraint. */}
           <Flex align="center" gap={3} justify="space-between" wrap="wrap">
             {/* `minHeight` matching the action buttons' own real rendered
-                height (measured live: 33px) — `align="center"` above already
-                centers this row's two groups on the same axis (confirmed:
-                their centers already matched exactly), but a `Tab` is
-                shorter than a bordered `Button`, so without this the two
-                groups still visually read as sitting in different bands
-                even though they're mathematically centered together. */}
-            <TabList gap={1} style={{alignItems: 'center', display: 'flex', minHeight: 33}}>
+                height (measured live: 33px), plus a small `marginTop` on
+                top of that — `align="center"` above puts this row's two
+                groups on the same mathematical axis (confirmed live: their
+                box centers matched exactly, to the pixel), but a plain
+                `Tab` label and an icon-plus-text `Button` don't read as
+                level even so — confirmed live again, by a human eye, after
+                the box-center fix alone: optical alignment isn't the same
+                thing as centering two boxes. The nudge was tuned by eye, not
+                derived from a rule — if the button row's own height or font
+                size ever changes, re-check this by screenshot, not by math. */}
+            <TabList gap={1} style={{alignItems: 'center', display: 'flex', marginTop: 3, minHeight: 33}}>
               <Tab
                 aria-controls={PANEL_ID}
                 fontSize={1}

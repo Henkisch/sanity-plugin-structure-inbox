@@ -67,7 +67,17 @@ export function AddMenu(props: AddMenuProps) {
 
   return (
     <MenuButton
-      button={<Button fontSize={1} icon={AddIcon} mode="bleed" padding={2} text={t('inbox.addMenu')} />}
+      // `ghost` (a real border), not `bleed` (no border) like it used to
+      // be — next to `Summarize`/`Scan for issues`'s own `ghost` buttons, a
+      // borderless "+ Add" actually read as the *lightest*-weight of the
+      // three, not the primary action it is: it's the one control here that
+      // creates something new, not just reads an AI insight. `tone="primary"`
+      // on top of that matching border is what actually nudges it up —
+      // deliberately not `mode="default"` (a filled button), which would
+      // read as dominant rather than "slightly more" next to two ghosts.
+      button={
+        <Button fontSize={1} icon={AddIcon} mode="ghost" padding={2} text={t('inbox.addMenu')} tone="primary" />
+      }
       id="structure-inbox-add-menu"
       menu={
         <Menu>
