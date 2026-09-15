@@ -217,26 +217,35 @@ export function SelectionActions(props: SelectionActionsProps) {
       )}
 
       {showConfirm && (
-        <Button
-          disabled={busy}
-          fontSize={1}
-          icon={CheckmarkIcon}
-          onClick={onConfirm}
-          padding={2}
-          text={confirmLabel}
-          title={
-            view === 'open'
-              ? t(
-                  resolvableCount === 0
-                    ? 'action.clear.hint'
-                    : resolvableCount === count
-                      ? 'action.markDone.resolves'
-                      : 'action.markDone.mixed',
-                )
-              : undefined
-          }
-          tone={isRealResolve ? 'primary' : 'default'}
-        />
+        // `marginLeft`, on top of the cluster's own `gap`: the confirm
+        // button is a bigger, bordered block next to plain icon buttons —
+        // the same 4px gap that reads fine between two icon buttons read
+        // as noticeably tighter here, since perceived spacing tracks the
+        // visual weight on either side of it, not just the raw pixel gap.
+        // Confirmed live: without this, Delete's own icon looked like it
+        // was crowding straight into Confirm's edge.
+        <Box style={{marginLeft: 8}}>
+          <Button
+            disabled={busy}
+            fontSize={1}
+            icon={CheckmarkIcon}
+            onClick={onConfirm}
+            padding={2}
+            text={confirmLabel}
+            title={
+              view === 'open'
+                ? t(
+                    resolvableCount === 0
+                      ? 'action.clear.hint'
+                      : resolvableCount === count
+                        ? 'action.markDone.resolves'
+                        : 'action.markDone.mixed',
+                  )
+                : undefined
+            }
+            tone={isRealResolve ? 'primary' : 'default'}
+          />
+        </Box>
       )}
     </Flex>
   )

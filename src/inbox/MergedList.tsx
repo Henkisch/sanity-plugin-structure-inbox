@@ -564,6 +564,7 @@ export function MergedList(props: MergedListProps) {
     const sourceLabel = [baseLabel, clearedLabel].filter(Boolean).join(' · ') || undefined
     return (
       <InboxRow
+        assigneeReadOnly={report?.assigneeReadOnly}
         assignableUsers={report?.assign?.users}
         done={view === 'cleared'}
         item={row.item}
@@ -571,7 +572,14 @@ export function MergedList(props: MergedListProps) {
         leaving={leavingKeys.has(row.key)}
         menuActions={buildMenuActions(row, report)}
         onAssess={report?.assess}
-        onEdit={report?.update ? () => setEditingKey(row.key) : undefined}
+        onProposeFix={report?.proposeFix}
+        onEdit={
+          report?.update
+            ? () => setEditingKey(row.key)
+            : report?.openDetail
+              ? () => report.openDetail?.(row.item)
+              : undefined
+        }
         onReassign={
           report?.assign
             ? (item, userId) => {

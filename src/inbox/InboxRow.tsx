@@ -9,7 +9,7 @@ import {useRouter} from 'sanity/router'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {RelativeTime} from './RelativeTime'
-import {type InboxItem} from './types'
+import {type FixProposal, type InboxItem} from './types'
 
 interface InboxRowProps {
   item: InboxItem
@@ -42,6 +42,15 @@ interface InboxRowProps {
    */
   onAssess?: (item: InboxItem) => Promise<string>
   /**
+   * The source's `proposeFix`, if it has one and `item.fixable` says this
+   * particular row is one of the eligible ones — see
+   * `InboxSourceResult.proposeFix`'s own doc comment. Adds "Fix with AI" to
+   * this same three-dot menu, alongside "Ask AI" — clicking it fetches a
+   * proposal and renders it inline (same slot the assess answer uses),
+   * with its own Apply/Dismiss rather than writing anything immediately.
+   */
+  onProposeFix?: (item: InboxItem) => Promise<FixProposal | null>
+  /**
    * Opens this one item's edit dialog — only ever set for a row with no
    * `intent` to navigate to instead (a todo has no document), since a row
    * only ever does one of the two on click.
@@ -63,6 +72,15 @@ interface InboxRowProps {
    */
   onUnassign?: (item: InboxItem) => void
   /**
+   * The row's own source has a real assignee concept but doesn't want it
+   * edited from here — see `InboxSourceResult.assigneeReadOnly`'s own doc
+   * comment. Shows the avatar (or the "Unassigned" placeholder) same as
+   * always, just non-interactive: a disabled cursor and a tooltip saying
+   * why, instead of either a dead click or the avatar disappearing
+   * depending on whether anyone happens to be assigned right now.
+   */
+  assigneeReadOnly?: boolean
+  /**
    * A small tag identifying which source this row came from, e.g.
    * "Unpublished drafts · Everyone". Only meaningful in the merged list — a
    * per-source card already says this via its own header, so it's omitted
@@ -83,6 +101,20 @@ interface InboxRowProps {
 }
 
 type Assessment = {status: 'idle'} | {status: 'loading'} | {status: 'done'; message: string}
+
+// `'none'` (proposeFix resolved, nothing good to suggest) is a distinct
+// state from `'error'` (the call itself failed) — both render as a single
+// muted line, but they're not the same thing, and collapsing them would
+// have made a genuine failure read as "AI looked and found nothing," which
+// isn't what happened.
+type FixState =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'none'}
+  | {status: 'proposed'; proposal: FixProposal}
+  | {status: 'applying'; proposal: FixProposal}
+  | {status: 'applied'}
+  | {status: 'error'}
 
 // "AB" from "Ada Bergström", "A" from "Ada" — the same shorthand an avatar
 // with no photo falls back to everywhere else in Studio. Exported for
@@ -153,10 +185,12 @@ export function InboxRow(props: InboxRowProps) {
     leaving = false,
     onSelectedChange,
     onAssess,
+    onProposeFix,
     onEdit,
     onReassign,
     assignableUsers,
     onUnassign,
+    assigneeReadOnly = false,
     sourceLabel,
     menuActions,
   } = props
@@ -165,6 +199,7 @@ export function InboxRow(props: InboxRowProps) {
   const {navigateIntent} = useRouter()
   const labelId = useId()
   const [assessment, setAssessment] = useState<Assessment>({status: 'idle'})
+  const [fix, setFix] = useState<FixState>({status: 'idle'})
 
   // Checking a box marks the row, it does not act on it. Which action follows
   // is the editor's next decision, offered once something is selected — the
@@ -208,6 +243,28 @@ export function InboxRow(props: InboxRowProps) {
       .then((message) => setAssessment({status: 'done', message}))
       .catch(() => setAssessment({status: 'done', message: t('assess.error')}))
   }, [onAssess, item, t])
+
+  const handleProposeFix = useCallback(() => {
+    if (!onProposeFix) return
+    setFix({status: 'loading'})
+    onProposeFix(item)
+      .then((proposal) => setFix(proposal ? {status: 'proposed', proposal} : {status: 'none'}))
+      .catch(() => setFix({status: 'error'}))
+  }, [onProposeFix, item])
+
+  const handleApplyFix = useCallback(() => {
+    setFix((current) => {
+      if (current.status !== 'proposed') return current
+      const {proposal} = current
+      proposal
+        .apply()
+        .then(() => setFix({status: 'applied'}))
+        .catch(() => setFix({status: 'error'}))
+      return {status: 'applying', proposal}
+    })
+  }, [])
+
+  const handleDismissFix = useCallback(() => setFix({status: 'idle'}), [])
 
   // A done row drops its own tone: the point of showing it is that it is
   // finished, and a caution-coloured finished row still reads as urgent.
@@ -260,6 +317,64 @@ export function InboxRow(props: InboxRowProps) {
     </Flex>
   )
 
+  // Same trigger/idle rules as `assessRow` above, and the same sparkle
+  // marker — this is still AI-sourced, just the "action" half rather than
+  // the "insight" half. The one real difference: a `'proposed'` (or
+  // `'applying'`) result carries its own Apply/Dismiss right there on the
+  // same line, since unlike `assess` this can actually change the document
+  // — nothing here writes anything until Apply is clicked.
+  const fixRow = onProposeFix && fix.status !== 'idle' && (
+    <Flex align="center" gap={2} onClick={stopPropagation} wrap="wrap">
+      <Text muted size={0}>
+        <SparklesIcon />
+      </Text>
+      {fix.status === 'loading' && (
+        <Text muted size={0}>
+          {t('fix.loading')}
+        </Text>
+      )}
+      {fix.status === 'none' && (
+        <Text muted size={0}>
+          {t('fix.none')}
+        </Text>
+      )}
+      {(fix.status === 'proposed' || fix.status === 'applying') && (
+        <>
+          <Text muted size={0}>
+            {fix.proposal.summary}
+          </Text>
+          <Button
+            disabled={fix.status === 'applying'}
+            fontSize={0}
+            mode="bleed"
+            onClick={handleApplyFix}
+            padding={1}
+            text={fix.status === 'applying' ? t('fix.applying') : t('fix.apply')}
+            tone="primary"
+          />
+          <Button
+            disabled={fix.status === 'applying'}
+            fontSize={0}
+            mode="bleed"
+            onClick={handleDismissFix}
+            padding={1}
+            text={t('fix.dismiss')}
+          />
+        </>
+      )}
+      {fix.status === 'applied' && (
+        <Text muted size={0}>
+          {t('fix.applied')}
+        </Text>
+      )}
+      {fix.status === 'error' && (
+        <Text muted size={0}>
+          {t('fix.error')}
+        </Text>
+      )}
+    </Flex>
+  )
+
   // A Jira-style avatar chip, not another line of text — the row already
   // says what it is; who it's assigned to reads faster as a face than as
   // "Assigned to you" repeated on every single row. Clicking it opens a
@@ -272,9 +387,14 @@ export function InboxRow(props: InboxRowProps) {
   const assigneeAvatar = (() => {
     const assignee = item.assignee
     // Nothing to show, and no picker to open either — an item whose source
-    // has no `assign` at all (a todo, a release) was never assignable to
-    // begin with, so there's no "unassigned" to indicate.
-    if (!assignee && !canReassign) return null
+    // has no `assign` at all *and* no real assignee concept either (a todo,
+    // a release) was never assignable to begin with, so there's no
+    // "unassigned" to indicate. `assigneeReadOnly` is the one exception:
+    // a real assignee concept this plugin just isn't allowed to edit (see
+    // its own doc comment) still shows, same as an editable one would.
+    if (!assignee && !canReassign && !assigneeReadOnly) return null
+
+    const readOnlySuffix = assigneeReadOnly ? ` — ${t('assignee.readOnly')}` : ''
 
     const avatar = (
       <Box style={{position: 'relative'}}>
@@ -287,13 +407,19 @@ export function InboxRow(props: InboxRowProps) {
           // bar's own "Assign to…" picker.
           size={compact ? 0 : 1}
           src={assignee?.imageUrl}
-          style={canReassign ? {cursor: 'pointer', opacity: assignee ? 1 : 0.4} : undefined}
+          style={
+            canReassign
+              ? {cursor: 'pointer', opacity: assignee ? 1 : 0.4}
+              : assigneeReadOnly
+                ? {cursor: 'not-allowed', opacity: assignee ? 1 : 0.4}
+                : undefined
+          }
           title={
-            assignee
+            (assignee
               ? currentUser && assignee.id === currentUser.id
                 ? t('assignee.you', {name: assignee.label})
                 : assignee.label
-              : t('assignee.unassigned')
+              : t('assignee.unassigned')) + readOnlySuffix
           }
         />
         {/* A person glyph on the faint circle above reads as "nobody yet" at
@@ -357,10 +483,16 @@ export function InboxRow(props: InboxRowProps) {
   // "Ask AI" goes first — reading before acting. Never for a `compact` row:
   // those have no menu at all today (every `aside` row — ambient context,
   // not a worklist), and `assess` isn't reason enough to grow one just for
-  // this.
+  // this. "Fix with AI" only joins it when the source itself said this
+  // particular item is one of the eligible ones (`item.fixable`) — offering
+  // it everywhere and having it come back empty most of the time would read
+  // as broken, not as a real capability.
   const allMenuActions = [
     ...(onAssess && !compact
       ? [{key: 'assess', label: t('assess.ask'), onClick: handleAssess}]
+      : []),
+    ...(onProposeFix && !compact && item.fixable
+      ? [{key: 'fix', label: t('fix.ask'), onClick: handleProposeFix}]
       : []),
     ...(menuActions ?? []),
   ]
@@ -397,10 +529,10 @@ export function InboxRow(props: InboxRowProps) {
     </Box>
   )
 
-  // Whether the assess result actually renders below the title — used to
-  // decide the row's own vertical alignment further down, not just whether
-  // to render this block.
-  const hasExtraRow = !compact && Boolean(assessRow)
+  // Whether an assess and/or fix result actually renders below the title —
+  // used to decide the row's own vertical alignment further down, not just
+  // whether to render this block.
+  const hasExtraRow = !compact && Boolean(assessRow || fixRow)
 
   const label = (
     // `minWidth: 0` at every flex level down to the text itself: a flex
@@ -431,7 +563,12 @@ export function InboxRow(props: InboxRowProps) {
           {item.timestamp && <RelativeTime timestamp={item.timestamp} />}
         </Text>
       )}
-      {hasExtraRow && <Flex gap={3}>{assessRow}</Flex>}
+      {hasExtraRow && (
+        <Stack gap={2}>
+          {assessRow}
+          {fixRow}
+        </Stack>
+      )}
     </Stack>
   )
 

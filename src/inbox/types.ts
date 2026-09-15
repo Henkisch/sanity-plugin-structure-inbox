@@ -108,6 +108,17 @@ export interface InboxItem {
    * time for display and is therefore ambiguous as an actual due date.
    */
   dueBy?: string
+  /**
+   * Whether `InboxSourceResult.proposeFix` has anything real to try for this
+   * particular item — not just whether the source offers `proposeFix` at
+   * all. A source decides this per item (a broken reference in a plain
+   * top-level field is eligible; one nested inside Portable Text, today, is
+   * not — see `linkCheckerFindings.ts`'s own doc comment on why), so the
+   * row's own menu can skip offering "Fix with AI" anywhere it would just
+   * come back empty, rather than offering it everywhere and explaining
+   * afterwards why nothing happened.
+   */
+  fixable?: boolean
 }
 
 /**
@@ -120,6 +131,18 @@ export interface CreateItemInput {
   description?: string
   /** ISO date (`yyyy-mm-dd`) — a due date, not a moment, so no time of day. */
   dueBy?: string
+}
+
+/**
+ * A reviewable, not-yet-applied fix — see `InboxSourceResult.proposeFix`.
+ *
+ * @public
+ */
+export interface FixProposal {
+  /** Plain-language description of what `apply` will do, shown before it runs — e.g. `Replace with "Jane Doe"`. */
+  summary: string
+  /** Runs the actual mutation. Deterministic — by the time this is called, what to write is already decided. */
+  apply: () => Promise<void>
 }
 
 /**
@@ -184,6 +207,26 @@ export interface InboxSourceResult {
    */
   assess?: (item: InboxItem) => Promise<string>
   /**
+   * Proposes a concrete, reviewable fix — the "action" half of "insight,
+   * then action" that `assess` alone only ever gives the "insight" half of.
+   * Unlike `assess`, this can result in a real write, so it is deliberately
+   * two-step: this only ever *proposes* one (`FixProposal.apply` is what
+   * actually runs it), never writes anything on its own.
+   *
+   * The one built-in case today (`linkCheckerFindings.ts`) has Agent
+   * Actions choose *which* existing document a broken reference should
+   * point to — never *how* to write it: the actual mutation this plugin
+   * runs is a plain, deterministic patch it fully controls, the same
+   * separation of concerns `resolve`/`assign` already draw between "an
+   * editor's own click decided this" and "here's the mechanical write that
+   * follows." Returns `null` when there is nothing good to propose (no
+   * eligible shape, or the model found no confident candidate) — the row
+   * should still only ever offer this when `InboxItem.fixable` is true, so
+   * a `null` here is the rarer "even though this looked fixable, nothing
+   * good turned up" case, not the common path.
+   */
+  proposeFix?: (item: InboxItem) => Promise<FixProposal | null>
+  /**
    * Delegates an item to someone else by creating a real Sanity Task.
    *
    * `users` is who it can go to; `toUser` does the assigning. Bundled
@@ -208,6 +251,26 @@ export interface InboxSourceResult {
     unassign?: (item: InboxItem) => Promise<void>
   }
   /**
+   * True for a source whose items have a real, native assignee — just not
+   * one this plugin should offer to change. `openTasks` is the one built-in
+   * example: a `tasks.task` already has exactly one real assignee field,
+   * natively editable in Sanity's own Tasks UI, so `assign` here would just
+   * be a second, redundant path to the same field (see `openTasks.ts`'s own
+   * doc comment) — but the assignee itself is still real information worth
+   * showing, including "nobody yet."
+   *
+   * Without this, the row has no way to tell "no assignee concept at all"
+   * (`todos` — never assignable to begin with, nothing to show even when
+   * empty) apart from "has one, just read-only here" (`openTasks`) once an
+   * item happens to be unassigned: both look identical (`item.assignee`
+   * absent, no `assign`). Set, it keeps the avatar (or the "Unassigned"
+   * placeholder) visible either way, just non-interactive — a disabled
+   * cursor and a tooltip saying why, rather than either a dead click or the
+   * avatar disappearing entirely depending on whether anyone happens to be
+   * assigned at the moment.
+   */
+  assigneeReadOnly?: boolean
+  /**
    * Deletes an item for good — unlike marking it done, which only removes it
    * from this editor's own inbox while leaving it wherever it actually
    * lives. Optional: only a source that keeps its own items, with nowhere
@@ -224,6 +287,15 @@ export interface InboxSourceResult {
    * doing nothing when clicked.
    */
   update?: (item: InboxItem, input: CreateItemInput) => Promise<void> | void
+  /**
+   * Opens an item somewhere else entirely, for a row with no document
+   * `intent` *and* no `update` dialog to fall back to either — the one
+   * built-in case is `openTasks.ts`, for a task with no target document:
+   * clicking it opens the task's own detail panel (Sanity's own Tasks UI)
+   * instead of doing nothing. A row only ever does one of `intent`/`update`/
+   * `openDetail` on click, tried in that order.
+   */
+  openDetail?: (item: InboxItem) => void
   /**
    * A single, source-level action unrelated to any one item — "Scan for
    * broken links", say.

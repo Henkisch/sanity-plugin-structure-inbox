@@ -3,10 +3,24 @@ import {describe, expect, it} from 'vitest'
 
 import {toItems} from './linkCheckerFindings'
 
-function fakeSchema(titles: Record<string, string> = {}) {
-  return {get: (name: string) => (titles[name] ? {title: titles[name]} : undefined)} as ReturnType<
-    typeof import('sanity').useSchema
-  >
+function fakeSchema(
+  titles: Record<string, string> = {},
+  fields: Record<string, {fields: {name: string; type: unknown}[]}> = {},
+) {
+  return {
+    get: (name: string) => {
+      if (fields[name]) return {title: titles[name], ...fields[name]}
+      return titles[name] ? {title: titles[name]} : undefined
+    },
+  } as ReturnType<typeof import('sanity').useSchema>
+}
+
+/** A schema whose `post` type has a plain top-level reference field, `to` a single type — the one shape `proposeFix` can retarget. */
+function schemaWithSingleReference(fieldName: string, toType: string) {
+  return fakeSchema(
+    {},
+    {post: {fields: [{name: fieldName, type: {to: [{name: toType}]}}]}},
+  )
 }
 
 function brokenReference(overrides: Partial<BrokenReference> = {}): BrokenReference {
@@ -120,5 +134,50 @@ describe('toItems', () => {
 
     expect(items[0].changedAt).toBe('2026-05-01T00:00:00.000Z')
     expect(items[1].changedAt).toBe('2026-06-01T00:00:00.000Z')
+  })
+
+  describe('fixable', () => {
+    it('marks a broken reference fixable when its field is a plain top-level, single-type reference', () => {
+      const finding = brokenReference({fieldPath: 'author'})
+      const items = toItems(report([finding]), schemaWithSingleReference('author', 'author'), false, 50)
+
+      expect(items[0].fixable).toBe(true)
+    })
+
+    it('is not fixable when the field path is nested (not a plain top-level name)', () => {
+      const finding = brokenReference({fieldPath: 'body[0].markDefs[0].author'})
+      const items = toItems(
+        report([finding]),
+        schemaWithSingleReference('body[0].markDefs[0].author', 'author'),
+        false,
+        50,
+      )
+
+      expect(items[0].fixable).toBe(false)
+    })
+
+    it('is not fixable when the field accepts more than one type', () => {
+      const finding = brokenReference({fieldPath: 'author'})
+      const schema = fakeSchema(
+        {},
+        {post: {fields: [{name: 'author', type: {to: [{name: 'author'}, {name: 'organization'}]}}]}},
+      )
+
+      expect(toItems(report([finding]), schema, false, 50)[0].fixable).toBe(false)
+    })
+
+    it('is not fixable when the schema has no matching field at all', () => {
+      const finding = brokenReference({fieldPath: 'author'})
+      const items = toItems(report([finding]), fakeSchema({post: 'Post'}), false, 50)
+
+      expect(items[0].fixable).toBe(false)
+    })
+
+    it('is not fixable for a broken link — retargeting only applies to references', () => {
+      const finding = brokenLink()
+      const items = toItems(report([finding]), schemaWithSingleReference('link', 'post'), false, 50)
+
+      expect(items[0].fixable).toBeUndefined()
+    })
   })
 })

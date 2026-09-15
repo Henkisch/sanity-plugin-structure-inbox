@@ -28,7 +28,7 @@ import {
 import {API_VERSION} from '../../constants'
 import {type SnoozeState} from '../../store/snoozes'
 import {splitItems} from '../splitItems'
-import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
+import {type FixProposal, type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {useAssignmentStore} from './assignmentStore'
 import {optionalHook} from './capability'
 import {liveQuery$} from './liveQuery'
@@ -104,6 +104,45 @@ export interface LinkCheckerFindingsOptions {
 const DEFAULT_ACTION_DESCRIPTION =
   'Scans every document in the dataset for broken external links and references to deleted documents.'
 
+/** A plain top-level field name — no `[index]`/`.nested` — the only shape `singleReferenceTargetType` below knows how to resolve or `proposeFix` knows how to patch. */
+const SIMPLE_FIELD_PATH = /^[a-zA-Z0-9_]+$/
+
+/**
+ * The one document type a broken reference's own field could point back
+ * to, if (and only if) that's actually knowable: `fieldPath` has to name a
+ * plain top-level field (not one buried in an array or Portable Text
+ * marks — `sanity-plugin-link-checker`'s own `fieldPath` is a *display*
+ * string, e.g. `richText[10].markDefs[1].customLink`, not something this
+ * can safely turn into a patch path), and that field's schema has to
+ * declare exactly one `to` type. A field with several possible `to` types
+ * has no single answer for "what type of candidate should Agent Actions
+ * even look at" — asking it to guess the type too, on top of the specific
+ * document, is a second judgment call this plugin isn't taking on yet.
+ *
+ * Returns `undefined` for every case this can't handle — the caller (both
+ * `toItem`, for `InboxItem.fixable`, and `proposeFix` itself) treats that
+ * as "nothing to propose here," never as an error.
+ */
+function singleReferenceTargetType(
+  schema: ReturnType<typeof useSchema>,
+  fromType: string,
+  fieldPath: string,
+): string | undefined {
+  if (!SIMPLE_FIELD_PATH.test(fieldPath)) return undefined
+
+  const objectType = schema.get(fromType)
+  if (!objectType || !('fields' in objectType)) return undefined
+
+  const field = objectType.fields.find((candidate) => candidate.name === fieldPath)
+  const fieldType = field?.type
+  if (!fieldType || !('to' in fieldType)) return undefined
+
+  const to = fieldType.to
+  if (!Array.isArray(to) || to.length !== 1) return undefined
+
+  return to[0]?.name
+}
+
 function toItem(finding: ScanFinding, fallbackChangedAt: string, schema: ReturnType<typeof useSchema>): InboxItem {
   const typeTitle = schema.get(finding.fromType)?.title || finding.fromType
   // A finding carries no timestamp of its own — `docStateUpdatedAt` is the
@@ -127,6 +166,7 @@ function toItem(finding: ScanFinding, fallbackChangedAt: string, schema: ReturnT
       subtitle: typeTitle,
       category: 'Broken reference',
       tone: 'critical',
+      fixable: Boolean(singleReferenceTargetType(schema, finding.fromType, finding.fieldPath)),
     }
   }
 
@@ -316,6 +356,7 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
     useItems(): InboxSourceResult {
       const {result, report} = useFindingsFetch()
       const client = useClient({apiVersion: API_VERSION})
+      const schema = useSchema()
       const currentUser = useCurrentUser()
       const userId = currentUser?.id
       // `null` documentValue: not scoped to one finding, since any of them
@@ -417,12 +458,90 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
         [client, findingsByKey],
       )
 
+      // The "action" half of "insight, then action" — see `proposeFix`'s own
+      // doc comment on `InboxSourceResult`. Only ever offered when
+      // `InboxItem.fixable` said so (the same `singleReferenceTargetType`
+      // check, re-run here since a fresh `finding` lookup is needed anyway),
+      // so a `null` return here is the rarer case: the shape looked
+      // eligible, but Agent Actions itself found no confident candidate.
+      //
+      // The AI's only job is choosing *which* existing document fits —
+      // `candidates` is a live GROQ list of everything of the target type,
+      // handed to Agent Actions itself to embed (rather than fetched here
+      // and stringified) so the instruction always reflects the current
+      // dataset. The actual write, in `apply` below, is a plain
+      // deterministic patch this code fully controls: the model never
+      // decides *how* to mutate anything, only *which* id to use.
+      const proposeFix = useCallback(
+        async (item: InboxItem): Promise<FixProposal | null> => {
+          const finding = findingsByKey.get(item.id)
+          if (!finding || finding.kind !== 'reference') return null
+
+          const targetType = singleReferenceTargetType(schema, finding.fromType, finding.fieldPath)
+          if (!targetType) return null
+
+          const candidateCount = await client.fetch<number>('count(*[_type == $type])', {
+            type: targetType,
+          })
+          if (candidateCount === 0) return null
+
+          type FixChoice = {id: string | null; label: string | null; reason: string}
+
+          // `withConfig`'s own return type loses the conditional
+          // `format: 'json'` overload `agent.action.prompt` otherwise
+          // resolves to (the same class of cross-type mismatch as
+          // `toLinkCheckerClient` above) — at runtime this is genuinely the
+          // parsed JSON object, per Sanity's own documented behavior for
+          // `format: 'json'`, not the plain string TS infers here.
+          // eslint-disable-next-line no-unsafe-type-assertion -- see comment above.
+          const choice = (await client.withConfig({apiVersion: 'vX'}).agent.action.prompt({
+            format: 'json',
+            instruction:
+              "Given the following document:\n$document\n---\nField '" +
+              finding.fieldPath +
+              "' should hold a reference to a " +
+              targetType +
+              ' document, but the one it pointed to no longer exists. Here are the ' +
+              targetType +
+              ' documents that currently exist:\n$candidates\n---\n' +
+              'Return JSON {"id": string or null, "label": string or null, "reason": string}: ' +
+              '`id` is the _id of whichever candidate best fits this document given its own ' +
+              "content, `label` is that candidate's own title/name, and `reason` is one short " +
+              'sentence explaining the choice. If none of the candidates clearly fit, set `id` ' +
+              'and `label` to null and use `reason` to say so.',
+            instructionParams: {
+              document: {type: 'document', documentId: finding.fromId},
+              candidates: {
+                type: 'groq',
+                query: '*[_type == $type][0...20]{_id, "label": coalesce(title, name, _id)}',
+                params: {type: targetType},
+              },
+            },
+          })) as unknown as FixChoice
+
+          if (!choice.id) return null
+
+          const chosenId = choice.id
+          return {
+            summary: choice.reason ? `Replace with "${choice.label}" — ${choice.reason}` : `Replace with "${choice.label}"`,
+            apply: async () => {
+              await client
+                .patch(finding.fromId)
+                .set({[finding.fieldPath]: {_type: 'reference', _ref: chosenId}})
+                .commit()
+            },
+          }
+        },
+        [client, findingsByKey, schema],
+      )
+
       return useMemo(
         () => ({
           ...result,
           items,
           assign,
           assess,
+          proposeFix,
           action: {
             label: 'Scan for issues',
             pendingLabel: 'Scanning…',
@@ -431,7 +550,7 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
             icon: SearchIcon,
           },
         }),
-        [result, items, assign, assess, runFromInbox],
+        [result, items, assign, assess, proposeFix, runFromInbox],
       )
     },
   }

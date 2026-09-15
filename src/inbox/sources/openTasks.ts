@@ -20,6 +20,7 @@ import {splitItems} from '../splitItems'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {optionalHook, useSafely} from './capability'
 import {liveQuery$} from './liveQuery'
+import {useOpenTaskDetail} from './openTaskDetail'
 
 /**
  * Stands in for `useAddonDataset` when Sanity does not export it. A hook in
@@ -368,12 +369,24 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
         [contentClient],
       )
 
+      const openTaskDetail = useOpenTaskDetail()
+
       return useMemo(
         () => ({
           items,
           loading: result.loading,
           error: result.error,
           assess,
+          // Only reached for a task with no target — one already has
+          // `intent` (opens the target document instead), tried first. See
+          // `openDetail`'s own doc comment on `InboxSourceResult`, and
+          // `openTaskDetail.ts` for the stability trade-off this makes.
+          openDetail: (item: InboxItem) => openTaskDetail(item.id),
+          // Real assignee, deliberately read-only here — see this source's
+          // own doc comment on why `assign` itself is never offered, and
+          // `assigneeReadOnly`'s own doc comment for what this actually
+          // changes about the row.
+          assigneeReadOnly: true,
           resolve: client
             ? async (item: InboxItem) => {
                 await client.patch(item.id).set({status: 'closed'}).commit()
@@ -389,7 +402,7 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
               }
             : undefined,
         }),
-        [items, result.loading, result.error, client, assess],
+        [items, result.loading, result.error, client, assess, openTaskDetail],
       )
     },
   }

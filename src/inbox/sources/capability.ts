@@ -1,5 +1,9 @@
 // Deliberately a namespace import, not a named one. See `optionalHook` below.
 import * as sanity from 'sanity'
+// `sanity/_singletons` is where Sanity keeps every cross-cutting internal
+// React Context (`TasksNavigationContext` among them) — same reasoning as
+// the namespace import above, for `optionalContext` further down.
+import * as sanitySingletons from 'sanity/_singletons'
 
 /**
  * Looks up a Sanity export that this plugin cannot rely on existing.
@@ -42,6 +46,24 @@ import * as sanity from 'sanity'
 export function optionalHook<T>(name: string, fallback: T): T {
   const value = Reflect.get(sanity, name)
   return typeof value === 'function' ? value : fallback
+}
+
+/**
+ * Same reasoning as `optionalHook` above, for a Sanity export that isn't a
+ * hook — a React Context object, from `sanity/_singletons` (see the
+ * namespace import at the top of this file). Every context there is marked
+ * `@internal`: Sanity's own components use it, but makes no promise it will
+ * keep existing under this name, or at all. `fallback` should be another
+ * real (but never-provided) Context of the same shape — see
+ * `openTaskDetail.ts` for the pattern — so `useContext` still has something
+ * valid to call unconditionally, satisfying the rules of hooks, instead of
+ * every call site branching on whether the lookup succeeded before it can
+ * call anything.
+ */
+export function optionalContext<T>(name: string, fallback: T): T {
+  const value = Reflect.get(sanitySingletons, name)
+  // eslint-disable-next-line no-unsafe-type-assertion -- same trade-off as `optionalHook` above: the caller's own `fallback` type is the only contract there is for a dynamically-looked-up export.
+  return value === undefined ? fallback : (value as T)
 }
 
 /**

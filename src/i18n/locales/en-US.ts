@@ -37,6 +37,9 @@ const enUS = {
   'assignee.unassigned': 'Unassigned',
   'assignee.unassign': 'Unassign',
   'assignee.you': '{{name}} (You)',
+  // Appended to the avatar's own tooltip for a source with `assigneeReadOnly`
+  // set — see its own doc comment on `InboxSourceResult`.
+  'assignee.readOnly': "assigned via Sanity's own Tasks, not editable here",
   'filter.type': 'Type',
   'source.loading': 'Loading…',
   'source.error.title': 'This section could not load',
@@ -115,6 +118,18 @@ const enUS = {
   'assess.ask': 'Ask AI',
   'assess.loading': 'Asking AI…',
   'assess.error': 'Could not reach AI.',
+
+  // The "action" half of "insight, then action" — assess only ever reads;
+  // this proposes a real change, so it needs its own Apply/Dismiss rather
+  // than assess's single answer line. See `InboxSourceResult.proposeFix`.
+  'fix.ask': 'Fix with AI',
+  'fix.loading': 'Thinking…',
+  'fix.none': "AI couldn't find a good match.",
+  'fix.apply': 'Apply',
+  'fix.applying': 'Applying…',
+  'fix.applied': 'Fixed',
+  'fix.dismiss': 'Dismiss',
+  'fix.error': 'Could not reach AI.',
 
   // The pane-level counterpart to `assess.*` above — same Agent Actions
   // call, applied to everything currently open instead of one item.

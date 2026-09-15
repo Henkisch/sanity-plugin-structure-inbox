@@ -97,6 +97,40 @@ describe('liveQuery$', () => {
       coldFetch(() => 'rows'),
     ).subscribe()
 
-    expect(client.listen).toHaveBeenCalledWith('QUERY', {limit: 10})
+    expect(client.listen).toHaveBeenCalledWith('QUERY', {limit: 10}, expect.any(Object))
+  })
+
+  it('asks the listener to resume across a reconnect, not just watch for mutations', () => {
+    const client = fakeClient(new Subject())
+
+    liveQuery$(client, 'QUERY', {}, coldFetch(() => 'rows')).subscribe()
+
+    expect(client.listen).toHaveBeenCalledWith(
+      'QUERY',
+      {},
+      {enableResume: true, events: ['mutation', 'welcome', 'reset']},
+    )
+  })
+
+  it('refetches on a bare reconnect signal (a missed mutation during a dropped connection), not just a mutation event', async () => {
+    const events = new Subject<unknown>()
+    const client = fakeClient(events)
+    let call = 0
+    const values: string[] = []
+
+    liveQuery$(
+      client,
+      'QUERY',
+      {},
+      coldFetch(() => `rows-${++call}`),
+    ).subscribe((v) => values.push(v))
+
+    await vi.advanceTimersByTimeAsync(500)
+    expect(values).toEqual(['rows-1'])
+
+    events.next({type: 'reset'})
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(values).toEqual(['rows-1', 'rows-2'])
   })
 })

@@ -38,9 +38,12 @@ export function SourceFeed(props: SourceFeedProps) {
     resolve,
     create,
     assess,
+    proposeFix,
     assign,
+    assigneeReadOnly,
     remove,
     update,
+    openDetail,
     action,
     acknowledgable,
   } = source.useItems()
@@ -50,6 +53,14 @@ export function SourceFeed(props: SourceFeedProps) {
     [items, source.name, snoozes.state, now],
   )
 
+  // This destructure is a hardcoded allowlist, not `...rest` — every new
+  // field `InboxSourceResult` gains (`proposeFix`, `assigneeReadOnly`,
+  // `openDetail` all found this out the hard way) has to be added here,
+  // to `capabilities` below, and to its own `has*`/fingerprint entry in the
+  // effect's dependency list, or it never reaches `MergedList` at all: it
+  // silently drops out right here, at the one place every source's result
+  // funnels through before `onReport`.
+  //
   // `resolve`/`create`/`assess`/`assign`/`remove`/`update` are read through a
   // ref rather than named directly in the effect's own dependency list below:
   // at least one
@@ -67,18 +78,45 @@ export function SourceFeed(props: SourceFeedProps) {
   // holds the actual functions, updated in their own effect that (being
   // declared first) always runs before this one in the same commit, so a
   // firing report always reads the latest ones.
-  const capabilities = useRef({resolve, create, assess, assign, remove, update, action, acknowledgable})
+  const capabilities = useRef({
+    resolve,
+    create,
+    assess,
+    proposeFix,
+    assign,
+    assigneeReadOnly,
+    remove,
+    update,
+    openDetail,
+    action,
+    acknowledgable,
+  })
   useEffect(() => {
-    capabilities.current = {resolve, create, assess, assign, remove, update, action, acknowledgable}
+    capabilities.current = {
+      resolve,
+      create,
+      assess,
+      proposeFix,
+      assign,
+      assigneeReadOnly,
+      remove,
+      update,
+      openDetail,
+      action,
+      acknowledgable,
+    }
   })
 
   const hasResolve = Boolean(resolve)
   const hasCreate = Boolean(create)
   const hasAssess = Boolean(assess)
+  const hasProposeFix = Boolean(proposeFix)
   const hasRemove = Boolean(remove)
   const hasUpdate = Boolean(update)
+  const hasOpenDetail = Boolean(openDetail)
   const hasAction = Boolean(action)
   const assignUserCount = assign?.users.length ?? -1
+  const isAssigneeReadOnly = Boolean(assigneeReadOnly)
   const isAcknowledgable = acknowledgable !== false
 
   useEffect(() => {
@@ -94,10 +132,13 @@ export function SourceFeed(props: SourceFeedProps) {
     hasResolve,
     hasCreate,
     hasAssess,
+    hasProposeFix,
     hasRemove,
     hasUpdate,
+    hasOpenDetail,
     hasAction,
     assignUserCount,
+    isAssigneeReadOnly,
     isAcknowledgable,
   ])
 
