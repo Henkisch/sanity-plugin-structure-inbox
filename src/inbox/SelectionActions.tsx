@@ -42,6 +42,14 @@ interface SelectionActionsProps {
    * already asleep says nothing.
    */
   onSnooze?: () => void
+  /**
+   * An AI-read alternative to the default, for exactly one selected row —
+   * see `InboxSourceResult.suggestSnooze`'s own doc comment. Rendered as its
+   * own small button next to the plain Snooze icon, never pre-applied: the
+   * editor still has to press it, the same as picking a preset would be.
+   */
+  snoozeSuggestion?: {until: string; reason?: string}
+  onSnoozeUntil?: (until: string) => void
   /** Who `onAssign` can hand the selection to — absent or empty hides the picker. */
   assignableUsers?: {id: string; label: string}[]
   /** Offers the "Assign" picker. Only meaningful in the open view, same reasoning as `onSnooze`. */
@@ -142,6 +150,8 @@ export function SelectionActions(props: SelectionActionsProps) {
     onConfirm,
     onCancel,
     onSnooze,
+    snoozeSuggestion,
+    onSnoozeUntil,
     assignableUsers,
     onAssign,
     onDelete,
@@ -189,6 +199,32 @@ export function SelectionActions(props: SelectionActionsProps) {
 
       {onSnooze && (
         <IconAction disabled={busy} icon={ClockIcon} label={t('action.snooze')} onClick={onSnooze} />
+      )}
+
+      {snoozeSuggestion && onSnoozeUntil && (
+        <Tooltip
+          content={
+            snoozeSuggestion.reason ? (
+              <Box padding={2} style={{maxWidth: 200}}>
+                <Text size={1}>{snoozeSuggestion.reason}</Text>
+              </Box>
+            ) : undefined
+          }
+          placement="bottom"
+        >
+          <Button
+            disabled={busy}
+            fontSize={0}
+            mode="bleed"
+            onClick={() => onSnoozeUntil(snoozeSuggestion.until)}
+            padding={1}
+            text={t('action.snooze.suggested', {
+              date: new Intl.DateTimeFormat(undefined, {month: 'short', day: 'numeric'}).format(
+                new Date(snoozeSuggestion.until),
+              ),
+            })}
+          />
+        </Tooltip>
       )}
 
       {onDelete && (

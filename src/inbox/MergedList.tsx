@@ -2,7 +2,7 @@ import {ChevronDownIcon} from '@sanity/icons/ChevronDown'
 import {Box, Button, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
 import {Menu, MenuButton, MenuDivider, MenuItem} from '@sanity/ui/menu'
 import {Tooltip} from '@sanity/ui/tooltip'
-import {type ReactNode, useCallback, useMemo, useState} from 'react'
+import {type ReactNode, useCallback, useEffect, useMemo, useState} from 'react'
 import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
@@ -309,9 +309,7 @@ export function MergedList(props: MergedListProps) {
   // click. `SNOOZE_DEFAULT_PRESET` is that one default; see
   // `store/snoozePresets.ts` if a real need for more than one ever comes up.
   const snoozeRows = useCallback(
-    (targets: MergedRow[]) => {
-      const until = resolveSnoozeUntil(SNOOZE_DEFAULT_PRESET)
-
+    (targets: MergedRow[], until: string) => {
       setLeavingKeys((current) => new Set([...current, ...targets.map((row) => row.key)]))
 
       setTimeout(() => {
@@ -349,8 +347,24 @@ export function MergedList(props: MergedListProps) {
   const confirmSnooze = useCallback(() => {
     const targets = [...selected]
     setSelectedKeys([])
-    snoozeRows(targets)
+    snoozeRows(targets, resolveSnoozeUntil(SNOOZE_DEFAULT_PRESET))
   }, [selected, snoozeRows])
+
+  /**
+   * The other half of the snooze control: an AI-suggested instant, read out
+   * of the selected item's own content (see `suggestSnoozeState` below and
+   * `InboxSourceResult.suggestSnooze`'s own doc comment) rather than the
+   * fixed default preset. Shares every bit of `snoozeRows`'s own
+   * choreography — only the instant differs.
+   */
+  const confirmSnoozeUntil = useCallback(
+    (until: string) => {
+      const targets = [...selected]
+      setSelectedKeys([])
+      snoozeRows(targets, until)
+    },
+    [selected, snoozeRows],
+  )
 
   // Only the rows whose own source actually offers `remove` — a mixed
   // selection just deletes what it can, same reasoning `resolveOrClearRows`
@@ -420,6 +434,47 @@ export function MergedList(props: MergedListProps) {
     },
     [assignableSource, selected, showUndoToast, t],
   )
+
+  // A suggestion only ever makes sense for exactly one selected row (see
+  // `InboxSourceResult.suggestSnooze`'s own doc comment: a single date for a
+  // mixed selection is either wrong for most of them or an average of
+  // unrelated things) and only in the Open view — a cleared or snoozed row
+  // has nothing to snooze *to* yet.
+  const singleSelectedRow = view === 'open' && selected.length === 1 ? selected[0] : undefined
+  const suggestSnoozeForRow = singleSelectedRow
+    ? reports[singleSelectedRow.sourceName]?.suggestSnooze
+    : undefined
+
+  const [snoozeSuggestion, setSnoozeSuggestion] = useState<{until: string; reason?: string} | null>(null)
+
+  useEffect(() => {
+    if (!singleSelectedRow || !suggestSnoozeForRow) {
+      setSnoozeSuggestion(null)
+      return undefined
+    }
+
+    let cancelled = false
+    setSnoozeSuggestion(null)
+
+    suggestSnoozeForRow(singleSelectedRow.item)
+      .then((result) => {
+        if (!cancelled) setSnoozeSuggestion(result)
+        return undefined
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          console.error('[sanity-plugin-structure-inbox] suggest-snooze failed', error)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+    // Keyed on the row's own key, not the row object itself — a fresh report
+    // re-render can hand back a same-shaped-but-new row object for the exact
+    // same selection, which would otherwise re-ask on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above; `singleSelectedRow`/`suggestSnoozeForRow` are intentionally read fresh from the closure, not tracked.
+  }, [singleSelectedRow?.key])
 
   const reportsInOrder = order
     .map((name) => reports[name])
@@ -540,7 +595,7 @@ export function MergedList(props: MergedListProps) {
         {
           key: 'snooze',
           label: t('action.snooze'),
-          onClick: () => snoozeRows([row]),
+          onClick: () => snoozeRows([row], resolveSnoozeUntil(SNOOZE_DEFAULT_PRESET)),
         },
         ...deleteEntry,
       ]
@@ -837,6 +892,8 @@ export function MergedList(props: MergedListProps) {
                 onConfirm={confirmSelection}
                 onDelete={deletableTargets.length > 0 ? confirmDelete : undefined}
                 onSnooze={view === 'open' ? confirmSnooze : undefined}
+                onSnoozeUntil={view === 'open' ? confirmSnoozeUntil : undefined}
+                snoozeSuggestion={view === 'open' ? (snoozeSuggestion ?? undefined) : undefined}
                 resolvableCount={
                   selected.filter((row) => Boolean(reports[row.sourceName]?.resolve)).length
                 }

@@ -8,6 +8,7 @@ import {catchError, map, startWith, switchMap} from 'rxjs/operators'
 // `optionalHook` in `capability.ts`.
 import {
   useClient,
+  useCurrentLocale,
   useCurrentUser,
   useSchema,
   type UserListWithPermissionsHookValue,
@@ -16,6 +17,7 @@ import {
 
 import {AssessmentUnavailableError, parseAssessment} from '../../ai/assessment'
 import {promptJson} from '../../ai/promptJson'
+import {parseSnoozeSuggestion} from '../../ai/snoozeSuggestion'
 import {useAgentClient} from '../../ai/useAgentClient'
 import {API_VERSION} from '../../constants'
 import {type SnoozeState} from '../../store/snoozes'
@@ -288,6 +290,32 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
         }
       }, [agentClient])
 
+      const locale = useCurrentLocale()
+      // A valid IANA zone always exists per the runtime — this is a real
+      // environment read, not a Sanity API, so nothing here needs the
+      // `optionalHook` defensiveness.
+      const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, [])
+
+      const suggestSnooze = useMemo(() => {
+        if (!agentClient) return undefined
+
+        return async (item: InboxItem) => {
+          const raw = await promptJson<unknown>(
+            agentClient,
+            'Given the following document:\n$document\n---\n' +
+              'If this document is about something with a date — an event, a launch, a ' +
+              'deadline, an embargo — when would an editor next want to look at it?\n' +
+              'Answer with JSON only, no prose and no code fences:\n' +
+              '{"until": "<ISO 8601 instant>", "reason": "<a few words>"}\n' +
+              'If the document says nothing about timing, answer {"until": null}. ' +
+              'Do not guess.',
+            {document: {type: 'document', documentId: item.id}},
+            {localeSettings: {locale: locale.id, timeZone}},
+          )
+          return parseSnoozeSuggestion(raw, Date.now())
+        }
+      }, [agentClient, locale, timeZone])
+
       const assign = useMemo(() => {
         if (!assignable) return undefined
 
@@ -306,7 +334,10 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
         }
       }, [assignable, assignments])
 
-      return useMemo(() => ({...result, items, assess, assign}), [result, items, assess, assign])
+      return useMemo(
+        () => ({...result, items, assess, suggestSnooze, assign}),
+        [result, items, assess, suggestSnooze, assign],
+      )
     },
   }
 }

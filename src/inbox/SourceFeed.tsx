@@ -42,6 +42,7 @@ export function SourceFeed(props: SourceFeedProps) {
     proposeFix,
     assign,
     assigneeReadOnly,
+    suggestSnooze,
     remove,
     update,
     openDetail,
@@ -89,6 +90,7 @@ export function SourceFeed(props: SourceFeedProps) {
     proposeFix,
     assign,
     assigneeReadOnly,
+    suggestSnooze,
     remove,
     update,
     openDetail,
@@ -104,6 +106,7 @@ export function SourceFeed(props: SourceFeedProps) {
       proposeFix,
       assign,
       assigneeReadOnly,
+      suggestSnooze,
       remove,
       update,
       openDetail,
@@ -123,6 +126,7 @@ export function SourceFeed(props: SourceFeedProps) {
   const hasAction = Boolean(action)
   const assignUserCount = assign?.users.length ?? -1
   const isAssigneeReadOnly = Boolean(assigneeReadOnly)
+  const hasSuggestSnooze = Boolean(suggestSnooze)
   const isAcknowledgable = acknowledgable !== false
 
   useEffect(() => {
@@ -146,6 +150,7 @@ export function SourceFeed(props: SourceFeedProps) {
     hasAction,
     assignUserCount,
     isAssigneeReadOnly,
+    hasSuggestSnooze,
     isAcknowledgable,
   ])
 

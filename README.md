@@ -362,6 +362,33 @@ A snooze also **wakes early when the item changes** — the same rule an
 acknowledgment follows, and for the same reason: a snooze says "not now, I've
 seen this version", not "hide it no matter what happens to it".
 
+`unpublishedDrafts` also offers `suggestSnooze`: with exactly one row
+selected, Sanity's Agent Actions reads the document for anything with a real
+date — an event, a launch, a deadline — and if it finds one, a second small
+button appears next to the plain Snooze icon, showing that date, with the
+reason as its tooltip. It is only ever a suggestion: nothing is snoozed until
+the editor clicks it, the same click a preset would need. No date-related
+content means no button, rather than a guessed one.
+
+A source opts in by returning `suggestSnooze` from `useItems`:
+
+```ts
+useItems() {
+  return {
+    items,
+    suggestSnooze: (item) =>
+      client.agent.action.prompt({
+        instruction:
+          'Given the following document:\n$document\n---\n' +
+          'When would an editor next want to look at it? Answer with ' +
+          '{"until": "<ISO 8601 instant>", "reason": "<a few words>"}, ' +
+          'or {"until": null} if nothing in it implies a date.',
+        instructionParams: {document: {type: 'document', documentId: item.id}},
+      }),
+  }
+}
+```
+
 Return `resolve` to make a tick mean something real:
 
 ```ts

@@ -82,6 +82,7 @@ const enUS = {
   'action.wakeNow': 'Wake now',
 
   'action.snooze': 'Snooze',
+  'action.snooze.suggested': 'Until {{date}}',
 
   'action.assign': 'Assign to…',
   'action.delete': 'Delete',

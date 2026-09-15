@@ -315,6 +315,20 @@ export interface InboxSourceResult {
    */
   assigneeReadOnly?: boolean
   /**
+   * Proposes when this item will next be worth looking at, read out of the
+   * thing itself — a draft about an event in March is not worth seeing again
+   * next Tuesday.
+   *
+   * Proposed, never applied: the editor picks it from the snooze control the
+   * same way they pick "tomorrow". Returns `null` when the item says nothing
+   * about timing, which is the common case and not an error.
+   *
+   * Optional, and per-source rather than plugin-level (unlike snoozing
+   * itself) because answering needs a real document to read: a `todos` item
+   * has none, and `upcomingReleases` already knows its own date.
+   */
+  suggestSnooze?: (item: InboxItem) => Promise<{until: string; reason?: string} | null>
+  /**
    * Deletes an item for good — unlike marking it done, which only removes it
    * from this editor's own inbox while leaving it wherever it actually
    * lives. Optional: only a source that keeps its own items, with nowhere

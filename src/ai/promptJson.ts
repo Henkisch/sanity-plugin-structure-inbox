@@ -82,16 +82,25 @@ export function parseJsonResponse<T>(raw: string): T | null {
  * treat "the model did not cooperate" the same way it treats "the model is
  * not configured" — as an absent extra. A *transport* failure still rejects:
  * that one is worth a caught error and a message.
+ *
+ * `extra` is a plain pass-through for request options beyond `instruction`/
+ * `instructionParams` — today only `localeSettings` (`{locale, timeZone}`,
+ * needed for the model to resolve a relative date like "next Friday"
+ * predictably; see `snoozeSuggestion`'s own caller). Kept generic rather than
+ * a `localeSettings`-specific parameter, since any future caller writing
+ * dates would want the same pass-through.
  */
 export async function promptJson<T>(
   client: SanityClient,
   instruction: string,
   instructionParams?: Record<string, unknown>,
+  extra?: Record<string, unknown>,
 ): Promise<T | null> {
   const raw = await client.agent.action.prompt({
     instruction,
     // eslint-disable-next-line no-unsafe-type-assertion -- `@sanity/client`'s own `AgentActionParams` shape (string | document | groq | field param, per key) is stricter than this wrapper's deliberately-plain `Record<string, unknown>` — every real caller already satisfies it structurally (a document/groq/field param object, or a plain string), so this loosens the type at the boundary rather than making every caller import an agent-specific type for no behavioral difference.
     instructionParams: instructionParams as Parameters<typeof client.agent.action.prompt>[0]['instructionParams'],
+    ...extra,
   })
   return parseJsonResponse<T>(raw)
 }
