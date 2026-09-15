@@ -13,6 +13,7 @@ export function resolveConfig(config: StructureInboxConfig = {}): ResolvedStruct
     showInList: config.showInList ?? false,
     redirectOnLanding: config.redirectOnLanding ?? true,
     sources: config.sources ?? [],
+    ask: config.ask ?? false,
     title: config.title,
   }
 }

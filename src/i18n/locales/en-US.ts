@@ -120,6 +120,16 @@ const enUS = {
   'assess.error': 'Could not reach AI.',
   'assess.unavailable': 'AI could not read this one.',
 
+  // "Ask the inbox" — see `StructureInboxConfig.ask`'s own doc comment. The
+  // only effect a question ever has is a selection; these strings never
+  // describe an action being taken on the editor's behalf.
+  'ask.placeholder': 'Ask about these items…',
+  'ask.submit': 'Ask',
+  'ask.loading': 'Looking through your inbox…',
+  'ask.nothingMatched': 'Nothing here matches that.',
+  'ask.unparseable': 'AI answered, but not in a way I could use.',
+  'ask.error': 'Could not reach AI.',
+
   // The "action" half of "insight, then action" — assess only ever reads;
   // this proposes a real change, so it needs its own Apply/Dismiss rather
   // than assess's single answer line. See `InboxSourceResult.proposeFix`.

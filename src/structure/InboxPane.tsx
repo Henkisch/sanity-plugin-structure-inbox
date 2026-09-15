@@ -7,7 +7,7 @@ import {type InboxSource} from '../inbox/types'
  * the pane itself already handles.
  */
 interface InboxPaneProps {
-  options?: {sources?: InboxSource[]}
+  options?: {sources?: InboxSource[]; ask?: boolean}
 }
 
 /**
@@ -17,5 +17,5 @@ interface InboxPaneProps {
  * this only has to render the inbox.
  */
 export function InboxPane(props: InboxPaneProps) {
-  return <Inbox sources={props.options?.sources ?? []} />
+  return <Inbox ask={props.options?.ask ?? false} sources={props.options?.sources ?? []} />
 }

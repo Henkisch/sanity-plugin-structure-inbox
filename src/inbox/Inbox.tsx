@@ -47,6 +47,8 @@ import {useElementHeight} from './useElementHeight'
 
 interface InboxProps {
   sources: InboxSource[]
+  /** See `StructureInboxConfig.ask`'s own doc comment. */
+  ask?: boolean
 }
 
 /**
@@ -189,7 +191,7 @@ export function BoundedSourceFeed(props: BoundedSourceFeedProps) {
   )
 }
 
-export function Inbox({sources}: InboxProps) {
+export function Inbox({sources, ask = false}: InboxProps) {
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const {dismissals, snoozes} = useSharedInboxStore()
   // Not through `useSharedInboxStore`, unlike dismissals/snoozes: nothing
@@ -951,6 +953,7 @@ export function Inbox({sources}: InboxProps) {
               <ResponsiveColumns>
                 <Box>
                   <MergedList
+                    ask={ask}
                     assessments={assessments}
                     assigneeFilter={assigneeFilter}
                     dismissals={dismissals}

@@ -10,6 +10,7 @@ import {resolveSnoozeUntil, type SnoozePreset} from '../store/snoozePresets'
 import {type Assessments} from '../store/useAssessments'
 import {type Dismissals} from '../store/useDismissals'
 import {type Snoozes} from '../store/useSnoozes'
+import {AskInbox} from './AskInbox'
 import {CreateItemRow} from './CreateItemRow'
 import {matchesInboxFilters} from './inboxFilterSentinels'
 import {InboxRow} from './InboxRow'
@@ -49,6 +50,8 @@ interface MergedListProps {
    * narrow this column and never the aside sources beside it.
    */
   filterBar?: ReactNode
+  /** See `StructureInboxConfig.ask`'s own doc comment. Only ever shown in the Open view. */
+  ask?: boolean
   /**
    * Caps the list's own height, in pixels — typically the sidebar's actual
    * rendered height (`Inbox.tsx` measures it live), so this column never
@@ -82,6 +85,7 @@ export function MergedList(props: MergedListProps) {
     assigneeFilter,
     typeFilter,
     filterBar,
+    ask = false,
     maxHeight,
   } = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
@@ -654,6 +658,13 @@ export function MergedList(props: MergedListProps) {
 
   return (
     <Stack gap={3}>
+      {/* Only in the Open view — asking "what can I ignore" of the Done tab
+          has no meaning, and the Snoozed tab's rows are already deferred.
+          Its only effect is `setSelectedKeys`: see `AskInbox`'s own doc
+          comment for why that is the whole safety argument for this
+          feature. */}
+      {ask && view === 'open' && <AskInbox onSelect={setSelectedKeys} rows={rows} />}
+
       {errors.map((report) => (
         <Card key={report.source.name} padding={3} radius={2} tone="critical">
           <Text size={1}>

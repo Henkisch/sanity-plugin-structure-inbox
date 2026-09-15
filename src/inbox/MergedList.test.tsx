@@ -10,13 +10,29 @@ import {MergedList} from './MergedList'
 import {type SourceReport} from './SourceFeed'
 import {type InboxItem, type InboxSource} from './types'
 
-afterEach(cleanup)
-
 vi.mock('sanity', async (importOriginal) => {
   const actual = await importOriginal<typeof import('sanity')>()
   // `InboxRow` calls `useCurrentUser` (for the "(You)" tooltip suffix), which
   // needs a full Studio `source` context this suite does not build.
   return {...actual, useRelativeTime: () => 'a while ago', useCurrentUser: () => null}
+})
+
+// `AskInbox` calls `useAgentClient` (itself a `useClient` wrapper needing a
+// real Studio context this suite does not build) and `promptJson` (a real
+// network call) — both mocked at the module level so the "ask the inbox"
+// tests below can control the answer directly, the same way `onAssess` is
+// injected as a plain mock function everywhere else in this file.
+const {useAgentClientMock, promptJsonMock} = vi.hoisted(() => ({
+  useAgentClientMock: vi.fn(() => ({}) as never),
+  promptJsonMock: vi.fn(),
+}))
+
+vi.mock('../ai/useAgentClient', () => ({useAgentClient: useAgentClientMock}))
+vi.mock('../ai/promptJson', () => ({promptJson: promptJsonMock}))
+
+afterEach(() => {
+  cleanup()
+  promptJsonMock.mockReset()
 })
 
 function item(id: string, extra: Partial<InboxItem> = {}): InboxItem {
@@ -57,12 +73,14 @@ function renderList(props: {
   view?: 'open' | 'cleared' | 'snoozed'
   dismissals?: Dismissals
   snoozes?: Snoozes
+  ask?: boolean
 }) {
   const dismissals = props.dismissals ?? fakeDismissals()
   const snoozes = props.snoozes ?? fakeSnoozes()
 
   renderWithTheme(
     <MergedList
+      ask={props.ask}
       assigneeFilter={new Set()}
       dismissals={dismissals}
       order={props.order}
@@ -592,5 +610,81 @@ describe("a row's own three-dot menu", () => {
     fireEvent.click(screen.getByRole('menuitem', {name: 'action.wakeNow'}))
 
     expect(snoozes.wake).toHaveBeenCalledWith('drafts', 'd1')
+  })
+})
+
+describe('AskInbox integration', () => {
+  function checkboxFor(title: string): HTMLInputElement {
+    const labelId = screen.getByText(title).closest('[id]')?.id
+    const checkbox = document.querySelector<HTMLInputElement>(`input[aria-labelledby="${labelId}"]`)
+    if (!checkbox) throw new Error(`no checkbox labelled by "${title}"`)
+    return checkbox
+  }
+
+  function ask(question: string) {
+    fireEvent.change(screen.getByPlaceholderText('ask.placeholder'), {target: {value: question}})
+    fireEvent.click(screen.getByRole('button', {name: 'ask.submit'}))
+  }
+
+  it('does not render the input when ask is off', () => {
+    const reports = {drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]})}
+    renderList({ask: false, reports, order: ['drafts']})
+
+    expect(screen.queryByPlaceholderText('ask.placeholder')).toBeNull()
+  })
+
+  it('does not render the input outside the Open view, even with ask on', () => {
+    const reports = {
+      drafts: report('drafts', 'Drafts', {cleared: [item('d1', {title: 'Draft one'})]}),
+    }
+    renderList({ask: true, reports, order: ['drafts'], view: 'cleared'})
+
+    expect(screen.queryByPlaceholderText('ask.placeholder')).toBeNull()
+  })
+
+  it('selects exactly the rows a mocked answer names, ignoring an invented key', async () => {
+    promptJsonMock.mockResolvedValue({keys: ['drafts d1', 'drafts nonexistent'], reason: 'Both about launch.'})
+
+    const reports = {
+      drafts: report('drafts', 'Drafts', {
+        open: [item('d1', {title: 'Draft one'}), item('d2', {title: 'Draft two'})],
+      }),
+    }
+    renderList({ask: true, reports, order: ['drafts']})
+
+    ask('things about the launch')
+
+    await vi.waitFor(() => expect(checkboxFor('Draft one').checked).toBe(true))
+    expect(checkboxFor('Draft two').checked).toBe(false)
+    expect(await screen.findByText('Both about launch.')).toBeTruthy()
+  })
+
+  it('selects nothing and shows the reason when the answer matches nothing', async () => {
+    promptJsonMock.mockResolvedValue({keys: [], reason: 'Nothing here is about pricing.'})
+
+    const reports = {
+      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]}),
+    }
+    renderList({ask: true, reports, order: ['drafts']})
+
+    ask('anything about pricing')
+
+    expect(await screen.findByText('Nothing here is about pricing.')).toBeTruthy()
+    expect(checkboxFor('Draft one').checked).toBe(false)
+  })
+
+  it('never calls any source\'s resolve as a result of asking a question', async () => {
+    promptJsonMock.mockResolvedValue({keys: ['drafts d1'], reason: 'Matches.'})
+    const resolve = vi.fn()
+
+    const reports = {
+      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})], resolve}),
+    }
+    renderList({ask: true, reports, order: ['drafts']})
+
+    ask('anything')
+
+    await vi.waitFor(() => expect(checkboxFor('Draft one').checked).toBe(true))
+    expect(resolve).not.toHaveBeenCalled()
   })
 })

@@ -204,7 +204,7 @@ describe('wrapStructure', () => {
       spec: {canHandleIntent?: () => boolean}
     }
 
-    expect(home.getOptions()).toEqual({sources: []})
+    expect(home.getOptions()).toEqual({sources: [], ask: false})
     // A dashboard pane must never win the race to handle an `edit` intent.
     expect(home.spec.canHandleIntent?.()).toBe(false)
   })

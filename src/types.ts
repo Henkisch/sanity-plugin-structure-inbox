@@ -45,10 +45,26 @@ export interface StructureInboxConfig {
    * @defaultValue true
    */
   redirectOnLanding?: boolean
+
+  /**
+   * Lets an editor select rows by asking a plain-language question ("things
+   * about the spring campaign") instead of reading and ticking each one —
+   * shown as a single-line input in the Open view's own header.
+   *
+   * The AI's only output is a selection: it never resolves, dismisses, or
+   * snoozes anything itself, and only rows already on screen (after any
+   * active filter) are candidates. Off by default: it spends an Agent
+   * Actions request per question, and needs Agent Actions available in the
+   * Studio (silently does nothing useful without it — the input still
+   * renders, since knowing that in advance would need its own request).
+   *
+   * @defaultValue false
+   */
+  ask?: boolean
 }
 
 /** @internal */
 export type ResolvedStructureInboxConfig = Required<
-  Pick<StructureInboxConfig, 'toolName' | 'showInList' | 'redirectOnLanding' | 'sources'>
+  Pick<StructureInboxConfig, 'toolName' | 'showInList' | 'redirectOnLanding' | 'sources' | 'ask'>
 > &
   Pick<StructureInboxConfig, 'title'>
