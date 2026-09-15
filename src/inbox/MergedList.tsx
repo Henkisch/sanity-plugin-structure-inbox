@@ -476,6 +476,42 @@ export function MergedList(props: MergedListProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above; `singleSelectedRow`/`suggestSnoozeForRow` are intentionally read fresh from the closure, not tracked.
   }, [singleSelectedRow?.key])
 
+  // Same gate as the snooze suggestion above (exactly one selected row, Open
+  // view only) — `assignableSource` already requires every selected row to
+  // share one source, trivially true for exactly one.
+  const suggestAssigneeForRow = singleSelectedRow ? assignableSource?.suggestAssignee : undefined
+
+  const [assigneeSuggestion, setAssigneeSuggestion] = useState<{
+    userId: string
+    reason: 'lastEditor'
+  } | null>(null)
+
+  useEffect(() => {
+    if (!singleSelectedRow || !suggestAssigneeForRow) {
+      setAssigneeSuggestion(null)
+      return undefined
+    }
+
+    let cancelled = false
+    setAssigneeSuggestion(null)
+
+    suggestAssigneeForRow(singleSelectedRow.item)
+      .then((result) => {
+        if (!cancelled) setAssigneeSuggestion(result)
+        return undefined
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          console.error('[sanity-plugin-structure-inbox] suggest-assignee failed', error)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- same reasoning as the snooze-suggestion effect above; `singleSelectedRow`/`suggestAssigneeForRow` are intentionally read fresh from the closure, not tracked.
+  }, [singleSelectedRow?.key])
+
   const reportsInOrder = order
     .map((name) => reports[name])
     .filter((r): r is SourceReport => Boolean(r))
@@ -884,6 +920,7 @@ export function MergedList(props: MergedListProps) {
 
             {showSelectionBar ? (
               <SelectionActions
+                assigneeSuggestion={view === 'open' ? (assigneeSuggestion ?? undefined) : undefined}
                 assignableUsers={view === 'open' ? assignableSource?.users : undefined}
                 busy={busy}
                 count={displayCount}

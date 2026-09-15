@@ -85,6 +85,8 @@ const enUS = {
   'action.snooze.suggested': 'Until {{date}}',
 
   'action.assign': 'Assign to…',
+  'action.assign.suggested': 'Suggest {{name}}',
+  'action.assign.reason.lastEditor': 'edited this most recently',
   'action.delete': 'Delete',
 
   'inbox.addMenu': 'Add',

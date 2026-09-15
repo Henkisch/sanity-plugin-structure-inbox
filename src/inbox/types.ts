@@ -293,6 +293,25 @@ export interface InboxSourceResult {
      * at all, for a source where that would never make sense.
      */
     unassign?: (item: InboxItem) => Promise<void>
+    /**
+     * Who most likely ought to get this, with the evidence for saying so —
+     * for `unpublishedDrafts`, whoever last edited the draft, read from the
+     * transaction log rather than guessed.
+     *
+     * A suggestion, never a default: the picker still requires a choice.
+     * "Whoever wrote it" is a good guess, not a rule — sometimes the author
+     * is exactly the person who should not be chased about it.
+     *
+     * `reason` is a key, not English text: the source knows *why* (the fact
+     * it read), the UI knows *how to say it* in the editor's own language.
+     * Only `'lastEditor'` exists today; a future reason should extend this
+     * union rather than fall back to a free-text string, so every reason
+     * this plugin can ever show stays translatable the same way.
+     *
+     * Returns `null` when there is no defensible suggestion, including when
+     * the obvious candidate is no longer assignable.
+     */
+    suggestAssignee?: (item: InboxItem) => Promise<{userId: string; reason: 'lastEditor'} | null>
   }
   /**
    * True for a source whose items have a real, native assignee — just not

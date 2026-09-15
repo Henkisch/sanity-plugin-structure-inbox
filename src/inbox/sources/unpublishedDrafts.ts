@@ -24,7 +24,7 @@ import {type SnoozeState} from '../../store/snoozes'
 import {splitItems} from '../splitItems'
 import {type InboxAssessment, type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {useAssignmentStore} from './assignmentStore'
-import {filterAuthoredBy} from './authoredBy'
+import {fetchDocumentAuthors, filterAuthoredBy} from './authoredBy'
 import {optionalHook} from './capability'
 import {liveQuery$} from './liveQuery'
 
@@ -319,6 +319,8 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
       const assign = useMemo(() => {
         if (!assignable) return undefined
 
+        const grantedIds = new Set(assignable.filter((user) => user.granted).map((user) => user.id))
+
         return {
           users: assignable
             .filter((user) => user.granted)
@@ -331,8 +333,18 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
             const targetId = item.intent?.params.id
             if (targetId) await assignments.unassign(targetId)
           },
+          // Whoever most recently touched the draft, from the transaction
+          // log — a fact, not a guess. Dropped rather than offered when
+          // that person isn't (or is no longer) assignable, the same
+          // fallback `assignedTo` already gets elsewhere in this source.
+          suggestAssignee: async (item: InboxItem) => {
+            const authors = await fetchDocumentAuthors(client, [item.id])
+            const mostRecentAuthor = authors.get(item.id)?.[0]
+            if (!mostRecentAuthor || !grantedIds.has(mostRecentAuthor)) return null
+            return {userId: mostRecentAuthor, reason: 'lastEditor' as const}
+          },
         }
-      }, [assignable, assignments])
+      }, [assignable, assignments, client])
 
       return useMemo(
         () => ({...result, items, assess, suggestSnooze, assign}),

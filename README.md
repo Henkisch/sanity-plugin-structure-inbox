@@ -219,26 +219,51 @@ useItems() {
 ### Assigning an item to someone else
 
 `unpublishedDrafts` also offers `assign`: select rows, then pick a name from
-the **Assign to…** picker. This creates a real Sanity Task — the same
-`tasks.task` document `openTasks` reads — with `assignedTo` set to the person
-chosen, so it shows up in their own `openTasks` list.
+the **Assign to…** picker. This is **not** a Sanity Task: an earlier version
+created a real `tasks.task` document per assignment, which surfaced as a
+second, separately-titled "Follow up: …" row editors had to reconcile with
+the actual draft it was about, needed the addon dataset for a feature that
+has nothing to do with Sanity's own Tasks concept, and had a real bug —
+reassigning a draft that already had one of these tasks did not reliably
+find and reuse it, so a fresh task was created on every click. Assignment is
+now a plain, unregistered document
+(`structureInbox.draftAssignment.<targetId>`) mapping the draft's canonical
+id to an assignee id, the same shape and reasoning `useDismissals.ts` already
+uses for its own per-user preference doc.
 
-The task also sets `target`, so it shows Sanity's own "linked to this
-document" affordance in its native Tasks UI — a `_weak` `crossDatasetReference`
-to the draft's canonical (published-style) id, plus `documentType`, the exact
-shape Sanity's own "Create new task" writes. Confirmed by creating one by
-hand — on a draft that has never been published — and reading it back:
-Sanity points `target` at that canonical id regardless, which is exactly
-what `_weak` is for, so this plugin does the same. `tasks.task` remains
-`@beta` in Sanity's own typings regardless.
-
-Who can be assigned comes from `useUserListWithPermissions` — also `@beta` —
+Who can be assigned comes from `useUserListWithPermissions` — `@beta` in
+Sanity's own typings, reached through `optionalHook` for that reason —
 filtered to whoever can update documents in this dataset.
 
 **Assign to…** only appears when every currently selected row comes from the
 same source: assigning across sources with different assignee pools has no
 single well-defined meaning, so the picker simply doesn't offer it for a mixed
 selection.
+
+With exactly one row selected, `unpublishedDrafts` also offers a suggestion
+above the picker: whoever most recently edited the draft, read from the
+transaction log via `fetchDocumentAuthors` (no LLM — this is a fact already
+in the data, not something that needs inferring from prose) and dropped
+entirely, rather than offered, if that person is no longer assignable. It is
+never pre-selected in the picker — "whoever wrote it" is a good guess, not a
+rule, and the editor still has to click it, the same as choosing a name
+directly. Costs one extra transaction-log request, made when exactly one row
+is selected — never per row in the list, never on every render.
+
+A source opts in by returning `suggestAssignee` from its `assign` bag:
+
+```ts
+assign: {
+  users,
+  toUser,
+  suggestAssignee: async (item) => {
+    const authors = await fetchDocumentAuthors(client, [item.id])
+    const mostRecentAuthor = authors.get(item.id)?.[0]
+    if (!mostRecentAuthor || !isAssignable(mostRecentAuthor)) return null
+    return {userId: mostRecentAuthor, reason: 'lastEditor'}
+  },
+}
+```
 
 ### Writing your own
 

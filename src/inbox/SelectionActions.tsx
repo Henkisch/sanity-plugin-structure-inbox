@@ -55,6 +55,14 @@ interface SelectionActionsProps {
   /** Offers the "Assign" picker. Only meaningful in the open view, same reasoning as `onSnooze`. */
   onAssign?: (userId: string) => void
   /**
+   * A fact-based alternative to picking a name — see
+   * `InboxSourceResult.suggestAssignee`'s own doc comment. Rendered as its
+   * own small button next to the picker, never pre-selected in it: the
+   * editor still has to click, the same as choosing from the `<select>`
+   * would be.
+   */
+  assigneeSuggestion?: {userId: string; reason: 'lastEditor'}
+  /**
    * Offers "Delete" — for real removal (`todos`, say), not a soft dismiss.
    * Used to live as a plain text link under a lone selected row
    * (`InboxRow.tsx`'s own `removeRow`), which read as a stray control rather
@@ -154,6 +162,7 @@ export function SelectionActions(props: SelectionActionsProps) {
     onSnoozeUntil,
     assignableUsers,
     onAssign,
+    assigneeSuggestion,
     onDelete,
   } = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
@@ -182,6 +191,10 @@ export function SelectionActions(props: SelectionActionsProps) {
     const value = event.currentTarget.value
     if (value) onAssign?.(value)
   }
+
+  const suggestedUser = assigneeSuggestion
+    ? assignableUsers?.find((user) => user.id === assigneeSuggestion.userId)
+    : undefined
 
   return (
     // No count text here — it renders in `MergedList.tsx`'s own header,
@@ -235,6 +248,26 @@ export function SelectionActions(props: SelectionActionsProps) {
           onClick={onDelete}
           tone="critical"
         />
+      )}
+
+      {assigneeSuggestion && onAssign && suggestedUser && (
+        <Tooltip
+          content={
+            <Box padding={2}>
+              <Text size={1}>{t(`action.assign.reason.${assigneeSuggestion.reason}`)}</Text>
+            </Box>
+          }
+          placement="bottom"
+        >
+          <Button
+            disabled={busy}
+            fontSize={0}
+            mode="bleed"
+            onClick={() => onAssign(suggestedUser.id)}
+            padding={1}
+            text={t('action.assign.suggested', {name: suggestedUser.label})}
+          />
+        </Tooltip>
       )}
 
       {onAssign && assignableUsers && assignableUsers.length > 0 && (

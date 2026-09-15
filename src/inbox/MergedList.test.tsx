@@ -779,3 +779,113 @@ describe('suggested snooze date', () => {
     await vi.waitFor(() => expect(snoozes.snooze).toHaveBeenCalledWith('drafts', 'd1', expect.any(String)))
   })
 })
+
+describe('suggested assignee', () => {
+  it('never requests a suggestion once two rows are selected', async () => {
+    const suggestAssignee = vi.fn().mockResolvedValue({userId: 'user-1', reason: 'lastEditor'})
+    const toUser = vi.fn().mockResolvedValue(undefined)
+    const reports = {
+      drafts: report('drafts', 'Drafts', {
+        open: [item('d1', {title: 'Draft one'}), item('d2', {title: 'Draft two'})],
+        assign: {users: [{id: 'user-1', label: 'Ada'}], toUser, suggestAssignee},
+      }),
+    }
+    renderList({reports, order: ['drafts']})
+
+    selectItem('Draft one')
+    selectItem('Draft two')
+
+    // Give any in-flight (and now stale) request from the transient
+    // one-selected instant a tick to resolve.
+    await new Promise((r) => setTimeout(r, 10))
+    expect(screen.queryByText('action.assign.suggested')).toBeNull()
+  })
+
+  it('renders nothing for a source with no suggestAssignee', () => {
+    const toUser = vi.fn().mockResolvedValue(undefined)
+    const reports = {
+      drafts: report('drafts', 'Drafts', {
+        open: [item('d1', {title: 'Draft one'})],
+        assign: {users: [{id: 'user-1', label: 'Ada'}], toUser},
+      }),
+    }
+    renderList({reports, order: ['drafts']})
+
+    selectItem('Draft one')
+
+    expect(screen.queryByText('action.assign.suggested')).toBeNull()
+  })
+
+  it('renders the suggestion for a single row from a source that offers it', async () => {
+    const suggestAssignee = vi.fn().mockResolvedValue({userId: 'user-1', reason: 'lastEditor'})
+    const toUser = vi.fn().mockResolvedValue(undefined)
+    const reports = {
+      drafts: report('drafts', 'Drafts', {
+        open: [item('d1', {title: 'Draft one'})],
+        assign: {users: [{id: 'user-1', label: 'Ada'}], toUser, suggestAssignee},
+      }),
+    }
+    renderList({reports, order: ['drafts']})
+
+    selectItem('Draft one')
+
+    expect(await screen.findByText('action.assign.suggested')).toBeTruthy()
+    expect(suggestAssignee).toHaveBeenCalledWith(expect.objectContaining({id: 'd1'}))
+  })
+
+  it('clicking the suggestion assigns to that exact user id', async () => {
+    const suggestAssignee = vi.fn().mockResolvedValue({userId: 'user-1', reason: 'lastEditor'})
+    const toUser = vi.fn().mockResolvedValue(undefined)
+    const reports = {
+      drafts: report('drafts', 'Drafts', {
+        open: [item('d1', {title: 'Draft one'})],
+        assign: {users: [{id: 'user-1', label: 'Ada'}], toUser, suggestAssignee},
+      }),
+    }
+    renderList({reports, order: ['drafts']})
+
+    selectItem('Draft one')
+    fireEvent.click(await screen.findByText('action.assign.suggested'))
+
+    await vi.waitFor(() => expect(toUser).toHaveBeenCalledWith(expect.objectContaining({id: 'd1'}), 'user-1'))
+  })
+
+  it('renders nothing extra, with no error, when the suggestion resolves null, and leaves the picker working', async () => {
+    const suggestAssignee = vi.fn().mockResolvedValue(null)
+    const toUser = vi.fn().mockResolvedValue(undefined)
+    const reports = {
+      drafts: report('drafts', 'Drafts', {
+        open: [item('d1', {title: 'Draft one'})],
+        assign: {users: [{id: 'user-1', label: 'Ada'}], toUser, suggestAssignee},
+      }),
+    }
+    renderList({reports, order: ['drafts']})
+
+    selectItem('Draft one')
+
+    await vi.waitFor(() => expect(suggestAssignee).toHaveBeenCalled())
+    expect(screen.queryByText('action.assign.suggested')).toBeNull()
+
+    fireEvent.change(screen.getByDisplayValue('action.assign'), {target: {value: 'user-1'}})
+    await vi.waitFor(() => expect(toUser).toHaveBeenCalledTimes(1))
+  })
+
+  it('leaves the plain picker working when suggestAssignee rejects', async () => {
+    const suggestAssignee = vi.fn().mockRejectedValue(new Error('network down'))
+    const toUser = vi.fn().mockResolvedValue(undefined)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const reports = {
+      drafts: report('drafts', 'Drafts', {
+        open: [item('d1', {title: 'Draft one'})],
+        assign: {users: [{id: 'user-1', label: 'Ada'}], toUser, suggestAssignee},
+      }),
+    }
+    renderList({reports, order: ['drafts']})
+
+    selectItem('Draft one')
+    await vi.waitFor(() => expect(suggestAssignee).toHaveBeenCalled())
+
+    fireEvent.change(screen.getByDisplayValue('action.assign'), {target: {value: 'user-1'}})
+    await vi.waitFor(() => expect(toUser).toHaveBeenCalledTimes(1))
+  })
+})
