@@ -1,6 +1,6 @@
 import {SparklesIcon} from '@sanity/icons/Sparkles'
 import {Avatar, Button, Card, Flex, Stack, Text} from '@sanity/ui'
-import {useMemo, useState} from 'react'
+import {useMemo} from 'react'
 import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
@@ -41,43 +41,11 @@ export function groupByAssigneeLoad(rows: readonly MergedRow[]): AssigneeLoad[] 
   return [...byId.values()].sort((a, b) => b.count - a.count)
 }
 
-/** Same local calendar day as `now` — "today," not "the last 24 hours." */
-function isToday(isoTimestamp: string, now: number): boolean {
-  const time = Date.parse(isoTimestamp)
-  if (!Number.isFinite(time)) return false
-  const a = new Date(time)
-  const b = new Date(now)
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  )
-}
-
-/**
- * How many items, across every source, actually got cleared today — real,
- * source-confirmed completions and manual clears both count, each on the day
- * it actually left Open. `row.clearedAt` (see `mergeItems.ts`'s own doc
- * comment) is the real moment for either kind: the item's own `changedAt`
- * for a real resolve, or the dismissal's own timestamp for a manual clear —
- * never the item's `changedAt` alone, which for a manual clear can be long
- * before the editor actually cleared it.
- */
-export function countClearedToday(clearedRows: readonly MergedRow[], now: number): number {
-  let count = 0
-  for (const row of clearedRows) {
-    if (row.clearedAt && isToday(row.clearedAt, now)) count += 1
-  }
-  return count
-}
-
 interface InboxStatsProps {
   /** Every open row, across every main source — unfiltered, regardless of the filter bar above the list. */
   openRows: MergedRow[]
   /** `openRows`, restricted to sources that offer `assign` — the only ones "unassigned" means anything for. */
   assignableRows: MergedRow[]
-  /** Every cleared row, across every main source — same unfiltered shape as `openRows`. */
-  clearedRows: MergedRow[]
   /**
    * Runs `Inbox.tsx`'s own pane-level suggestion read and renders the result
    * right here, unlike "Summarize" (a full paragraph, shown in its own card
@@ -108,7 +76,6 @@ export function InboxStats(props: InboxStatsProps) {
   const {
     openRows,
     assignableRows,
-    clearedRows,
     onSuggestTodos,
     onAddSuggestion,
     onDismissSuggestion,
@@ -116,15 +83,8 @@ export function InboxStats(props: InboxStatsProps) {
   } = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
-  // Not a ticking clock: a summary card is allowed to be up to a session
-  // stale, and reading `Date.now()` directly in render (impure) is exactly
-  // what `useState`'s lazy initializer exists to avoid — called once, on
-  // mount, same as `Inbox.tsx`'s own `now` state above it.
-  const [now] = useState(() => Date.now())
-
   const unassignedCount = useMemo(() => countUnassigned(assignableRows), [assignableRows])
   const assigneeLoad = useMemo(() => groupByAssigneeLoad(openRows), [openRows])
-  const clearedToday = useMemo(() => countClearedToday(clearedRows, now), [clearedRows, now])
 
   return (
     <Card border overflow="hidden" radius={3} shadow={0}>
@@ -149,11 +109,6 @@ export function InboxStats(props: InboxStatsProps) {
       </Card>
 
       <Stack gap={4} padding={4}>
-        <Flex justify="space-between">
-          <Text size={1}>{t('stats.clearedToday')}</Text>
-          <Text size={1}>{clearedToday}</Text>
-        </Flex>
-
         {(assigneeLoad.length > 0 || unassignedCount > 0) && (
           <Stack gap={2}>
             <Text muted size={0} weight="semibold">

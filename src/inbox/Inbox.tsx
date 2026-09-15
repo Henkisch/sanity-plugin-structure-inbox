@@ -371,10 +371,6 @@ export function Inbox({sources}: InboxProps) {
     () => mergeRows(reports, mainOrder, 'open', dismissals.state),
     [reports, mainOrder, dismissals.state],
   )
-  const clearedRows = useMemo(
-    () => mergeRows(reports, mainOrder, 'cleared', dismissals.state),
-    [reports, mainOrder, dismissals.state],
-  )
 
   // A pane-level read across everything currently open, not one item —
   // same Agent Actions call `unpublishedDrafts.ts`'s own `assess` makes
@@ -969,7 +965,6 @@ export function Inbox({sources}: InboxProps) {
                   <Stack gap={3}>
                     <InboxStats
                       assignableRows={assignableRows}
-                      clearedRows={clearedRows}
                       onAddSuggestion={handleAddSuggestion}
                       onDismissSuggestion={handleDismissSuggestion}
                       onSuggestTodos={addTodo ? handleSuggestTodos : undefined}

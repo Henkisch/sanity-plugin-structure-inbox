@@ -156,7 +156,6 @@ const enUS = {
   'todoSuggest.error': 'Could not reach AI.',
   'todoSuggest.add': 'Add',
   'todoSuggest.dismiss': 'Dismiss',
-  'stats.clearedToday': 'Cleared today',
   'stats.load.title': 'Open items by assignee',
 }
 
