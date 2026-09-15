@@ -25,6 +25,8 @@ import {
   writeReport,
 } from 'sanity-plugin-link-checker/core'
 
+import {promptJson} from '../../ai/promptJson'
+import {useAgentClient} from '../../ai/useAgentClient'
 import {API_VERSION} from '../../constants'
 import {type SnoozeState} from '../../store/snoozes'
 import {splitItems} from '../splitItems'
@@ -387,6 +389,7 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
     useItems(): InboxSourceResult {
       const {result, report} = useFindingsFetch()
       const client = useClient({apiVersion: API_VERSION})
+      const agentClient = useAgentClient()
       const schema = useSchema()
       const currentUser = useCurrentUser()
       const userId = currentUser?.id
@@ -467,8 +470,10 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
       // fully deterministic (see this source's own module-level notes on
       // why link-checker's actual scanning can't and shouldn't be handed to
       // an LLM); this is only ever the judgment layer on top of it.
-      const assess = useCallback(
-        async (item: InboxItem) => {
+      const assess = useMemo(() => {
+        if (!agentClient) return undefined
+
+        return async (item: InboxItem) => {
           const finding = findingsByKey.get(item.id)
           if (!finding) throw new Error('No finding found for this item — has it been rescanned?')
 
@@ -477,17 +482,12 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
               ? `Given the following document:\n$document\n---\nField '${finding.fieldPath}' holds a reference to a document that no longer exists. In one short, specific sentence, suggest what to do about it.`
               : `Given the following document:\n$document\n---\nField '${finding.fieldPath}' holds a broken external link (${finding.href}). In one short, specific sentence, suggest what to do about it.`
 
-          // Agent Actions rejects the plugin's own pinned `API_VERSION`
-          // outright ("Agent Actions are only available on apiVersion vX")
-          // — see `unpublishedDrafts.ts`'s own `assess`, which had this same
-          // bug. `withConfig` scopes the override to this one call.
-          return client.withConfig({apiVersion: 'vX'}).agent.action.prompt({
+          return agentClient.agent.action.prompt({
             instruction,
             instructionParams: {document: {type: 'document', documentId: finding.fromId}},
           })
-        },
-        [client, findingsByKey],
-      )
+        }
+      }, [agentClient, findingsByKey])
 
       // The "action" half of "insight, then action" — see `proposeFix`'s own
       // doc comment on `InboxSourceResult`. Only ever offered when
@@ -545,6 +545,8 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
           if (finding.kind === 'link') return proposeLinkFix(finding)
           if (finding.kind !== 'reference') return null
 
+          if (!agentClient) return null
+
           const targetType = singleReferenceTargetType(schema, finding.fromType, finding.fieldPath)
           if (!targetType) return null
 
@@ -555,17 +557,9 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
 
           type FixChoice = {id: string | null; label: string | null; reason: string}
 
-          // `withConfig`'s own return type loses the conditional
-          // `format: 'json'` overload `agent.action.prompt` otherwise
-          // resolves to (the same class of cross-type mismatch as
-          // `toLinkCheckerClient` above) — at runtime this is genuinely the
-          // parsed JSON object, per Sanity's own documented behavior for
-          // `format: 'json'`, not the plain string TS infers here.
-          // eslint-disable-next-line no-unsafe-type-assertion -- see comment above.
-          const choice = (await client.withConfig({apiVersion: 'vX'}).agent.action.prompt({
-            format: 'json',
-            instruction:
-              "Given the following document:\n$document\n---\nField '" +
+          const choice = await promptJson<FixChoice>(
+            agentClient,
+            "Given the following document:\n$document\n---\nField '" +
               finding.fieldPath +
               "' should hold a reference to a " +
               targetType +
@@ -577,7 +571,7 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
               "content, `label` is that candidate's own title/name, and `reason` is one short " +
               'sentence explaining the choice. If none of the candidates clearly fit, set `id` ' +
               'and `label` to null and use `reason` to say so.',
-            instructionParams: {
+            {
               document: {type: 'document', documentId: finding.fromId},
               candidates: {
                 type: 'groq',
@@ -585,9 +579,9 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
                 params: {type: targetType},
               },
             },
-          })) as unknown as FixChoice
+          )
 
-          if (!choice.id) return null
+          if (!choice?.id) return null
 
           const chosenId = choice.id
           return {
@@ -600,7 +594,7 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
             },
           }
         },
-        [client, findingsByKey, proposeLinkFix, schema],
+        [agentClient, client, findingsByKey, proposeLinkFix, schema],
       )
 
       return useMemo(

@@ -20,10 +20,12 @@ import {
 import {Menu, MenuButton, MenuItem} from '@sanity/ui/menu'
 import {Tooltip} from '@sanity/ui/tooltip'
 import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react'
-import {useClient, useCurrentUser, useTranslation} from 'sanity'
+import {useCurrentUser, useTranslation} from 'sanity'
 import {styled} from 'styled-components'
 
-import {API_VERSION, STRUCTURE_INBOX_NAMESPACE} from '../constants'
+import {promptJson} from '../ai/promptJson'
+import {useAgentClient} from '../ai/useAgentClient'
+import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {type useDismissals} from '../store/useDismissals'
 import {type useSnoozes} from '../store/useSnoozes'
 import {useSharedInboxStore} from '../studio/inboxCountLayout'
@@ -373,12 +375,12 @@ export function Inbox({sources}: InboxProps) {
   )
 
   // A pane-level read across everything currently open, not one item —
-  // same Agent Actions call `unpublishedDrafts.ts`'s own `assess` makes
-  // (`client.agent.action.prompt`), same "informational only, never
-  // automatic" shape: only ever runs on a click, never in the background,
-  // and never writes anything back. Capped at 30 rows so a large inbox
-  // doesn't turn one click into an unbounded prompt.
-  const summarizeClient = useClient({apiVersion: API_VERSION})
+  // same Agent Actions call `unpublishedDrafts.ts`'s own `assess` makes,
+  // same "informational only, never automatic" shape: only ever runs on a
+  // click, never in the background, and never writes anything back. Capped
+  // at 30 rows so a large inbox doesn't turn one click into an unbounded
+  // prompt.
+  const agentClient = useAgentClient()
   const [summary, setSummary] = useState<
     {status: 'idle'} | {status: 'loading'} | {status: 'done'; message: string} | {status: 'error'}
   >({status: 'idle'})
@@ -390,24 +392,24 @@ export function Inbox({sources}: InboxProps) {
       .map((row) => `- ${row.item.title}${row.item.subtitle ? ` (${row.item.subtitle})` : ''}`)
       .join('\n')
 
+    if (!agentClient) {
+      setSummary({status: 'error'})
+      return
+    }
+
     try {
-      // Agent Actions rejects the plugin's own pinned `API_VERSION` outright
-      // ("Agent Actions are only available on apiVersion vX") — confirmed
-      // live; see `unpublishedDrafts.ts`'s own `assess`, which had the same
-      // bug. `withConfig` scopes the override to this one call.
-      const message = await summarizeClient
-        .withConfig({apiVersion: 'vX'})
-        .agent.action.prompt({
-          instruction:
-            'Given this list of open inbox items, one per line:\n$items\n---\n' +
-            'In two or three short sentences, say what looks most worth starting with first and why.',
-          instructionParams: {items: digest || 'Nothing is open right now.'},
-        })
+      const message = await agentClient.agent.action.prompt({
+        instruction:
+          'Given this list of open inbox items, one per line:\n$items\n---\n' +
+          'In two or three short sentences, say what looks most worth starting with first and why.',
+        instructionParams: {items: digest || 'Nothing is open right now.'},
+      })
       setSummary({status: 'done', message})
-    } catch {
+    } catch (error: unknown) {
+      console.error('[sanity-plugin-structure-inbox] summarize failed', error)
       setSummary({status: 'error'})
     }
-  }, [summarizeClient, openRows])
+  }, [agentClient, openRows])
 
   const [suggestions, setSuggestions] = useState<SuggestTodosState>({status: 'idle'})
 
@@ -429,29 +431,30 @@ export function Inbox({sources}: InboxProps) {
       .map((row) => `- ${row.item.title}${row.item.subtitle ? ` (${row.item.subtitle})` : ''}`)
       .join('\n')
 
+    if (!agentClient) {
+      setSuggestions({status: 'error'})
+      return
+    }
+
     try {
       type SuggestionChoice = {items: {title: string; reason: string}[]}
 
-      // Same `withConfig`/`format: 'json'` cross-type cast every other
-      // Agent Actions JSON call in this codebase needs — see
-      // `linkCheckerFindings.ts`'s own `FixChoice` for the full rationale.
-      // eslint-disable-next-line no-unsafe-type-assertion -- see comment above.
-      const choice = (await summarizeClient.withConfig({apiVersion: 'vX'}).agent.action.prompt({
-        format: 'json',
-        instruction:
-          'Given this list of open inbox items, one per line:\n$items\n---\n' +
+      const choice = await promptJson<SuggestionChoice>(
+        agentClient,
+        'Given this list of open inbox items, one per line:\n$items\n---\n' +
           'Suggest at most 3 concrete personal todos an editor could add to make progress on ' +
           'these — each a short, specific, imperative title (max ~8 words) plus a one-sentence ' +
           'reason. Return JSON {"items": [{"title": string, "reason": string}]}. If nothing open ' +
           'warrants a new todo, return {"items": []}.',
-        instructionParams: {items: digest || 'Nothing is open right now.'},
-      })) as unknown as SuggestionChoice
+        {items: digest || 'Nothing is open right now.'},
+      )
 
-      setSuggestions({status: 'done', items: (choice.items ?? []).slice(0, 3)})
-    } catch {
+      setSuggestions({status: 'done', items: (choice?.items ?? []).slice(0, 3)})
+    } catch (error: unknown) {
+      console.error('[sanity-plugin-structure-inbox] suggest-todos failed', error)
       setSuggestions({status: 'error'})
     }
-  }, [summarizeClient, openRows])
+  }, [agentClient, openRows])
 
   // The actual add (a real, one-shot write) happens here, in the event
   // handler itself — never inside the `setSuggestions` updater below. React

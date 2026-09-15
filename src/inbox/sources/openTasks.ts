@@ -1,20 +1,19 @@
 import {TaskIcon} from '@sanity/icons/Task'
-import {useCallback, useMemo} from 'react'
+import {useMemo} from 'react'
 import {useObservable} from 'react-rx'
 import {of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
 // `useAddonDataset` and `useUserListWithPermissions` stay out of this named
-// import — see `optionalHook` below. `useClient`/`useCurrentUser` are public
-// and stable, so they're imported normally.
+// import — see `optionalHook` below. `useCurrentUser` is public and stable,
+// so it's imported normally.
 import {
   type AddonDatasetContextValue,
-  useClient,
   useCurrentUser,
   type UserListWithPermissionsHookValue,
   type UserListWithPermissionsOptions,
 } from 'sanity'
 
-import {API_VERSION} from '../../constants'
+import {useAgentClient} from '../../ai/useAgentClient'
 import {type SnoozeState} from '../../store/snoozes'
 import {splitItems} from '../splitItems'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
@@ -164,8 +163,8 @@ function isOverdue(dueBy?: string): boolean {
  * thin fields. A task with no target (a plain reminder, nothing to open) has
  * nothing to point Agent Actions at, so it falls back to reading just the
  * task's own title instead of offering nothing at all. Needs its own
- * content-dataset client (`useClient`), separate from `client` above (the
- * Tasks addon dataset) — a task's target document never lives in the addon
+ * agent client (`useAgentClient`), separate from `client` above (the Tasks
+ * addon dataset) — a task's target document never lives in the addon
  * dataset, and Agent Actions only ever reads whatever dataset its own client
  * is scoped to.
  *
@@ -312,7 +311,11 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
 
     useItems(): InboxSourceResult {
       const {client, ready} = useAddonDataset()
-      const contentClient = useClient({apiVersion: API_VERSION})
+      // A task's own target document lives in the content dataset, never
+      // the Tasks addon dataset `client` above reads from — Agent Actions
+      // only ever reads whatever dataset its own client is scoped to, so
+      // `assess` below needs this one instead.
+      const agentClient = useAgentClient()
       const currentUser = useCurrentUser()
       const userId = currentUser?.id
       // `null` documentValue: not scoped to one task, since any of them could
@@ -349,13 +352,12 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
         [result.items, result.rowAssignees, assigneesById],
       )
 
-      const assess = useCallback(
-        async (item: InboxItem) => {
-          // Same apiVersion override every other assess call needs — see
-          // `unpublishedDrafts.ts`'s own doc comment on why the plugin's
-          // stable, pinned `API_VERSION` gets rejected outright.
+      const assess = useMemo(() => {
+        if (!agentClient) return undefined
+
+        return async (item: InboxItem) => {
           const targetId = item.intent?.type === 'edit' ? item.intent.params.id : undefined
-          return contentClient.withConfig({apiVersion: 'vX'}).agent.action.prompt({
+          return agentClient.agent.action.prompt({
             instruction: targetId
               ? "Given the following document:\n$document\n---\nThere's an open task about it: " +
                 `"${item.title}". In one short, specific sentence, suggest a concrete next step.`
@@ -365,9 +367,8 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
               ? {document: {type: 'document', documentId: targetId}}
               : {items: item.title},
           })
-        },
-        [contentClient],
-      )
+        }
+      }, [agentClient])
 
       const openTaskDetail = useOpenTaskDetail()
 

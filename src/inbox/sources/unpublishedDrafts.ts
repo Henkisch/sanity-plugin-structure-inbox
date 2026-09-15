@@ -1,6 +1,6 @@
 import {type SanityClient} from '@sanity/client'
 import {DocumentsIcon} from '@sanity/icons/Documents'
-import {useCallback, useMemo} from 'react'
+import {useMemo} from 'react'
 import {useObservable} from 'react-rx'
 import {from, of} from 'rxjs'
 import {catchError, map, startWith, switchMap} from 'rxjs/operators'
@@ -14,6 +14,7 @@ import {
   type UserListWithPermissionsOptions,
 } from 'sanity'
 
+import {useAgentClient} from '../../ai/useAgentClient'
 import {API_VERSION} from '../../constants'
 import {type SnoozeState} from '../../store/snoozes'
 import {splitItems} from '../splitItems'
@@ -55,6 +56,18 @@ export interface UnpublishedDraftsOptions {
    * @defaultValue false
    */
   onlyMine?: boolean
+  /**
+   * Offer "Ask AI" on each row.
+   *
+   * Defaults to `true`. Set `false` to omit it entirely — every press spends
+   * an Agent Actions request, and a Studio should be able to turn that off
+   * without forking this source. Also `undefined` in practice whenever Agent
+   * Actions themselves are unavailable (see `useAgentClient`), in which case
+   * the button is simply absent rather than present-and-erroring.
+   *
+   * @defaultValue true
+   */
+  ai?: boolean
 }
 
 interface DraftRow {
@@ -128,6 +141,7 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
     title = 'Draft',
     placement = 'main',
     onlyMine = false,
+    ai = true,
   } = options
 
   /**
@@ -248,16 +262,13 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
         [result.items, assignments.byTarget, assigneesById],
       )
 
-      const assess = useCallback(
-        async (item: InboxItem) => {
-          // Agent Actions rejects the plugin's own pinned `API_VERSION`
-          // outright ("Agent Actions are only available on apiVersion vX") —
-          // confirmed live, not assumed: this call was silently never
-          // succeeding before, only ever exercising its own error path.
-          // `withConfig` scopes that override to this one call, leaving
-          // every other request on this client at the plugin's real,
-          // stable version.
-          const message = await client.withConfig({apiVersion: 'vX'}).agent.action.prompt({
+      const agentClient = useAgentClient({enabled: ai})
+
+      const assess = useMemo(() => {
+        if (!agentClient) return undefined
+
+        return async (item: InboxItem) => {
+          const message = await agentClient.agent.action.prompt({
             instruction:
               'Given the following document:\n$document\n---\n' +
               'In one short, specific sentence: does this draft look ready to publish, ' +
@@ -265,9 +276,8 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
             instructionParams: {document: {type: 'document', documentId: item.id}},
           })
           return message
-        },
-        [client],
-      )
+        }
+      }, [agentClient])
 
       const assign = useMemo(() => {
         if (!assignable) return undefined

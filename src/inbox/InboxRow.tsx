@@ -241,7 +241,10 @@ export function InboxRow(props: InboxRowProps) {
     setAssessment({status: 'loading'})
     onAssess(item)
       .then((message) => setAssessment({status: 'done', message}))
-      .catch(() => setAssessment({status: 'done', message: t('assess.error')}))
+      .catch((error: unknown) => {
+        console.error('[sanity-plugin-structure-inbox] assess failed', error)
+        setAssessment({status: 'done', message: t('assess.error')})
+      })
   }, [onAssess, item, t])
 
   const handleProposeFix = useCallback(() => {
