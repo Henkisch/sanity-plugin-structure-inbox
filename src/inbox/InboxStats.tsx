@@ -6,6 +6,7 @@ import {useTranslation} from 'sanity'
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {initials, UnassignedAvatar} from './InboxRow'
 import {type MergedRow} from './mergeItems'
+import {type SuggestTodosState} from './types'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -104,15 +105,19 @@ interface InboxStatsProps {
   /** Every cleared row, across every main source — same unfiltered shape as `openRows`. */
   clearedRows: MergedRow[]
   /**
-   * A pointer to `Inbox.tsx`'s own pane-level "Summarize" action — not a
-   * second place the answer lives. This card's whole rhythm is glanceable
-   * numbers, not prose; a multi-sentence AI read doesn't fit it, and this
-   * column is only a third of the pane's width, too narrow for comfortable
-   * paragraph reading. So the trigger lives here as a small link, the result
-   * still renders where there's room for it. Omit to leave this card
-   * stats-only.
+   * Runs `Inbox.tsx`'s own pane-level suggestion read and renders the result
+   * right here, unlike "Summarize" (a full paragraph, shown in its own card
+   * above the list — too wide for this column's own comfort). A short list
+   * of concrete todos with an Add each fits this card's own glanceable
+   * rhythm instead. Omit (when no `todos` source is configured to add one
+   * into) to leave this card stats-only.
    */
-  onSummarize?: () => void
+  onSuggestTodos?: () => void
+  /** Adds one suggestion (by index into `suggestions.items`) to the editor's own todo list. */
+  onAddSuggestion?: (index: number) => void
+  /** Drops one suggestion (by index) without adding it — nothing is persisted either way. */
+  onDismissSuggestion?: (index: number) => void
+  suggestions?: SuggestTodosState
 }
 
 /**
@@ -126,7 +131,15 @@ interface InboxStatsProps {
  * the whole-team picture underneath that, so the two stay independent.
  */
 export function InboxStats(props: InboxStatsProps) {
-  const {openRows, assignableRows, clearedRows, onSummarize} = props
+  const {
+    openRows,
+    assignableRows,
+    clearedRows,
+    onSuggestTodos,
+    onAddSuggestion,
+    onDismissSuggestion,
+    suggestions = {status: 'idle'},
+  } = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
   // Not a ticking clock: a summary card is allowed to be up to a session
@@ -223,22 +236,80 @@ export function InboxStats(props: InboxStatsProps) {
           </Stack>
         )}
 
-        {onSummarize && (
-          // `justify="flex-start"`, not left to the `Stack`'s own default:
-          // a bare `Button` here rendered centered under the stats above it,
-          // reading as its own disconnected element rather than one more row
-          // in this card. `marginLeft` alone (an earlier attempt) offset the
-          // button's own padding but did nothing about the centering itself.
-          <Flex justify="flex-start" style={{marginLeft: -8}}>
-            <Button
-              fontSize={1}
-              icon={SparklesIcon}
-              mode="bleed"
-              onClick={onSummarize}
-              padding={2}
-              text={t('overview.askAi')}
-            />
-          </Flex>
+        {onSuggestTodos && (
+          <Stack gap={3}>
+            {suggestions.status !== 'done' && (
+              // `justify="flex-start"`, not left to the `Stack`'s own
+              // default: a bare `Button` here rendered centered under the
+              // stats above it, reading as its own disconnected element
+              // rather than one more row in this card. `marginLeft` alone
+              // (an earlier attempt) offset the button's own padding but did
+              // nothing about the centering itself.
+              <Flex justify="flex-start" style={{marginLeft: -8}}>
+                <Button
+                  disabled={suggestions.status === 'loading'}
+                  fontSize={1}
+                  icon={SparklesIcon}
+                  mode="bleed"
+                  onClick={onSuggestTodos}
+                  padding={2}
+                  text={suggestions.status === 'loading' ? t('todoSuggest.loading') : t('overview.askAi')}
+                />
+              </Flex>
+            )}
+
+            {suggestions.status === 'error' && (
+              <Text muted size={1}>
+                {t('todoSuggest.error')}
+              </Text>
+            )}
+
+            {suggestions.status === 'done' && suggestions.items.length === 0 && (
+              <Text muted size={1}>
+                {t('todoSuggest.none')}
+              </Text>
+            )}
+
+            {suggestions.status === 'done' && suggestions.items.length > 0 && (
+              <Stack gap={3}>
+                {suggestions.items.map((suggestion, index) => (
+                  // eslint-disable-next-line react/no-array-index-key -- stable per render: a suggestion is only ever added or dismissed, both of which remove it from `items` outright rather than reordering around it.
+                  <Stack gap={2} key={index}>
+                    <Flex align="flex-start" gap={2}>
+                      <Text muted size={0}>
+                        <SparklesIcon />
+                      </Text>
+                      <Stack flex={1} gap={1}>
+                        <Text size={1} weight="semibold">
+                          {suggestion.title}
+                        </Text>
+                        <Text muted size={1}>
+                          {suggestion.reason}
+                        </Text>
+                      </Stack>
+                    </Flex>
+                    <Flex gap={2} paddingLeft={4}>
+                      <Button
+                        fontSize={0}
+                        mode="bleed"
+                        onClick={() => onAddSuggestion?.(index)}
+                        padding={1}
+                        text={t('todoSuggest.add')}
+                        tone="primary"
+                      />
+                      <Button
+                        fontSize={0}
+                        mode="bleed"
+                        onClick={() => onDismissSuggestion?.(index)}
+                        padding={1}
+                        text={t('todoSuggest.dismiss')}
+                      />
+                    </Flex>
+                  </Stack>
+                ))}
+              </Stack>
+            )}
+          </Stack>
         )}
       </Stack>
     </Card>

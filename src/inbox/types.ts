@@ -146,6 +146,29 @@ export interface FixProposal {
 }
 
 /**
+ * One AI-suggested personal todo — `Inbox.tsx`'s own "Ask AI: what to work
+ * on first" trigger, `InboxStats.tsx`'s own rendering of the result. Not
+ * part of `InboxSourceResult`: this reads across every open row at once
+ * (the same digest `assess`/Summarize build), not one source's own items, so
+ * it lives at the pane level rather than per-source.
+ *
+ * @public
+ */
+export interface TodoSuggestion {
+  title: string
+  reason: string
+}
+
+/**
+ * @public
+ */
+export type SuggestTodosState =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'done'; items: TodoSuggestion[]}
+  | {status: 'error'}
+
+/**
  * What a source hands back on each render.
  *
  * @public

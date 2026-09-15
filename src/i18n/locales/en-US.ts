@@ -142,12 +142,20 @@ const enUS = {
   'summarize.dismiss': 'Dismiss',
 
   'stats.title': 'Overview',
-  // A pointer to the pane-level "Summarize" action, not a second place the
-  // result renders — see `InboxStats.tsx`'s own `onSummarize` doc comment.
-  // Names what it's actually asking, not just "Ask AI" — that alone left
-  // even someone who knows this plugin well with no idea what the question
-  // even was.
+  // Triggers `todoSuggest.*` below, not `summarize.*` — a distinct read
+  // (concrete todos to add, not a paragraph) with its own trigger, rather
+  // than a second door to the same Summarize action. Names what it's
+  // actually asking, not just "Ask AI" — that alone left even someone who
+  // knows this plugin well with no idea what the question even was.
   'overview.askAi': 'Ask AI: what to work on first →',
+  // AI-suggested personal todos — the "action" half of `overview.askAi`,
+  // same "insight, then action" shape `fix.*` uses for a fix proposal: never
+  // added on its own, only ever via an explicit `todoSuggest.add` click.
+  'todoSuggest.loading': 'Thinking…',
+  'todoSuggest.none': 'Nothing looks worth a new todo right now.',
+  'todoSuggest.error': 'Could not reach AI.',
+  'todoSuggest.add': 'Add',
+  'todoSuggest.dismiss': 'Dismiss',
   'stats.age.title': 'Open items by age',
   'stats.age.recent': '{{count}} new',
   'stats.age.week': '{{count}} this week',

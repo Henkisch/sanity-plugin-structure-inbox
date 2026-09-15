@@ -39,7 +39,7 @@ import {initials, UnassignedAvatar} from './InboxRow'
 import {mergeRows} from './mergeItems'
 import {MergedList} from './MergedList'
 import {SourceFeed, type SourceReport} from './SourceFeed'
-import {type InboxSource, type InboxView} from './types'
+import {type InboxSource, type InboxView, type SuggestTodosState} from './types'
 import {useElementHeight} from './useElementHeight'
 
 interface InboxProps {
@@ -412,6 +412,76 @@ export function Inbox({sources}: InboxProps) {
       setSummary({status: 'error'})
     }
   }, [summarizeClient, openRows])
+
+  const [suggestions, setSuggestions] = useState<SuggestTodosState>({status: 'idle'})
+
+  // The one thing an editor can actually do with a suggestion: add it to
+  // their own personal list, the same `todos` source's own "add one" input
+  // already writes through. Read from `reports`, not a second `useTodos()`
+  // call here — a second instance would keep its own separate local copy of
+  // the same document, so an add through it wouldn't show up in the real
+  // list (the one `todos.ts`'s own `useItems` renders) until a reload.
+  // Undefined when no `todos` source is configured at all, same as
+  // `onSummarize` below being optional: the link this powers just doesn't
+  // render rather than offering suggestions with nowhere real to put them.
+  const addTodo = reports.todos?.create
+
+  const handleSuggestTodos = useCallback(async () => {
+    setSuggestions({status: 'loading'})
+    const digest = openRows
+      .slice(0, 30)
+      .map((row) => `- ${row.item.title}${row.item.subtitle ? ` (${row.item.subtitle})` : ''}`)
+      .join('\n')
+
+    try {
+      type SuggestionChoice = {items: {title: string; reason: string}[]}
+
+      // Same `withConfig`/`format: 'json'` cross-type cast every other
+      // Agent Actions JSON call in this codebase needs — see
+      // `linkCheckerFindings.ts`'s own `FixChoice` for the full rationale.
+      // eslint-disable-next-line no-unsafe-type-assertion -- see comment above.
+      const choice = (await summarizeClient.withConfig({apiVersion: 'vX'}).agent.action.prompt({
+        format: 'json',
+        instruction:
+          'Given this list of open inbox items, one per line:\n$items\n---\n' +
+          'Suggest at most 3 concrete personal todos an editor could add to make progress on ' +
+          'these — each a short, specific, imperative title (max ~8 words) plus a one-sentence ' +
+          'reason. Return JSON {"items": [{"title": string, "reason": string}]}. If nothing open ' +
+          'warrants a new todo, return {"items": []}.',
+        instructionParams: {items: digest || 'Nothing is open right now.'},
+      })) as unknown as SuggestionChoice
+
+      setSuggestions({status: 'done', items: (choice.items ?? []).slice(0, 3)})
+    } catch {
+      setSuggestions({status: 'error'})
+    }
+  }, [summarizeClient, openRows])
+
+  // The actual add (a real, one-shot write) happens here, in the event
+  // handler itself — never inside the `setSuggestions` updater below. React
+  // invokes a state updater function twice under StrictMode to catch exactly
+  // this shape of bug: an updater that isn't pure. Confirmed live, the hard
+  // way, before this comment existed — one click doubled the todo, since the
+  // side effect ran once per invocation of the updater.
+  const handleAddSuggestion = useCallback(
+    (index: number) => {
+      if (suggestions.status === 'done') {
+        const suggestion = suggestions.items[index]
+        if (suggestion) void addTodo?.({title: suggestion.title})
+      }
+
+      setSuggestions((current) =>
+        current.status === 'done' ? {...current, items: current.items.filter((_, i) => i !== index)} : current,
+      )
+    },
+    [suggestions, addTodo],
+  )
+
+  const handleDismissSuggestion = useCallback((index: number) => {
+    setSuggestions((current) =>
+      current.status === 'done' ? {...current, items: current.items.filter((_, i) => i !== index)} : current,
+    )
+  }, [])
 
   // Only the main column counts toward the headline. The aside is context —
   // "three releases are scheduled" is not three things asking for your
@@ -896,8 +966,11 @@ export function Inbox({sources}: InboxProps) {
                     <InboxStats
                       assignableRows={assignableRows}
                       clearedRows={clearedRows}
-                      onSummarize={handleSummarize}
+                      onAddSuggestion={handleAddSuggestion}
+                      onDismissSuggestion={handleDismissSuggestion}
+                      onSuggestTodos={addTodo ? handleSuggestTodos : undefined}
                       openRows={openRows}
+                      suggestions={suggestions}
                     />
 
                     {/* Always `view="open"`, never the pane's own tab: an

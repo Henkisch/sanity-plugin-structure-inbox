@@ -1,4 +1,4 @@
-import {cleanup, screen} from '@testing-library/react'
+import {cleanup, fireEvent, screen} from '@testing-library/react'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {renderWithTheme} from '../test/renderWithTheme'
@@ -157,5 +157,89 @@ describe('InboxStats', () => {
     renderWithTheme(<InboxStats assignableRows={[]} clearedRows={[]} openRows={[]} />)
 
     expect(screen.queryByText('stats.load.title')).toBeNull()
+  })
+
+  it('omits the AI-suggested-todos trigger entirely with no onSuggestTodos (no todos source configured)', () => {
+    renderWithTheme(<InboxStats assignableRows={[]} clearedRows={[]} openRows={[]} />)
+
+    expect(screen.queryByText('overview.askAi')).toBeNull()
+  })
+
+  it('shows the trigger while idle, and calls onSuggestTodos on click', () => {
+    const onSuggestTodos = vi.fn()
+    renderWithTheme(
+      <InboxStats
+        assignableRows={[]}
+        clearedRows={[]}
+        onSuggestTodos={onSuggestTodos}
+        openRows={[]}
+        suggestions={{status: 'idle'}}
+      />,
+    )
+
+    expect(screen.getByText('overview.askAi')).toBeTruthy()
+    fireEvent.click(screen.getByText('overview.askAi'))
+    expect(onSuggestTodos).toHaveBeenCalledTimes(1)
+  })
+
+  it('hides the trigger once a suggestion list has come back, showing the suggestions instead', () => {
+    renderWithTheme(
+      <InboxStats
+        assignableRows={[]}
+        clearedRows={[]}
+        onSuggestTodos={vi.fn()}
+        openRows={[]}
+        suggestions={{status: 'done', items: [{title: 'Write a hero image brief', reason: 'Three posts are missing one.'}]}}
+      />,
+    )
+
+    expect(screen.queryByText('overview.askAi')).toBeNull()
+    expect(screen.getByText('Write a hero image brief')).toBeTruthy()
+    expect(screen.getByText('Three posts are missing one.')).toBeTruthy()
+  })
+
+  it('says so when nothing looks worth a new todo, rather than showing an empty list', () => {
+    renderWithTheme(
+      <InboxStats
+        assignableRows={[]}
+        clearedRows={[]}
+        onSuggestTodos={vi.fn()}
+        openRows={[]}
+        suggestions={{status: 'done', items: []}}
+      />,
+    )
+
+    expect(screen.getByText('todoSuggest.none')).toBeTruthy()
+  })
+
+  it('adds a suggestion by its own index, and dismisses another without touching it', () => {
+    const onAddSuggestion = vi.fn()
+    const onDismissSuggestion = vi.fn()
+
+    renderWithTheme(
+      <InboxStats
+        assignableRows={[]}
+        clearedRows={[]}
+        onAddSuggestion={onAddSuggestion}
+        onDismissSuggestion={onDismissSuggestion}
+        onSuggestTodos={vi.fn()}
+        openRows={[]}
+        suggestions={{
+          status: 'done',
+          items: [
+            {title: 'First suggestion', reason: 'Reason one.'},
+            {title: 'Second suggestion', reason: 'Reason two.'},
+          ],
+        }}
+      />,
+    )
+
+    const addButtons = screen.getAllByText('todoSuggest.add')
+    fireEvent.click(addButtons[1])
+    expect(onAddSuggestion).toHaveBeenCalledWith(1)
+
+    const dismissButtons = screen.getAllByText('todoSuggest.dismiss')
+    fireEvent.click(dismissButtons[0])
+    expect(onDismissSuggestion).toHaveBeenCalledWith(0)
   })
 })
