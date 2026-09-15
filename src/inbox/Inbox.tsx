@@ -69,7 +69,13 @@ const ColumnsBoundary = styled.div`
 
 const ResponsiveColumns = styled.div`
   display: grid;
-  gap: 32px;
+  /* 20px — matches the padding={4} on the Box this whole grid sits inside
+     (Inbox.tsx's own render, below), confirmed live: the gap between the
+     two columns and the gap from each column to the pane's own outer edge
+     used to be two different numbers (33px vs 20px), which read as an
+     inconsistent, arbitrary layout rather than one deliberate unit of
+     spacing used everywhere. */
+  gap: 20px;
   grid-template-columns: 1fr;
 
   @container (min-width: 1280px) {
@@ -848,7 +854,13 @@ export function Inbox({sources}: InboxProps) {
         />
       ))}
 
-      <Box padding={4}>
+      {/* `paddingTop={0}`, not the uniform `padding={4}` this used to be: the
+          header `Card` right above already contributes its own `20px`
+          bottom padding, and the two stacked made the gap down to the list
+          and Overview cards read as twice as far as every other gap in this
+          layout (the inter-column gap, the outer left/right edges) — all of
+          which are this same `20px` unit, once. */}
+      <Box paddingBottom={4} paddingTop={0} paddingX={4}>
         <Container width={4}>
           <TabPanel
             aria-labelledby={

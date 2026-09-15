@@ -1,18 +1,20 @@
 import {TaskIcon} from '@sanity/icons/Task'
-import {useMemo} from 'react'
+import {useCallback, useMemo} from 'react'
 import {useObservable} from 'react-rx'
 import {of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
 // `useAddonDataset` and `useUserListWithPermissions` stay out of this named
-// import — see `optionalHook` below. `useCurrentUser` is public and stable,
-// so it is imported normally.
+// import — see `optionalHook` below. `useClient`/`useCurrentUser` are public
+// and stable, so they're imported normally.
 import {
   type AddonDatasetContextValue,
+  useClient,
   useCurrentUser,
   type UserListWithPermissionsHookValue,
   type UserListWithPermissionsOptions,
 } from 'sanity'
 
+import {API_VERSION} from '../../constants'
 import {type SnoozeState} from '../../store/snoozes'
 import {splitItems} from '../splitItems'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
@@ -153,6 +155,18 @@ function isOverdue(dueBy?: string): boolean {
  * the same `type: 'edit'` intent a draft's own row uses — rather than doing
  * nothing: a task's own fields (a title, a due date) are thin next to the
  * document it's actually about.
+ *
+ * Offers `assess` for the same reason: a task with a target reads *that*
+ * document via Agent Actions (same shape `unpublishedDrafts.ts`'s own assess
+ * uses), asking for a concrete next step given the task's own title — a
+ * task's real substance lives in the document it's about, not in its own
+ * thin fields. A task with no target (a plain reminder, nothing to open) has
+ * nothing to point Agent Actions at, so it falls back to reading just the
+ * task's own title instead of offering nothing at all. Needs its own
+ * content-dataset client (`useClient`), separate from `client` above (the
+ * Tasks addon dataset) — a task's target document never lives in the addon
+ * dataset, and Agent Actions only ever reads whatever dataset its own client
+ * is scoped to.
  *
  * Deliberately does NOT offer `assign`: a `tasks.task` already has exactly
  * one real assignee field, natively editable in Sanity's own Tasks UI —
@@ -297,6 +311,7 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
 
     useItems(): InboxSourceResult {
       const {client, ready} = useAddonDataset()
+      const contentClient = useClient({apiVersion: API_VERSION})
       const currentUser = useCurrentUser()
       const userId = currentUser?.id
       // `null` documentValue: not scoped to one task, since any of them could
@@ -333,11 +348,32 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
         [result.items, result.rowAssignees, assigneesById],
       )
 
+      const assess = useCallback(
+        async (item: InboxItem) => {
+          // Same apiVersion override every other assess call needs — see
+          // `unpublishedDrafts.ts`'s own doc comment on why the plugin's
+          // stable, pinned `API_VERSION` gets rejected outright.
+          const targetId = item.intent?.type === 'edit' ? item.intent.params.id : undefined
+          return contentClient.withConfig({apiVersion: 'vX'}).agent.action.prompt({
+            instruction: targetId
+              ? "Given the following document:\n$document\n---\nThere's an open task about it: " +
+                `"${item.title}". In one short, specific sentence, suggest a concrete next step.`
+              : 'Given this task:\n$items\n---\n' +
+                'In one short, specific sentence, suggest a concrete next step.',
+            instructionParams: targetId
+              ? {document: {type: 'document', documentId: targetId}}
+              : {items: item.title},
+          })
+        },
+        [contentClient],
+      )
+
       return useMemo(
         () => ({
           items,
           loading: result.loading,
           error: result.error,
+          assess,
           resolve: client
             ? async (item: InboxItem) => {
                 await client.patch(item.id).set({status: 'closed'}).commit()
@@ -353,7 +389,7 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
               }
             : undefined,
         }),
-        [items, result.loading, result.error, client],
+        [items, result.loading, result.error, client, assess],
       )
     },
   }
