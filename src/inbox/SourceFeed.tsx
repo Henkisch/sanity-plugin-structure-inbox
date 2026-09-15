@@ -31,7 +31,19 @@ interface SourceFeedProps {
  */
 export function SourceFeed(props: SourceFeedProps) {
   const {source, snoozes, now, onReport} = props
-  const {items, loading, error, resolve, create, assess, assign, remove, update} = source.useItems()
+  const {
+    items,
+    loading,
+    error,
+    resolve,
+    create,
+    assess,
+    assign,
+    remove,
+    update,
+    action,
+    acknowledgable,
+  } = source.useItems()
 
   const {open, cleared, snoozed} = useMemo(
     () => splitItems(items, source.name, snoozes.state, now),
@@ -55,9 +67,9 @@ export function SourceFeed(props: SourceFeedProps) {
   // holds the actual functions, updated in their own effect that (being
   // declared first) always runs before this one in the same commit, so a
   // firing report always reads the latest ones.
-  const capabilities = useRef({resolve, create, assess, assign, remove, update})
+  const capabilities = useRef({resolve, create, assess, assign, remove, update, action, acknowledgable})
   useEffect(() => {
-    capabilities.current = {resolve, create, assess, assign, remove, update}
+    capabilities.current = {resolve, create, assess, assign, remove, update, action, acknowledgable}
   })
 
   const hasResolve = Boolean(resolve)
@@ -65,7 +77,9 @@ export function SourceFeed(props: SourceFeedProps) {
   const hasAssess = Boolean(assess)
   const hasRemove = Boolean(remove)
   const hasUpdate = Boolean(update)
+  const hasAction = Boolean(action)
   const assignUserCount = assign?.users.length ?? -1
+  const isAcknowledgable = acknowledgable !== false
 
   useEffect(() => {
     onReport(source.name, {source, loading, error, open, cleared, snoozed, ...capabilities.current})
@@ -82,7 +96,9 @@ export function SourceFeed(props: SourceFeedProps) {
     hasAssess,
     hasRemove,
     hasUpdate,
+    hasAction,
     assignUserCount,
+    isAcknowledgable,
   ])
 
   return null

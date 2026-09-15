@@ -1,29 +1,29 @@
-import {InboxIcon} from '@sanity/icons/Inbox'
-import {Box, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
+import {ChevronDownIcon} from '@sanity/icons/ChevronDown'
+import {Box, Button, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
+import {Menu, MenuButton, MenuDivider, MenuItem} from '@sanity/ui/menu'
+import {Tooltip} from '@sanity/ui/tooltip'
 import {type ReactNode, useCallback, useMemo, useState} from 'react'
 import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
-import {isDismissed} from '../store/dismissals'
 import {resolveSnoozeUntil, type SnoozePreset} from '../store/snoozePresets'
 import {type Dismissals} from '../store/useDismissals'
 import {type Snoozes} from '../store/useSnoozes'
 import {CreateItemRow} from './CreateItemRow'
 import {matchesInboxFilters} from './inboxFilterSentinels'
 import {InboxRow} from './InboxRow'
-import {mergeRows} from './mergeItems'
+import {mergeRows, type MergedRow} from './mergeItems'
 import {SelectionActions} from './SelectionActions'
 import {type SourceReport} from './SourceFeed'
 import {type InboxItem, type InboxView} from './types'
-import {useDelayedUnmount} from './useDelayedUnmount'
 import {EXIT_ANIMATION_MS, useUndoToast} from './useUndoToast'
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-/** How long the selection bar takes to ease open or shut — see `useDelayedUnmount`. */
-const SELECTION_BAR_TRANSITION_MS = 200
+/** The one snooze duration "Snooze" actually applies — see `snoozeRows`'s own doc comment for why there's no picker. */
+const SNOOZE_DEFAULT_PRESET: SnoozePreset = 'tomorrow'
 
 interface MergedListProps {
   reports: Record<string, SourceReport>
@@ -73,7 +73,10 @@ export function MergedList(props: MergedListProps) {
     props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
-  const allRows = useMemo(() => mergeRows(reports, order, view), [reports, order, view])
+  const allRows = useMemo(
+    () => mergeRows(reports, order, view, dismissals.state),
+    [reports, order, view, dismissals.state],
+  )
 
   const rows = useMemo(
     () => allRows.filter((row) => matchesInboxFilters(row, assigneeFilter, typeFilter)),
@@ -103,10 +106,10 @@ export function MergedList(props: MergedListProps) {
 
   const clearSelection = useCallback(() => setSelectedKeys([]), [])
 
-  // The bar itself stays mounted a beat after the selection empties, so the
-  // grid-row transition below has something to shrink around instead of the
-  // content vanishing out from under an animation already in progress.
-  const showSelectionBar = useDelayedUnmount(selected.length > 0, SELECTION_BAR_TRANSITION_MS)
+  // Swaps in for the header's own filter bar, same slot — no separate row of
+  // its own to ease open or shut, so this is a plain boolean, not a delayed
+  // unmount: see the header `Flex` below for where it actually renders.
+  const showSelectionBar = selected.length > 0
   // Only the count, not the whole `selected` array — `selected` is a fresh
   // array on some sources' every render regardless of real change (nothing
   // guarantees a source's own `items` is referentially stable), so comparing
@@ -128,10 +131,140 @@ export function MergedList(props: MergedListProps) {
     setSelectedKeys(allSelected ? [] : rows.map((row) => row.key))
   }, [allSelected, rows])
 
+  // Shared between the bulk selection bar (`confirmSelection`, below) and a
+  // single row's own three-dot menu — "mark done/clear" means the same thing
+  // whether it's applied to a whole selection or to one row that was never
+  // ticked at all.
+  const resolveOrClearRows = useCallback(
+    async (targets: MergedRow[]) => {
+      // Both kinds of target actually leave Open now — a real resolve into a
+      // source-confirmed Cleared, a manual clear into the same tab tagged
+      // `clearedBy: 'editor'` (see `mergeItems.ts`'s own doc comment) — so
+      // both get the same fade-then-remove treatment, not just the
+      // resolvable ones.
+      const resolvableTargets = targets.filter((row) => Boolean(reports[row.sourceName]?.resolve))
+      // Excludes a source that opted out of `acknowledgable` (`todos`) — for
+      // those rows there is nothing real for "confirm" to do, so a mixed
+      // selection just silently skips them rather than clearing something
+      // that has no in-between state to mark.
+      const clearOnlyTargets = targets.filter((row) => {
+        const report = reports[row.sourceName]
+        return !report?.resolve && report?.acknowledgable !== false
+      })
+      const leavingTargets = [...resolvableTargets, ...clearOnlyTargets]
+
+      if (leavingTargets.length > 0) {
+        setLeavingKeys((current) => new Set([...current, ...leavingTargets.map((row) => row.key)]))
+        await wait(EXIT_ANIMATION_MS)
+      }
+
+      setBusy(true)
+      try {
+        // Each row resolves through its own source's `resolve` — a mixed
+        // selection is fine, `Promise.allSettled` means one item failing
+        // never strands the rest.
+        const results = await Promise.allSettled(
+          resolvableTargets.map((row) => {
+            const resolve = reports[row.sourceName]?.resolve
+            return resolve ? resolve(row.item) : Promise.resolve()
+          }),
+        )
+
+        let resolvedCount = 0
+        results.forEach((result) => {
+          if (result.status === 'fulfilled') {
+            resolvedCount += 1
+          } else {
+            console.error('[sanity-plugin-structure-inbox] could not resolve item', result.reason)
+          }
+        })
+
+        for (const row of clearOnlyTargets) dismissals.dismiss(row.sourceName, row.item.id)
+
+        setLeavingKeys((current) => {
+          const next = new Set(current)
+          leavingTargets.forEach((row) => next.delete(row.key))
+          return next
+        })
+
+        // A real resolve isn't reversible from here (the task actually
+        // closed, say) — no undo offered for it, just a plain confirmation.
+        // A manual clear is fully reversible (only local state changed), so
+        // that one gets a real undo.
+        if (resolvedCount > 0) {
+          showUndoToast({title: t('undo.markedDone', {count: resolvedCount})})
+        }
+        if (clearOnlyTargets.length > 0) {
+          showUndoToast({
+            title: t('undo.cleared', {count: clearOnlyTargets.length}),
+            onUndo: () =>
+              clearOnlyTargets.forEach((row) => dismissals.restore(row.sourceName, row.item.id)),
+          })
+        }
+      } finally {
+        setBusy(false)
+      }
+    },
+    [reports, dismissals, showUndoToast, t],
+  )
+
+  // Shared between the bulk bar's "Mark as not done" and a single row's own
+  // menu — puts each target back in Open, through whichever route actually
+  // got it into Cleared in the first place: a real, source-confirmed row
+  // (`row.clearedBy === 'source'`) reopens through its own source's `reopen`
+  // (the only thing that can undo real Sanity state); a manually-cleared row
+  // (`row.clearedBy === 'editor'`) has no such state to undo at all — it was
+  // only ever a dismissal, so restoring that dismissal is the whole of
+  // "reopening" it. A real row with no `reopen` is silently skipped rather
+  // than erroring: that shouldn't happen today (only `openTasks` ever
+  // produces a real `clearedBy: 'source'` row, and it always offers
+  // `reopen`), but a future Cleared-producing source that forgot to
+  // implement it shouldn't crash this instead of just not undoing.
+  const reopenRows = useCallback(
+    async (targets: MergedRow[]) => {
+      const realTargets = targets.filter((row) => row.clearedBy !== 'editor')
+      const manualTargets = targets.filter((row) => row.clearedBy === 'editor')
+
+      setBusy(true)
+      try {
+        const results = await Promise.allSettled(
+          realTargets.map((row) => {
+            const reopen = reports[row.sourceName]?.reopen
+            return reopen ? reopen(row.item) : Promise.resolve()
+          }),
+        )
+
+        let reopenedCount = 0
+        results.forEach((result) => {
+          if (result.status === 'fulfilled') {
+            reopenedCount += 1
+          } else {
+            console.error('[sanity-plugin-structure-inbox] could not reopen item', result.reason)
+          }
+        })
+
+        for (const row of manualTargets) dismissals.restore(row.sourceName, row.item.id)
+
+        // A real, undone resolution — same as "Mark as done" itself, no
+        // undo offered here either: the task really reopened. Restoring a
+        // manual clear is the same "just local state" case dismissing it
+        // was — but this action already *is* the undo of that clear, so
+        // offering a second undo on top of it would be undoing an undo.
+        if (reopenedCount > 0) {
+          showUndoToast({title: t('undo.markedNotDone', {count: reopenedCount})})
+        }
+      } finally {
+        setBusy(false)
+      }
+    },
+    [reports, dismissals, showUndoToast, t],
+  )
+
   const confirmSelection = useCallback(async () => {
     if (view === 'cleared') {
-      for (const row of selected) dismissals.restore(row.sourceName, row.item.id)
+      const targets = [...selected]
       setSelectedKeys([])
+      await reopenRows(targets)
       return
     }
 
@@ -142,88 +275,37 @@ export function MergedList(props: MergedListProps) {
     }
 
     const targets = [...selected]
-    // Only a row whose source can actually resolve it leaves the list —
-    // that's the only case Sanity's own state is about to change, so it's
-    // the only case the fade-then-remove animation applies to. A row with
-    // no `resolve` gets acknowledged in place instead: no animation, no
-    // exit, it stays exactly where it is (see `splitItems.ts`'s own doc
-    // comment for why acknowledging never moves an item to Cleared).
-    const resolvableTargets = targets.filter((row) => Boolean(reports[row.sourceName]?.resolve))
-    const acknowledgeOnlyTargets = targets.filter((row) => !reports[row.sourceName]?.resolve)
-
     // Cleared immediately — the bar disappearing is the confirmation the
     // click landed; the resolvable rows themselves fade a beat longer
     // before the mutation that actually removes them runs, see
-    // `EXIT_ANIMATION_MS`.
+    // `resolveOrClearRows`'s own `EXIT_ANIMATION_MS` wait.
     setSelectedKeys([])
-    if (resolvableTargets.length > 0) {
-      setLeavingKeys((current) => new Set([...current, ...resolvableTargets.map((row) => row.key)]))
-      await wait(EXIT_ANIMATION_MS)
-    }
+    await resolveOrClearRows(targets)
+  }, [view, selected, snoozes, resolveOrClearRows, reopenRows])
 
-    setBusy(true)
-    try {
-      // Each row resolves through its own source's `resolve` — a mixed
-      // selection is fine, `Promise.allSettled` means one item failing
-      // never strands the rest.
-      const results = await Promise.allSettled(
-        resolvableTargets.map((row) => {
-          const resolve = reports[row.sourceName]?.resolve
-          return resolve ? resolve(row.item) : Promise.resolve()
-        }),
-      )
+  // Shared the same way `resolveOrClearRows` is — the bulk bar's own
+  // `confirmSnooze` and a single row's menu both snooze through this.
+  //
+  // One click, one default — not a picker. An earlier version offered three
+  // presets (later today/tomorrow/next week) behind a native `<select>`,
+  // which turned "not now" into its own small decision instead of a single
+  // click. `SNOOZE_DEFAULT_PRESET` is that one default; see
+  // `store/snoozePresets.ts` if a real need for more than one ever comes up.
+  const snoozeRows = useCallback(
+    (targets: MergedRow[]) => {
+      const until = resolveSnoozeUntil(SNOOZE_DEFAULT_PRESET)
 
-      let resolvedCount = 0
-      results.forEach((result) => {
-        if (result.status === 'fulfilled') {
-          resolvedCount += 1
-        } else {
-          console.error('[sanity-plugin-structure-inbox] could not resolve item', result.reason)
-        }
-      })
-
-      for (const row of acknowledgeOnlyTargets) dismissals.dismiss(row.sourceName, row.item.id)
-
-      setLeavingKeys((current) => {
-        const next = new Set(current)
-        resolvableTargets.forEach((row) => next.delete(row.key))
-        return next
-      })
-
-      // A real resolve isn't reversible from here (the task actually
-      // closed, say) — no undo offered for it, just a plain confirmation.
-      // Acknowledging is fully reversible (only local state changed), so
-      // that one gets a real undo.
-      if (resolvedCount > 0) {
-        showUndoToast({title: t('undo.markedDone', {count: resolvedCount})})
-      }
-      if (acknowledgeOnlyTargets.length > 0) {
-        showUndoToast({
-          title: t('undo.acknowledged', {count: acknowledgeOnlyTargets.length}),
-          onUndo: () =>
-            acknowledgeOnlyTargets.forEach((row) => dismissals.restore(row.sourceName, row.item.id)),
-        })
-      }
-    } finally {
-      setBusy(false)
-    }
-  }, [view, selected, reports, dismissals, snoozes, showUndoToast, t])
-
-  /** Snoozing is a plugin-level capability, not a per-source one — every item can be, regardless of where it came from. */
-  const confirmSnooze = useCallback(
-    (preset: SnoozePreset) => {
-      const until = resolveSnoozeUntil(preset)
-      const targets = [...selected]
-
-      setSelectedKeys([])
       setLeavingKeys((current) => new Set([...current, ...targets.map((row) => row.key)]))
 
       setTimeout(() => {
         for (const row of targets) {
           snoozes.snooze(row.sourceName, row.item.id, until)
-          // Snoozing is also seeing it — same "someone's aware of this"
-          // marker Open's own acknowledge action sets, so the item doesn't
-          // read as newly-unseen the moment it wakes back into Open.
+          // Snoozing is also seeing it — same dismissal `action.clear` sets
+          // in Open, so the item doesn't read as newly-unseen the moment it
+          // wakes back into Open. This one never routes it into Cleared,
+          // though (see `mergeItems.ts`'s own `mergeRows`): only an item
+          // still in the Open bucket gets that treatment, and a snoozed item
+          // never is.
           dismissals.dismiss(row.sourceName, row.item.id)
         }
 
@@ -243,8 +325,40 @@ export function MergedList(props: MergedListProps) {
         })
       }, EXIT_ANIMATION_MS)
     },
-    [selected, snoozes, dismissals, showUndoToast, t],
+    [snoozes, dismissals, showUndoToast, t],
   )
+
+  /** Snoozing is a plugin-level capability, not a per-source one — every item can be, regardless of where it came from. */
+  const confirmSnooze = useCallback(() => {
+    const targets = [...selected]
+    setSelectedKeys([])
+    snoozeRows(targets)
+  }, [selected, snoozeRows])
+
+  // Only the rows whose own source actually offers `remove` — a mixed
+  // selection just deletes what it can, same reasoning `resolveOrClearRows`
+  // already uses for a mixed resolve/clear batch. Real removal, not a
+  // soft dismiss, so — same as the row-level "Delete" this replaces — no
+  // undo is offered.
+  const deletableTargets = selected.filter((row) => Boolean(reports[row.sourceName]?.remove))
+
+  const confirmDelete = useCallback(async () => {
+    const targets = deletableTargets
+    setBusy(true)
+    try {
+      const results = await Promise.allSettled(
+        targets.map((row) => Promise.resolve(reports[row.sourceName]?.remove?.(row.item))),
+      )
+      results.forEach((result) => {
+        if (result.status === 'rejected') {
+          console.error('[sanity-plugin-structure-inbox] could not delete item', result.reason)
+        }
+      })
+      setSelectedKeys([])
+    } finally {
+      setBusy(false)
+    }
+  }, [deletableTargets, reports])
 
   // Only offered when every selected row shares one source, and that source
   // actually offers `assign`: assigning across sources with different
@@ -296,56 +410,7 @@ export function MergedList(props: MergedListProps) {
   // `update` too, not just `create`: the same dialog hosts both, and a
   // source could in principle offer editing without offering creation.
   const creators = reportsInOrder.filter((r) => r.create || r.update)
-  // Offered only when exactly one configured source can create items: with
-  // two or more, "save to todos" would be ambiguous about which list a copy
-  // goes into, the same reasoning `assign` already applies to a mixed-source
-  // selection.
-  const soleCreator = creators.length === 1 ? creators[0] : undefined
   const errors = reportsInOrder.filter((r) => r.error)
-
-  const confirmSaveToTodos = useCallback(async () => {
-    if (!soleCreator?.create) return
-    const targets = [...selected]
-
-    setBusy(true)
-    try {
-      const results = await Promise.allSettled(
-        targets.map((row) =>
-          // `create` is typed `Promise<void> | void` — wrapped so a source
-          // that creates synchronously (or throws synchronously) still
-          // yields a settled promise instead of aborting this `.map()`
-          // before `allSettled` ever runs.
-          Promise.resolve().then(() =>
-            soleCreator.create!({
-              title: row.item.title,
-              description: row.item.description,
-              dueBy: row.item.dueBy,
-            }),
-          ),
-        ),
-      )
-
-      let savedCount = 0
-      results.forEach((result) => {
-        if (result.status === 'rejected') {
-          console.error(
-            '[sanity-plugin-structure-inbox] could not save item to todos',
-            result.reason,
-          )
-        } else {
-          savedCount += 1
-        }
-      })
-
-      setSelectedKeys([])
-
-      if (savedCount > 0) {
-        showUndoToast({title: t('undo.savedToTodos', {count: savedCount})})
-      }
-    } finally {
-      setBusy(false)
-    }
-  }, [soleCreator, selected, showUndoToast, t])
 
   // A configured source that has not reported at all yet counts as loading,
   // the same as one that has reported `loading: true` — otherwise the first
@@ -356,10 +421,13 @@ export function MergedList(props: MergedListProps) {
   const describeSource = useCallback(
     (report: SourceReport | undefined, item: InboxItem): string | undefined => {
       if (!report) return undefined
+      // An item's own `category` (when a source's items aren't all the same
+      // kind — see its own doc comment) wins over the source's static title.
+      const category = item.category ?? report.source.title
       // The avatar chip already shows a face, but not a name at this size —
       // naming the assignee here is the only place on the row that actually
       // spells it out.
-      if (item.assignee) return `${report.source.title} · ${item.assignee.label}`
+      if (item.assignee) return `${category} · ${item.assignee.label}`
       // An item nobody has picked up yet, from a source that actually offers
       // `assign`, already shows the faint placeholder avatar
       // (`InboxRow.tsx`) — "Unassigned" here names that placeholder instead
@@ -367,13 +435,185 @@ export function MergedList(props: MergedListProps) {
       // this particular item has anyone on it. A source with no `assign` at
       // all (a release, a todo) was never individually assignable, so its
       // audience is still the only true thing to say about it.
-      if (report.assign) return `${report.source.title} · ${t('assignee.unassigned')}`
+      if (report.assign) return `${category} · ${t('assignee.unassigned')}`
+      // A `visibility: 'private'` source's own "Only you" section header
+      // (`MergedList.tsx`'s `GroupHeader`) already says this once — repeating
+      // it here as "Assigned to you" restated the wrong claim besides (a
+      // todo was never assigned, it's just yours) on every single row under
+      // it.
+      if (report.source.visibility === 'private') return category
       const audience =
         report.source.audience === 'mine' ? t('audience.mine') : t('audience.everyone')
-      return `${report.source.title} · ${audience}`
+      return `${category} · ${audience}`
     },
     [t],
   )
+
+  // The three-dot menu's contents for one row — the same actions the bulk
+  // selection bar offers this view, applied to just this row, without
+  // ticking its checkbox first.
+  const buildMenuActions = useCallback(
+    (row: MergedRow, report: SourceReport | undefined) => {
+      // Reachable from every view, same as the bulk bar's own inline "Delete"
+      // (`InboxRow.tsx`'s `removeRow`) — that one only ever showed once a row
+      // was the sole selection; this is the same capability, just without
+      // needing to select first, matching every other per-row menu action.
+      const deleteEntry = report?.remove
+        ? [
+            {
+              key: 'delete',
+              label: t('action.delete'),
+              onClick: () => report.remove?.(row.item),
+              tone: 'critical' as const,
+            },
+          ]
+        : []
+
+      if (view === 'cleared') {
+        return [
+          {
+            key: 'reopen',
+            label: t('action.markNotDone'),
+            onClick: () => {
+              reopenRows([row]).catch((error: unknown) => {
+                console.error('[sanity-plugin-structure-inbox] could not reopen item', error)
+              })
+            },
+          },
+          ...deleteEntry,
+        ]
+      }
+
+      if (view === 'snoozed') {
+        return [
+          {
+            key: 'wake',
+            label: t('action.wakeNow'),
+            onClick: () => snoozes.wake(row.sourceName, row.item.id),
+          },
+          ...deleteEntry,
+        ]
+      }
+
+      // A row reaches this menu (the Open view's own) only while it's still
+      // genuinely open — a dismissed-and-fresh row is routed straight into
+      // Cleared by `mergeItems.ts`'s own `mergeRows`, so there's no "already
+      // cleared, offer to un-clear it" case to handle here at all; that only
+      // ever happens from within the Cleared view's own menu, above.
+      //
+      // A source with neither `resolve` nor `acknowledgable` (`todos`) has
+      // nothing real for "confirm" to do — omitted entirely rather than
+      // offered as a control that would just silently do nothing.
+      const canConfirm = Boolean(report?.resolve) || report?.acknowledgable !== false
+
+      return [
+        ...(canConfirm
+          ? [
+              {
+                key: 'confirm',
+                label: report?.resolve ? t('action.markDone') : t('action.clear'),
+                onClick: () => {
+                  resolveOrClearRows([row]).catch((error: unknown) => {
+                    console.error('[sanity-plugin-structure-inbox] could not resolve item', error)
+                  })
+                },
+              },
+            ]
+          : []),
+        {
+          key: 'snooze',
+          label: t('action.snooze'),
+          onClick: () => snoozeRows([row]),
+        },
+        ...deleteEntry,
+      ]
+    },
+    [view, snoozes, resolveOrClearRows, snoozeRows, reopenRows, t],
+  )
+
+  // Splits the already-sorted `rows` into Team/Private-to-you, preserving
+  // each row's relative order — see `InboxSource.visibility`'s own doc
+  // comment for the axis this groups on, and why it isn't `audience`. Only
+  // ever shown once both groups actually have something in them: one group
+  // alone is just today's flat list, not a split worth labeling.
+  const {sharedRows, privateRows} = useMemo(() => {
+    const shared: MergedRow[] = []
+    const priv: MergedRow[] = []
+    for (const row of rows) {
+      if (reports[row.sourceName]?.source.visibility === 'private') priv.push(row)
+      else shared.push(row)
+    }
+    return {sharedRows: shared, privateRows: priv}
+  }, [rows, reports])
+  const showGroupHeaders = sharedRows.length > 0 && privateRows.length > 0
+
+  const renderRow = (row: MergedRow) => {
+    const report = reports[row.sourceName]
+    // Only in the Cleared view: says outright whether Sanity itself
+    // confirmed this is done, or an editor just called it done themselves —
+    // see `mergeItems.ts`'s own doc comment on `clearedBy` for why that
+    // distinction stays visible instead of the two kinds of "cleared"
+    // silently looking identical.
+    const clearedLabel =
+      view === 'cleared'
+        ? row.clearedBy === 'editor'
+          ? t('cleared.manual')
+          : t('cleared.confirmed')
+        : undefined
+    const baseLabel = describeSource(report, row.item)
+    const sourceLabel = [baseLabel, clearedLabel].filter(Boolean).join(' · ') || undefined
+    return (
+      <InboxRow
+        assignableUsers={report?.assign?.users}
+        done={view === 'cleared'}
+        item={row.item}
+        key={row.key}
+        leaving={leavingKeys.has(row.key)}
+        menuActions={buildMenuActions(row, report)}
+        onAssess={report?.assess}
+        onEdit={report?.update ? () => setEditingKey(row.key) : undefined}
+        onReassign={
+          report?.assign
+            ? (item, userId) => {
+                const assign = report.assign
+                if (!assign) return
+                const assignee = assign.users.find((u) => u.id === userId)?.label ?? userId
+                assign
+                  .toUser(item, userId)
+                  .then(() =>
+                    showUndoToast({
+                      title: t('undo.assigned', {count: 1, name: assignee}),
+                    }),
+                  )
+                  .catch((error: unknown) => {
+                    console.error('[sanity-plugin-structure-inbox] could not assign item', error)
+                  })
+              }
+            : undefined
+        }
+        onUnassign={
+          report?.assign?.unassign
+            ? (item) => {
+                const unassign = report.assign?.unassign
+                if (!unassign) return
+                unassign(item)
+                  .then(() => showUndoToast({title: t('undo.unassigned')}))
+                  .catch((error: unknown) => {
+                    console.error('[sanity-plugin-structure-inbox] could not unassign item', error)
+                  })
+              }
+            : undefined
+        }
+        onSelectedChange={(item: InboxItem, isSelected: boolean) =>
+          setSelectedKeys((current) =>
+            isSelected ? [...current, row.key] : current.filter((existing) => existing !== row.key),
+          )
+        }
+        selected={selectedKeys.includes(row.key)}
+        sourceLabel={sourceLabel}
+      />
+    )
+  }
 
   return (
     <Stack gap={3}>
@@ -417,78 +657,153 @@ export function MergedList(props: MergedListProps) {
             />
           ))}
 
-      {/* Its own zero-gap `Stack`, not a direct child of the outer one above:
-          this Box is always mounted (collapsed to `0fr` when nothing is
-          selected), and the outer Stack's `gap` applies between siblings
-          regardless of a collapsed one's actual rendered height — that
-          added a permanent 12px gap above the card below even with nothing
-          else on screen, which is exactly what put this box and
-          `SectionCard`'s own outer box (no such always-mounted sibling) out
-          of alignment. */}
-      <Stack gap={0}>
-        {/* Grid rather than a plain conditional render: the whole list used to
-            jump the instant selection changed, since the bar's block appearing
-            or disappearing is otherwise an instant reflow. `0fr`/`1fr` on a
-            single grid row eases that height open and shut instead — see
-            `useDelayedUnmount` for why the bar itself outlives the collapse. */}
-        <Box
-          style={{
-            display: 'grid',
-            gridTemplateRows: selected.length > 0 ? '1fr' : '0fr',
-            // The 12px the outer Stack used to contribute unconditionally —
-            // restored here, but only while the bar is actually visible, so
-            // it still separates the bar from the card below without also
-            // pushing the (collapsed, invisible) card down when it isn't.
-            marginBottom: selected.length > 0 ? 12 : 0,
-            transition: `grid-template-rows ${SELECTION_BAR_TRANSITION_MS}ms ease, margin-bottom ${SELECTION_BAR_TRANSITION_MS}ms ease`,
-          }}
-        >
-        <Box style={{minHeight: 0, overflow: 'hidden'}}>
-          {showSelectionBar && (
-            <SelectionActions
-              assignableUsers={view === 'open' ? assignableSource?.users : undefined}
-              busy={busy}
-              count={displayCount}
-              onAssign={view === 'open' && assignableSource ? confirmAssign : undefined}
-              onCancel={clearSelection}
-              onConfirm={confirmSelection}
-              onSaveToTodos={view === 'open' && soleCreator ? confirmSaveToTodos : undefined}
-              onSnooze={view === 'open' ? confirmSnooze : undefined}
-              resolvableCount={
-                selected.filter((row) => Boolean(reports[row.sourceName]?.resolve)).length
-              }
-              view={view}
-            />
-          )}
-        </Box>
-      </Box>
-
       <Card border overflow="hidden" radius={3} shadow={0}>
         {/* Matches the header every `aside` source's own card already has
             (`SectionCard`) — the main column merges every source into one
             list, but it's still one section, and it looked like an
-            afterthought without a header of its own to say so. */}
-        <Card borderBottom paddingX={3} paddingY={3} radius={0} tone="transparent">
-          {/* Extra `paddingLeft={2}` beyond the Card's own `padding={3}` —
-              see the "Select all" row below, and `InboxRow.tsx`'s own
-              checkbox wrapper, for the same nudge and why: a row's checkbox
-              carries this same extra padding, and the theme's spacing scale
-              does not have a step between `3` and `4` that lines up with it,
-              so it is added here explicitly rather than by bumping the
-              Card's own padding a full step. The icon's own glyph sits
-              slightly inset from its bounding box at this size, hence `2`
-              rather than the `1` that lined up the plain checkbox below. */}
-          <Flex align="center" gap={3} justify="space-between" paddingLeft={2} wrap="wrap">
-            <Flex align="center" gap={3}>
-              <Text muted size={2}>
-                <InboxIcon />
-              </Text>
-              <Text size={1} weight="semibold">
-                {t('inbox.title')}
-              </Text>
+            afterthought without a header of its own to say so. `minHeight`
+            (measured live: the filter bar's own row rendered at 54px, the
+            selection bar's at 50px) keeps this header a fixed height across
+            both, so switching between them never shifts the row list
+            beneath it by those few pixels. */}
+        <Card
+          borderBottom
+          paddingX={3}
+          paddingY={3}
+          radius={0}
+          style={{alignItems: 'center', display: 'flex', minHeight: 54}}
+          tone="transparent"
+        >
+          {/* Extra `paddingLeft={1}` beyond the Card's own `padding={3}` —
+              matches `InboxRow.tsx`'s own checkbox wrapper exactly (also
+              `paddingLeft={1}`), confirmed live: without it this header's
+              checkbox sat 4px right of every row's own, the one step's
+              difference between the two paddings. */}
+          {/* `flex={1}`: the parent Card became a flex container of its own
+              (see its `minHeight` comment above), which shrank this Flex to
+              its own content width by default instead of the full header —
+              and a shrunk container has no extra room left for
+              `justify="space-between"` to push `SelectionActions`/`filterBar`
+              into, so they landed right next to the left-hand group instead
+              of flush against the far edge. */}
+          <Flex align="center" flex={1} gap={3} justify="space-between" paddingLeft={1} wrap="wrap">
+            {/* Replaces the icon+"Inbox" label this header used to open
+                with — that text was purely decorative (the left nav's own
+                "Inbox" item, and the pane's own heading above this card,
+                already say it), while the select-all checkbox is a real
+                control that deserves the header's own prominent spot more
+                than a repeated label does. Still rendered (just disabled)
+                when the list is empty, rather than omitted outright: an
+                empty `Flex` on this side would leave `filterBar` on the
+                right as this row's only child, and `justify="space-between"`
+                aligns a lone child to the start rather than the end it
+                actually belongs at — keeping this side occupied, even
+                grayed out, is what keeps `filterBar` pinned to the right
+                regardless of whether there's anything to select yet. */}
+            <Flex align="center" gap={1}>
+              <Tooltip
+                content={
+                  <Box padding={2}>
+                    <Text size={1}>{t('selection.selectAll')}</Text>
+                  </Box>
+                }
+                placement="bottom"
+              >
+                <Checkbox
+                  aria-label={t('selection.selectAll')}
+                  checked={allSelected}
+                  disabled={isEmpty}
+                  indeterminate={someSelected}
+                  onChange={toggleAll}
+                />
+              </Tooltip>
+
+              {/* The caret Gmail's own select-all checkbox always carries
+                  beside it — without one this was just a bare checkbox
+                  with nothing else in reach. `All`/`None` repeat the same
+                  toggle the checkbox itself already does (a mouse-only
+                  equivalent, for anyone who reaches for the menu first);
+                  `Team`/`Only you` — only once the list actually has both
+                  groups, the same condition `showGroupHeaders` below
+                  renders on — is the one selection here the checkbox alone
+                  can't make: everyone's business in one click, or just
+                  your own. */}
+              <MenuButton
+                button={
+                  <Button
+                    aria-label={t('selection.selectMenu')}
+                    disabled={isEmpty}
+                    icon={ChevronDownIcon}
+                    mode="bleed"
+                    padding={2}
+                  />
+                }
+                id="merged-list-select-menu"
+                menu={
+                  <Menu>
+                    <MenuItem
+                      onClick={() => setSelectedKeys(rows.map((row) => row.key))}
+                      text={t('selection.all')}
+                    />
+                    <MenuItem onClick={() => setSelectedKeys([])} text={t('selection.none')} />
+                    {showGroupHeaders && (
+                      <>
+                        <MenuDivider />
+                        <MenuItem
+                          onClick={() => setSelectedKeys(sharedRows.map((row) => row.key))}
+                          text={t('inbox.section.shared')}
+                        />
+                        <MenuItem
+                          onClick={() => setSelectedKeys(privateRows.map((row) => row.key))}
+                          text={t('inbox.section.private')}
+                        />
+                      </>
+                    )}
+                  </Menu>
+                }
+                popover={{placement: 'bottom-start', portal: true}}
+              />
+
+              {/* Lives here, next to the menu that controls it, rather
+                  than inside `SelectionActions` itself — that keeps this
+                  left-hand cluster (checkbox, menu, count) and the actions
+                  on the right (`SelectionActions`) each their own group,
+                  flush to opposite ends of the header instead of bunched
+                  together on one side. */}
+              {showSelectionBar && (
+                <Box aria-live="polite" paddingLeft={2}>
+                  <Text size={1} weight="medium">
+                    {t('selection.count', {count: displayCount})}
+                  </Text>
+                </Box>
+              )}
             </Flex>
 
-            {filterBar}
+            {showSelectionBar ? (
+              <SelectionActions
+                assignableUsers={view === 'open' ? assignableSource?.users : undefined}
+                busy={busy}
+                count={displayCount}
+                onAssign={view === 'open' && assignableSource ? confirmAssign : undefined}
+                onCancel={clearSelection}
+                onConfirm={confirmSelection}
+                onDelete={deletableTargets.length > 0 ? confirmDelete : undefined}
+                onSnooze={view === 'open' ? confirmSnooze : undefined}
+                resolvableCount={
+                  selected.filter((row) => Boolean(reports[row.sourceName]?.resolve)).length
+                }
+                showConfirm={
+                  view !== 'open' ||
+                  selected.some((row) => {
+                    const report = reports[row.sourceName]
+                    return Boolean(report?.resolve) || report?.acknowledgable !== false
+                  })
+                }
+                view={view}
+              />
+            ) : (
+              filterBar
+            )}
           </Flex>
         </Card>
 
@@ -510,35 +825,6 @@ export function MergedList(props: MergedListProps) {
           </Box>
         ) : (
           <Stack>
-            <Card borderBottom paddingX={3} paddingY={2}>
-              {/* `paddingLeft={1}` on the `Flex` below, on top of this
-                  Card's own `padding={3}`: a row's own checkbox sits under
-                  that same extra unit (`InboxRow.tsx`'s own checkbox
-                  wrapper), which this single-layer header doesn't otherwise
-                  have — see the header above for the identical adjustment.
-                  The theme's spacing scale has no step between `3` and `4`
-                  that lines up with it, which is why this is added as an
-                  explicit inner `paddingLeft` rather than by bumping the
-                  Card's own padding a full step. */}
-              {/* A native `<label>`, not a `Flex` with a separately-clickable
-                  `Checkbox` — wrapping the checkbox and its own text in one
-                  real label is what makes clicking the words "Select all"
-                  toggle it too, for free, the same as any other checkbox
-                  label on the web. */}
-              <Flex align="center" as="label" paddingLeft={1} style={{cursor: 'pointer'}}>
-                <Checkbox
-                  checked={allSelected}
-                  indeterminate={someSelected}
-                  onChange={toggleAll}
-                  title={t('selection.selectAll')}
-                />
-                <Box paddingLeft={2}>
-                  <Text muted size={0}>
-                    {t('selection.selectAll')}
-                  </Text>
-                </Box>
-              </Flex>
-            </Card>
             {/* Capped, not left to grow with however many rows are open —
                 the persistent sidebar next to this column has its own
                 (roughly stable) height, and an Inbox list that could grow
@@ -549,80 +835,41 @@ export function MergedList(props: MergedListProps) {
                 before that measurement exists. */}
             <Box style={{maxHeight: maxHeight ?? 560, overflowY: 'auto'}}>
               <Stack gap={1} padding={1}>
-                {rows.map((row) => {
-                const report = reports[row.sourceName]
-                return (
-                  <InboxRow
-                    acknowledged={
-                      view === 'open' &&
-                      isDismissed(dismissals.state, row.sourceName, row.item.id, row.item.changedAt)
-                    }
-                    assignableUsers={report?.assign?.users}
-                    done={view === 'cleared'}
-                    item={row.item}
-                    key={row.key}
-                    leaving={leavingKeys.has(row.key)}
-                    onAssess={report?.assess}
-                    onEdit={report?.update ? () => setEditingKey(row.key) : undefined}
-                    onlySelected={selected.length === 1 && selectedKeys.includes(row.key)}
-                    onReassign={
-                      report?.assign
-                        ? (item, userId) => {
-                            const assign = report.assign
-                            if (!assign) return
-                            const assignee =
-                              assign.users.find((u) => u.id === userId)?.label ?? userId
-                            assign
-                              .toUser(item, userId)
-                              .then(() =>
-                                showUndoToast({
-                                  title: t('undo.assigned', {count: 1, name: assignee}),
-                                }),
-                              )
-                              .catch((error: unknown) => {
-                                console.error(
-                                  '[sanity-plugin-structure-inbox] could not assign item',
-                                  error,
-                                )
-                              })
-                          }
-                        : undefined
-                    }
-                    onUnassign={
-                      report?.assign?.unassign
-                        ? (item) => {
-                            const unassign = report.assign?.unassign
-                            if (!unassign) return
-                            unassign(item)
-                              .then(() => showUndoToast({title: t('undo.unassigned')}))
-                              .catch((error: unknown) => {
-                                console.error(
-                                  '[sanity-plugin-structure-inbox] could not unassign item',
-                                  error,
-                                )
-                              })
-                          }
-                        : undefined
-                    }
-                    onRemove={report?.remove}
-                    onSelectedChange={(item: InboxItem, isSelected: boolean) =>
-                      setSelectedKeys((current) =>
-                        isSelected
-                          ? [...current, row.key]
-                          : current.filter((existing) => existing !== row.key),
-                      )
-                    }
-                    selected={selectedKeys.includes(row.key)}
-                    sourceLabel={describeSource(report, row.item)}
-                  />
-                )
-              })}
+                {showGroupHeaders ? (
+                  <>
+                    <GroupHeader count={sharedRows.length} label={t('inbox.section.shared')} />
+                    {sharedRows.map(renderRow)}
+                    <GroupHeader count={privateRows.length} label={t('inbox.section.private')} />
+                    {privateRows.map(renderRow)}
+                  </>
+                ) : (
+                  rows.map(renderRow)
+                )}
               </Stack>
             </Box>
           </Stack>
         )}
       </Card>
-      </Stack>
     </Stack>
+  )
+}
+
+/**
+ * The divider between the Team and Private-to-you groups (see
+ * `InboxSource.visibility`) — a plain header row, not another `SectionCard`:
+ * this list is still one card, just visually split, not two separate ones.
+ */
+function GroupHeader(props: {label: string; count: number}) {
+  return (
+    <Box paddingBottom={2} paddingTop={2} paddingX={2}>
+      <Flex align="center" gap={2}>
+        <Text muted size={0} weight="semibold">
+          {props.label}
+        </Text>
+        <Text muted size={0}>
+          {props.count}
+        </Text>
+      </Flex>
+    </Box>
   )
 }

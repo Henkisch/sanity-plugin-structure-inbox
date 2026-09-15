@@ -1,29 +1,82 @@
+import {type SanityClient} from '@sanity/client'
 import {LinkRemovedIcon} from '@sanity/icons/LinkRemoved'
-import {useMemo} from 'react'
+import {SearchIcon} from '@sanity/icons/Search'
+import {useCallback, useMemo} from 'react'
 import {useObservable} from 'react-rx'
 import {defer, from, of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
-import {useClient, useSchema} from 'sanity'
+// `useUserListWithPermissions` stays out of this named import — see
+// `optionalHook` in `capability.ts`.
+import {
+  useClient,
+  useCurrentUser,
+  useSchema,
+  type UserListWithPermissionsHookValue,
+  type UserListWithPermissionsOptions,
+} from 'sanity'
 import {
   getFindingKey,
   readReport,
   REPORT_DOC_ID,
+  runScan,
+  type LinkCheckerPluginConfig,
   type ScanFinding,
   type ScanResult,
+  writeReport,
 } from 'sanity-plugin-link-checker/core'
 
 import {API_VERSION} from '../../constants'
 import {type SnoozeState} from '../../store/snoozes'
 import {splitItems} from '../splitItems'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
+import {useAssignmentStore} from './assignmentStore'
+import {optionalHook} from './capability'
 import {liveQuery$} from './liveQuery'
+
+/** Stands in for `useUserListWithPermissions` when Sanity does not export it — see `unpublishedDrafts.ts`. */
+function useUnavailableUserList(): UserListWithPermissionsHookValue {
+  return {data: null, error: null, loading: false}
+}
+
+// Resolved once at module scope — see `openTasks.ts` for why.
+const useAssignableUsers = optionalHook<
+  (opts: UserListWithPermissionsOptions) => UserListWithPermissionsHookValue
+>('useUserListWithPermissions', useUnavailableUserList)
+
+/**
+ * This source's own private assignment doc type — see `assignmentStore.ts`
+ * for the shared mechanics and why it's a plain doc, not a Sanity Task.
+ */
+const ASSIGNMENT_TYPE = 'structureInbox.linkCheckerAssignment'
 
 export interface LinkCheckerFindingsOptions {
   /** Cap on rows shown, after filtering. Defaults to 50 — a report can carry far more findings than a pane should ever list at once. */
   limit?: number
+  /**
+   * Row category label (the "Link checker · Everyone" segment) — shared by
+   * every finding this source produces regardless of `kind`, so it can't say
+   * "Broken link"/"Broken reference" itself (that distinction already lives
+   * in each item's own `title`/`subtitle` — see `toItem`). Defaults to
+   * "Link checker" for exactly that reason.
+   */
   title?: string
-  /** Which column to render in. Defaults to `main` — a broken link is work, not ambient context. */
+  /**
+   * Which column to render in. Defaults to `main` — a broken link is a real
+   * action point (sortable by urgency alongside tasks and drafts, and
+   * acknowledgeable the same way anything else without `resolve` is),
+   * not ambient context to glance at. `aside` sources get none of that:
+   * `InboxSection.tsx` never gives them a bulk-select/acknowledge mechanism
+   * at all, so a finding placed there would just sit, visible, until fixed
+   * — the right choice for something like `upcomingReleases`, not for this.
+   */
   placement?: InboxSource['placement']
+  /**
+   * Passed straight through to `runScan` when an editor clicks "Scan for
+   * issues" — the same config shape `linkChecker(config)` itself
+   * takes (concurrency, `excludeTypes`, `excludeUrls`, and the rest). Omit
+   * to scan with every default.
+   */
+  scanConfig?: LinkCheckerPluginConfig
   /**
    * Also list `unverifiable` link findings (a CORS-limited in-Studio check
    * that couldn't reach a real verdict), not just confirmed-`broken` ones.
@@ -38,7 +91,18 @@ export interface LinkCheckerFindingsOptions {
    * @defaultValue false
    */
   includeUnverifiable?: boolean
+  /**
+   * Tooltip on the "Scan for issues" button, explaining what a scan actually
+   * covers — the label alone doesn't say it scans the whole dataset for both
+   * broken external links and dangling references. Override per project if
+   * `scanConfig` narrows what's actually being scanned (e.g. `excludeTypes`),
+   * so the tooltip keeps matching real behavior.
+   */
+  actionDescription?: string
 }
+
+const DEFAULT_ACTION_DESCRIPTION =
+  'Scans every document in the dataset for broken external links and references to deleted documents.'
 
 function toItem(finding: ScanFinding, fallbackChangedAt: string, schema: ReturnType<typeof useSchema>): InboxItem {
   const typeTitle = schema.get(finding.fromType)?.title || finding.fromType
@@ -61,6 +125,7 @@ function toItem(finding: ScanFinding, fallbackChangedAt: string, schema: ReturnT
       ...base,
       title: `Broken reference in ${finding.fieldPath}`,
       subtitle: typeTitle,
+      category: 'Broken reference',
       tone: 'critical',
     }
   }
@@ -69,11 +134,26 @@ function toItem(finding: ScanFinding, fallbackChangedAt: string, schema: ReturnT
     ...base,
     title: finding.href,
     subtitle: `${typeTitle} · ${finding.fieldPath}`,
+    category: 'Broken link',
     // 'broken' is a confirmed dead link; 'unverifiable' (only ever present
     // here when `includeUnverifiable` is on) is a maybe — coloured less
     // urgently so it never reads as equally certain.
     tone: finding.result.status === 'broken' ? 'critical' : 'caution',
   }
+}
+
+/**
+ * `sanity-plugin-link-checker` bundles its own `@sanity/client` dependency
+ * rather than treating it as a peer, so its `SanityClient` type and this
+ * package's are two structurally-identical but nominally distinct classes
+ * (mismatched private fields) — a TypeScript-only conflict; the actual
+ * client instance from `useClient` is fully wire-compatible with what
+ * `readReport`/`runScan`/`writeReport` expect. Centralised here so every
+ * call site casts the same way, once.
+ */
+function toLinkCheckerClient(client: SanityClient): Parameters<typeof readReport>[0] {
+  // eslint-disable-next-line no-unsafe-type-assertion -- see comment above: cross-package `SanityClient` type mismatch, same runtime object.
+  return client as unknown as Parameters<typeof readReport>[0]
 }
 
 /** Exported only for `linkCheckerFindings.test.ts` — the pure part of this source, same reasoning as `InboxRow.tsx`'s own `initials`. */
@@ -99,7 +179,17 @@ export function toItems(
 
 /**
  * Broken links and dangling references, read from `sanity-plugin-link-checker`'s
- * own report document.
+ * own report document — and, via this source's own `action` ("Scan for
+ * issues", rendered next to `AddMenu` on the pane's tab row — see
+ * `Inbox.tsx`), able to run a fresh scan itself rather than only ever
+ * reading one someone ran elsewhere. This plugin never
+ * needs its Studio tool mounted at all: `runScan`/`writeReport` (the exact
+ * engine that tool's own "Run scan" button calls) are exported from its
+ * headless `core` for precisely this — an editor never has to leave the
+ * Inbox, or know link-checker has its own separate tool, to get a scan.
+ * `linkChecker()`'s Studio tool, its CLI, and a deployed Document Function
+ * remain equally valid ways to (re-)run one; this is simply a fourth,
+ * available from right where the findings already show up.
  *
  * A separate, opt-in entry point (`sanity-plugin-structure-inbox/link-checker`),
  * not part of this package's main export — `sanity-plugin-link-checker` is a
@@ -130,50 +220,79 @@ export function toItems(
  * source's are: through this plugin's own dismissal store, visible only to
  * the editor who ticked it.
  *
+ * Also offers `assess` — the same Sanity Agent Actions call
+ * `unpublishedDrafts.ts` uses for its own "Ask AI", applied to a finding
+ * instead of a draft: one short, specific sentence suggesting what to do
+ * about a broken reference or link. Deliberately only this judgment layer,
+ * never the detection itself — a reference's existence and a link's
+ * reachability are both already fully deterministic (a real GROQ existence
+ * check; a real HTTP request), and handing either to an LLM would be
+ * strictly worse on every axis: slower, non-free, and non-deterministic
+ * where the real answer already has no ambiguity at all. Agent Actions also
+ * has no general "fetch an arbitrary URL" capability to begin with, so a
+ * broken *link* finding's own reachability could not be re-derived by the
+ * AI even in principle — only a human, or `runScan` itself, can re-check
+ * that. `assess` here only ever explains/suggests, on top of a finding
+ * `runScan` already produced.
+ *
  * Live rather than fetched once: `sanity-plugin-link-checker`'s report is
  * one always-overwritten document (`REPORT_DOC_ID`), so a re-scan run by
  * anyone — the in-Studio tool, the CLI, the Document Function — updates
  * this source without the editor navigating away and back.
  */
 export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): InboxSource {
-  const {limit = 50, title = 'Broken link', placement = 'main', includeUnverifiable = false} = options
+  const {
+    limit = 50,
+    title = 'Link checker',
+    placement = 'main',
+    scanConfig,
+    includeUnverifiable = false,
+    actionDescription = DEFAULT_ACTION_DESCRIPTION,
+  } = options
 
-  function useFindingsFetch(): InboxSourceResult {
+  /**
+   * The report itself rides alongside the mapped `InboxSourceResult` (not
+   * exposed on the result — that's `InboxItem[]`, not raw findings) so
+   * `useItems()` can look a finding back up by its key for `assess` below,
+   * without a second, duplicate subscription to the same report document.
+   */
+  interface FindingsFetch {
+    result: InboxSourceResult
+    report: ScanResult | null
+  }
+
+  function useFindingsFetch(): FindingsFetch {
     const client = useClient({apiVersion: API_VERSION})
     const schema = useSchema()
 
-    const result$ = useMemo(() => {
-      // `sanity-plugin-link-checker` bundles its own `@sanity/client`
-      // dependency rather than treating it as a peer, so its `SanityClient`
-      // type and this package's are two structurally-identical but
-      // nominally distinct classes (mismatched private fields) — a
-      // TypeScript-only conflict; the actual client instance from
-      // `useClient` is fully wire-compatible with what `readReport` expects.
-      // eslint-disable-next-line no-unsafe-type-assertion -- see comment above: cross-package `SanityClient` type mismatch, same runtime object.
-      const linkCheckerClient = client as unknown as Parameters<typeof readReport>[0]
+    const fetch$ = useMemo(() => {
+      const linkCheckerClient = toLinkCheckerClient(client)
 
       // `defer` so each re-subscription (one per listen event, via
       // `liveQuery$`'s own `switchMap`) calls `readReport` again instead of
       // replaying one cached Promise resolution forever — `readReport`
       // itself has no live-query form of its own, only this one-shot read.
-      const fetch$ = defer(() => from(readReport(linkCheckerClient)))
+      const readReport$ = defer(() => from(readReport(linkCheckerClient)))
 
       // The listen query only has to match the one report document closely
       // enough to fire on a re-scan — `liveQuery$` discards whatever this
-      // returns and always refetches via `fetch$` above.
+      // returns and always refetches via `readReport$` above.
       const listenQuery = `*[_id == $id]`
       const params = {id: REPORT_DOC_ID}
 
-      return liveQuery$(client, listenQuery, params, fetch$).pipe(
-        map((report): InboxSourceResult => ({
-          items: toItems(report, schema, includeUnverifiable, limit),
+      return liveQuery$(client, listenQuery, params, readReport$).pipe(
+        map((report): FindingsFetch => ({
+          report,
+          result: {items: toItems(report, schema, includeUnverifiable, limit)},
         })),
-        startWith<InboxSourceResult>({items: [], loading: true}),
-        catchError((error: Error) => of<InboxSourceResult>({items: [], error})),
+        startWith<FindingsFetch>({report: null, result: {items: [], loading: true}}),
+        catchError((error: Error) =>
+          of<FindingsFetch>({report: null, result: {items: [], error}}),
+        ),
       )
     }, [client, schema])
 
-    return useObservable(result$, {items: [], loading: true})
+    return useObservable(fetch$, {report: null, result: {items: [], loading: true}})
   }
 
   return {
@@ -186,7 +305,7 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
     audience: 'everyone',
 
     useOpenCount(snoozes: SnoozeState, now: number): number | null {
-      const result = useFindingsFetch()
+      const {result} = useFindingsFetch()
 
       return useMemo(() => {
         if (result.loading || result.error) return null
@@ -195,8 +314,125 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
     },
 
     useItems(): InboxSourceResult {
-      const result = useFindingsFetch()
-      return result
+      const {result, report} = useFindingsFetch()
+      const client = useClient({apiVersion: API_VERSION})
+      const currentUser = useCurrentUser()
+      const userId = currentUser?.id
+      // `null` documentValue: not scoped to one finding, since any of them
+      // could be assigned — every project member able to update documents is
+      // a sensible assignee, same reasoning `unpublishedDrafts.ts` uses.
+      const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
+      const assignments = useAssignmentStore(client, ASSIGNMENT_TYPE)
+
+      // Runs the actual scan (`runScan`, the same engine the standalone
+      // plugin's own "Run scan" button and CLI call) and persists it
+      // (`writeReport`) — both exported from that plugin's headless `core`
+      // for exactly this. The freshly-written report reaches this source
+      // through the live `observeReport`-equivalent listen above like any
+      // other re-scan would (the CLI's, another editor's, a deployed
+      // Document Function's) — nothing here refreshes `items` directly.
+      const runFromInbox = useCallback(async () => {
+        const linkCheckerClient = toLinkCheckerClient(client)
+        const result = await runScan(linkCheckerClient, scanConfig ?? {}, 'browser')
+        await writeReport(linkCheckerClient, result)
+      }, [client])
+
+      // Same shape and reasoning as `unpublishedDrafts.ts`'s own
+      // `assigneesById`: `assignable` has everyone's display name and photo
+      // except a reliable one for the current user, whose own profile fills
+      // that gap instead.
+      const assigneesById = useMemo(() => {
+        const byId = new Map<string, {id: string; label: string; imageUrl?: string}>()
+        for (const user of assignable ?? []) {
+          const isSelf = user.id === userId
+          byId.set(user.id, {
+            id: user.id,
+            label: user.displayName || user.email || user.id,
+            imageUrl: (isSelf && currentUser?.profileImage) || user.imageUrl,
+          })
+        }
+        return byId
+      }, [assignable, userId, currentUser])
+
+      const items = useMemo(
+        () =>
+          result.items.map((item): InboxItem => {
+            const assignedTo = assignments.byTarget.get(item.id)
+            const assignee = assignedTo ? assigneesById.get(assignedTo) : undefined
+            return assignee ? {...item, assignee} : item
+          }),
+        [result.items, assignments.byTarget, assigneesById],
+      )
+
+      const assign = useMemo(() => {
+        if (!assignable) return undefined
+
+        return {
+          users: assignable
+            .filter((user) => user.granted)
+            .map((user) => ({id: user.id, label: user.displayName || user.email || user.id})),
+          toUser: (item: InboxItem, assignedTo: string) => assignments.assign(item.id, assignedTo),
+          unassign: (item: InboxItem) => assignments.unassign(item.id),
+        }
+      }, [assignable, assignments])
+
+      // Keyed the same way `toItem` derives `InboxItem.id` (`getFindingKey`),
+      // so `assess` below can go from a clicked item straight back to the
+      // real finding it came from — a `ScanFinding` carries the field path
+      // and (for a link) the URL itself, neither of which the pared-down
+      // `InboxItem` keeps, but both of which the AI needs to say anything
+      // specific rather than generic.
+      const findingsByKey = useMemo(() => {
+        const byKey = new Map<string, ScanFinding>()
+        for (const finding of report?.findings ?? []) byKey.set(getFindingKey(finding), finding)
+        return byKey
+      }, [report])
+
+      // What `unpublishedDrafts.ts`'s own `assess` does for a draft, applied
+      // to a finding instead: one short, specific sentence from Sanity's
+      // Agent Actions, never a fix applied automatically — deliberately the
+      // same "informational only" shape, since detection here is already
+      // fully deterministic (see this source's own module-level notes on
+      // why link-checker's actual scanning can't and shouldn't be handed to
+      // an LLM); this is only ever the judgment layer on top of it.
+      const assess = useCallback(
+        async (item: InboxItem) => {
+          const finding = findingsByKey.get(item.id)
+          if (!finding) throw new Error('No finding found for this item — has it been rescanned?')
+
+          const instruction =
+            finding.kind === 'reference'
+              ? `Given the following document:\n$document\n---\nField '${finding.fieldPath}' holds a reference to a document that no longer exists. In one short, specific sentence, suggest what to do about it.`
+              : `Given the following document:\n$document\n---\nField '${finding.fieldPath}' holds a broken external link (${finding.href}). In one short, specific sentence, suggest what to do about it.`
+
+          // Agent Actions rejects the plugin's own pinned `API_VERSION`
+          // outright ("Agent Actions are only available on apiVersion vX")
+          // — see `unpublishedDrafts.ts`'s own `assess`, which had this same
+          // bug. `withConfig` scopes the override to this one call.
+          return client.withConfig({apiVersion: 'vX'}).agent.action.prompt({
+            instruction,
+            instructionParams: {document: {type: 'document', documentId: finding.fromId}},
+          })
+        },
+        [client, findingsByKey],
+      )
+
+      return useMemo(
+        () => ({
+          ...result,
+          items,
+          assign,
+          assess,
+          action: {
+            label: 'Scan for issues',
+            pendingLabel: 'Scanning…',
+            run: runFromInbox,
+            description: actionDescription,
+            icon: SearchIcon,
+          },
+        }),
+        [result, items, assign, assess, runFromInbox],
+      )
     },
   }
 }

@@ -1,12 +1,11 @@
 import {Box, Button, Card, Flex, Stack, Text} from '@sanity/ui'
-import {type ComponentType, type ReactNode, useCallback} from 'react'
+import {type ReactNode, useCallback} from 'react'
 import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 
 interface SectionCardProps {
   title?: string
-  icon?: ComponentType
   /** Rendered at the right of the header — a count, usually. */
   badge?: ReactNode
   /** Short note beside the title saying whose items these are. */
@@ -36,7 +35,7 @@ interface SectionCardProps {
  * *reports* an error in its result, rather than throwing one.
  */
 export function SectionCard(props: SectionCardProps) {
-  const {title, icon: Icon, badge, note, toolbar, error, children} = props
+  const {title, badge, note, toolbar, error, children} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
   // A reported error comes back from the source's own hook on every render —
@@ -78,11 +77,6 @@ export function SectionCard(props: SectionCardProps) {
               since the icon's own glyph sits slightly inset from its
               bounding box at this size. */}
           <Flex align="center" flex={1} gap={3} paddingLeft={2}>
-            {Icon && (
-              <Text muted size={2}>
-                <Icon />
-              </Text>
-            )}
             <Box flex={1}>
               <Flex align="center" gap={2}>
                 <Text size={1} textOverflow="ellipsis" weight="semibold">

@@ -22,6 +22,13 @@ vi.mock('sanity/router', async (importOriginal) => {
   return {...actual, useRouter: () => ({navigateIntent})}
 })
 
+// `useCurrentUser` (for the "(You)" tooltip suffix) needs a full Studio
+// `source` context this suite does not build.
+vi.mock('sanity', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('sanity')>()
+  return {...actual, useCurrentUser: () => null}
+})
+
 const theme = buildTheme()
 
 function renderRow(ui: ReactElement) {

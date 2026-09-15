@@ -21,7 +21,9 @@ vi.mock('sanity', async (importOriginal) => {
   // suite does not build. Only exercised by the one test below that needs a
   // real (displayed but unused) `item.timestamp` — the return value plays no
   // part in any assertion.
-  return {...actual, useRelativeTime: () => 'a while ago'}
+  // `InboxRow` calls `useCurrentUser` (for the "(You)" tooltip suffix), which
+  // needs a full Studio `source` context this suite does not build.
+  return {...actual, useRelativeTime: () => 'a while ago', useCurrentUser: () => null}
 })
 
 /**

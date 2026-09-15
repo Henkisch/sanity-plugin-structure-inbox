@@ -4,10 +4,9 @@ import {useCallback, useMemo} from 'react'
 import {useObservable} from 'react-rx'
 import {from, of} from 'rxjs'
 import {catchError, map, startWith, switchMap} from 'rxjs/operators'
-// `useAddonDataset` and `useUserListWithPermissions` stay out of this named
-// import — see `optionalHook` in `capability.ts`.
+// `useUserListWithPermissions` stays out of this named import — see
+// `optionalHook` in `capability.ts`.
 import {
-  type AddonDatasetContextValue,
   useClient,
   useCurrentUser,
   useSchema,
@@ -19,20 +18,10 @@ import {API_VERSION} from '../../constants'
 import {type SnoozeState} from '../../store/snoozes'
 import {splitItems} from '../splitItems'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
+import {useAssignmentStore} from './assignmentStore'
 import {filterAuthoredBy} from './authoredBy'
 import {optionalHook} from './capability'
 import {liveQuery$} from './liveQuery'
-
-/** Stands in for `useAddonDataset` when Sanity does not export it — see `openTasks.ts`. */
-function useUnavailableAddonDataset(): AddonDatasetContextValue {
-  return {
-    client: null,
-    isCreatingDataset: false,
-    createAddonDataset: async () => null,
-    ready: false,
-    error: null,
-  }
-}
 
 /** Stands in for `useUserListWithPermissions` when Sanity does not export it. */
 function useUnavailableUserList(): UserListWithPermissionsHookValue {
@@ -40,7 +29,6 @@ function useUnavailableUserList(): UserListWithPermissionsHookValue {
 }
 
 // Resolved once at module scope — see `openTasks.ts` for why.
-const useAddonDataset = optionalHook('useAddonDataset', useUnavailableAddonDataset)
 const useAssignableUsers = optionalHook<
   (opts: UserListWithPermissionsOptions) => UserListWithPermissionsHookValue
 >('useUserListWithPermissions', useUnavailableUserList)
@@ -85,24 +73,11 @@ const QUERY = `*[
   "title": coalesce(title, name, label, _id)
 }`
 
-interface TaskTargetRow {
-  _id: string
-  targetId: string
-  assignedTo?: string
-}
-
 /**
- * Every open task's target, regardless of which draft this source is about
- * to list — cheaper than re-running one query per row, and it's how a draft's
- * own row learns it has been handed to someone: `assign` below creates a task
- * elsewhere, and nothing before this pointed back from the task to the draft
- * it targets. Carrying the task's own `_id` here too is what lets `assign`
- * reassign the existing task instead of creating a second one pointed at the
- * same draft.
+ * This source's own private assignment doc type — see `assignmentStore.ts`
+ * for the shared mechanics and why it's a plain doc, not a Sanity Task.
  */
-const TASK_TARGETS_QUERY = `*[
-  _type == "tasks.task" && status == "open" && defined(target.document._ref)
-]{_id, "targetId": target.document._ref, assignedTo}`
+const ASSIGNMENT_TYPE = 'structureInbox.draftAssignment'
 
 /**
  * Drafts that have sat unpublished long enough to look forgotten.
@@ -123,26 +98,27 @@ const TASK_TARGETS_QUERY = `*[
  * given draft looks ready to publish. Informational only — it never writes
  * to the document, so there is nothing here to guard behind `resolve`.
  *
- * Also offers `assign`: hands a draft to someone else by creating a
- * `tasks.task` document in the addon dataset — the same store `openTasks`
- * reads from — including a `target` reference to the draft's canonical
- * (published-style) id and type, in the exact shape Sanity's own "Create new
- * task" writes: a `_weak` `crossDatasetReference` to the content dataset,
- * plus `documentType`. Confirmed by creating one by hand, on a draft that has
- * never been published, and reading it back — Sanity points `target` at the
- * canonical id regardless, which is exactly what `_weak` is for: the
- * reference is fine to dangle until something is actually published there.
- * `tasks.task` itself is `@beta` in Sanity's own typings, same as
- * `useAddonDataset`. `useUserListWithPermissions`, which supplies who a
- * draft can go to, is `@beta` for the same reason and reached the same way.
+ * Also offers `assign` — hands a draft to someone else. **Deliberately not**
+ * implemented as a Sanity Task: an earlier version of this created a real
+ * `tasks.task` document per assignment, which (a) surfaced as a second,
+ * separately-titled "Follow up: …" row that this plugin has spent a whole
+ * design pass arguing editors should never have to reconcile with the actual
+ * draft it was about, (b) needed the addon dataset at all, for a feature that
+ * has nothing to do with Sanity's own Tasks concept, and (c) had a real,
+ * observed bug: reassigning a draft that already had one of these tasks did
+ * not reliably find and reuse it, so a fresh "Follow up" task was created on
+ * every single assign click. Assignment is now just a plain, unregistered
+ * document (`structureInbox.draftAssignment.<targetId>`) mapping a draft's
+ * canonical id to an assignee id — the same shape and the same reasoning
+ * `useDismissals.ts` already uses for its own per-user preference doc, kept
+ * in the content dataset this source already reads, nothing borrowed from
+ * Sanity's Tasks feature at all. `useUserListWithPermissions`, which supplies
+ * who a draft can go to, is `@beta` in Sanity's own typings and reached via
+ * `optionalHook` for exactly that reason.
  *
  * A draft's own row also carries `assignee` once something has assigned it —
- * `TASK_TARGETS_QUERY` reads every open task's target back out of the addon
- * dataset and joins it onto whichever draft that target's canonical id
- * matches. Without this, the only sign an assign had worked was a second,
- * disconnected "Follow up: …" row appearing elsewhere in the list — an avatar
- * appearing right where the draft already lives says the same thing without
- * the reader having to make that connection themselves.
+ * `ASSIGNMENTS_QUERY` reads every assignment doc back out and joins it onto
+ * whichever draft its `targetId` matches.
  */
 export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): InboxSource {
   const {
@@ -156,12 +132,7 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
 
   /**
    * The base draft fetch, with no assignee info attached — deliberately
-   * shared between `useItems` and `useOpenCount` below. Unlike the
-   * assignee-join further down `useItems` goes on to do, this part needs
-   * nothing from the addon dataset, which is what makes it safe for
-   * `useOpenCount` to reuse: that hook exists specifically to run from a
-   * place (`src/studio/inboxCountLayout.tsx`'s always-mounted provider)
-   * where the addon dataset's own context is not reliably present.
+   * shared between `useItems` and `useOpenCount` below.
    */
   function useDraftFetch(
     client: SanityClient,
@@ -240,38 +211,13 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
       const schema = useSchema()
       const currentUser = useCurrentUser()
       const userId = currentUser?.id
-      const {client: addonClient} = useAddonDataset()
       // `null` documentValue: not scoped to one draft, since any of them
       // could be assigned — every project member able to update documents is
       // a sensible assignee.
       const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
 
       const result = useDraftFetch(client, schema, userId)
-
-      // Live, same reasoning as `result$`: someone assigning or closing a task
-      // elsewhere should update a draft's avatar without the editor having to
-      // navigate away and back.
-      const openTaskByTarget$ = useMemo(() => {
-        if (!addonClient) return of<Map<string, {taskId: string; assignedTo?: string}>>(new Map())
-
-        const fetch$ = addonClient.observable.fetch<TaskTargetRow[]>(TASK_TARGETS_QUERY)
-
-        return liveQuery$(addonClient, TASK_TARGETS_QUERY, {}, fetch$).pipe(
-          map((rows) => {
-            const byTarget = new Map<string, {taskId: string; assignedTo?: string}>()
-            for (const row of rows) {
-              byTarget.set(row.targetId, {taskId: row._id, assignedTo: row.assignedTo})
-            }
-            return byTarget
-          }),
-          catchError(() => of(new Map<string, {taskId: string; assignedTo?: string}>())),
-        )
-      }, [addonClient])
-
-      const openTaskByTarget = useObservable(
-        openTaskByTarget$,
-        new Map<string, {taskId: string; assignedTo?: string}>(),
-      )
+      const assignments = useAssignmentStore(client, ASSIGNMENT_TYPE)
 
       // `assignable` already carries exactly the display name and photo an
       // avatar needs — built once here rather than looked up per row. Its own
@@ -295,18 +241,23 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
         () =>
           result.items.map((item): InboxItem => {
             const canonicalId = item.intent?.params.id
-            const assignedTo = canonicalId
-              ? openTaskByTarget.get(canonicalId)?.assignedTo
-              : undefined
+            const assignedTo = canonicalId ? assignments.byTarget.get(canonicalId) : undefined
             const assignee = assignedTo ? assigneesById.get(assignedTo) : undefined
             return assignee ? {...item, assignee} : item
           }),
-        [result.items, openTaskByTarget, assigneesById],
+        [result.items, assignments.byTarget, assigneesById],
       )
 
       const assess = useCallback(
         async (item: InboxItem) => {
-          const message = await client.agent.action.prompt({
+          // Agent Actions rejects the plugin's own pinned `API_VERSION`
+          // outright ("Agent Actions are only available on apiVersion vX") —
+          // confirmed live, not assumed: this call was silently never
+          // succeeding before, only ever exercising its own error path.
+          // `withConfig` scopes that override to this one call, leaving
+          // every other request on this client at the plugin's real,
+          // stable version.
+          const message = await client.withConfig({apiVersion: 'vX'}).agent.action.prompt({
             instruction:
               'Given the following document:\n$document\n---\n' +
               'In one short, specific sentence: does this draft look ready to publish, ' +
@@ -319,66 +270,22 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
       )
 
       const assign = useMemo(() => {
-        if (!addonClient || !assignable) return undefined
+        if (!assignable) return undefined
 
         return {
           users: assignable
             .filter((user) => user.granted)
             .map((user) => ({id: user.id, label: user.displayName || user.email || user.id})),
           toUser: async (item: InboxItem, assignedTo: string) => {
-            // `item.intent.params` already carries exactly what `target`
-            // needs — the canonical (published-style) id and the schema
-            // type — because `toItem` below builds it from the same row.
-            // Confirmed by creating a task by hand on a draft that has never
-            // been published and reading it back: Sanity points `target` at
-            // that same canonical id regardless, `_weak` precisely so the
-            // reference is fine to dangle until something is actually
-            // published there.
             const targetId = item.intent?.params.id
-            const documentType = item.intent?.params.type
-
-            // Reassigning a draft that already has an open task pointed at
-            // it updates that same task instead of creating a second one —
-            // the avatar's own picker is how an already-assigned draft gets
-            // reassigned, and a fresh "Follow up" task every time it fired
-            // was duplicating the same one endlessly instead.
-            const existingTaskId = targetId ? openTaskByTarget.get(targetId)?.taskId : undefined
-            if (existingTaskId) {
-              await addonClient.patch(existingTaskId).set({assignedTo}).commit()
-              return
-            }
-
-            await addonClient.create({
-              _type: 'tasks.task',
-              title: `Follow up: ${item.title}`,
-              status: 'open',
-              assignedTo,
-              ...(targetId &&
-                documentType && {
-                  target: {
-                    document: {
-                      _type: 'crossDatasetReference',
-                      _ref: targetId,
-                      _dataset: client.config().dataset,
-                      _projectId: client.config().projectId,
-                      _weak: true,
-                    },
-                    documentType,
-                  },
-                }),
-            })
+            if (targetId) await assignments.assign(targetId, assignedTo)
           },
           unassign: async (item: InboxItem) => {
-            // Nothing to unassign if there was never a task pointed at this
-            // draft to begin with — the avatar that offers "Unassign" only
-            // ever shows once one exists.
             const targetId = item.intent?.params.id
-            const existingTaskId = targetId ? openTaskByTarget.get(targetId)?.taskId : undefined
-            if (existingTaskId)
-              await addonClient.patch(existingTaskId).unset(['assignedTo']).commit()
+            if (targetId) await assignments.unassign(targetId)
           },
         }
-      }, [addonClient, assignable, client, openTaskByTarget])
+      }, [assignable, assignments])
 
       return useMemo(() => ({...result, items, assess, assign}), [result, items, assess, assign])
     },

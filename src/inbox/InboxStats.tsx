@@ -1,10 +1,10 @@
-import {BarChartIcon} from '@sanity/icons/BarChart'
-import {Avatar, Card, Flex, Stack, Text} from '@sanity/ui'
+import {SparklesIcon} from '@sanity/icons/Sparkles'
+import {Avatar, Button, Card, Flex, Stack, Text} from '@sanity/ui'
 import {useMemo, useState} from 'react'
 import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
-import {initials} from './InboxRow'
+import {initials, UnassignedAvatar} from './InboxRow'
 import {type MergedRow} from './mergeItems'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -80,15 +80,18 @@ function isToday(isoTimestamp: string, now: number): boolean {
 }
 
 /**
- * How many items, across every source, actually got cleared today — a real,
- * source-confirmed `changedAt`, not a dismissal. An editor acknowledging
- * things all afternoon no longer inflates this; only Sanity itself moving an
- * item to `cleared` does.
+ * How many items, across every source, actually got cleared today — real,
+ * source-confirmed completions and manual clears both count, each on the day
+ * it actually left Open. `row.clearedAt` (see `mergeItems.ts`'s own doc
+ * comment) is the real moment for either kind: the item's own `changedAt`
+ * for a real resolve, or the dismissal's own timestamp for a manual clear —
+ * never the item's `changedAt` alone, which for a manual clear can be long
+ * before the editor actually cleared it.
  */
 export function countClearedToday(clearedRows: readonly MergedRow[], now: number): number {
   let count = 0
   for (const row of clearedRows) {
-    if (row.item.changedAt && isToday(row.item.changedAt, now)) count += 1
+    if (row.clearedAt && isToday(row.clearedAt, now)) count += 1
   }
   return count
 }
@@ -100,6 +103,16 @@ interface InboxStatsProps {
   assignableRows: MergedRow[]
   /** Every cleared row, across every main source — same unfiltered shape as `openRows`. */
   clearedRows: MergedRow[]
+  /**
+   * A pointer to `Inbox.tsx`'s own pane-level "Summarize" action — not a
+   * second place the answer lives. This card's whole rhythm is glanceable
+   * numbers, not prose; a multi-sentence AI read doesn't fit it, and this
+   * column is only a third of the pane's width, too narrow for comfortable
+   * paragraph reading. So the trigger lives here as a small link, the result
+   * still renders where there's room for it. Omit to leave this card
+   * stats-only.
+   */
+  onSummarize?: () => void
 }
 
 /**
@@ -113,7 +126,7 @@ interface InboxStatsProps {
  * the whole-team picture underneath that, so the two stay independent.
  */
 export function InboxStats(props: InboxStatsProps) {
-  const {openRows, assignableRows, clearedRows} = props
+  const {openRows, assignableRows, clearedRows, onSummarize} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
   // Not a ticking clock: a summary card is allowed to be up to a session
@@ -143,9 +156,6 @@ export function InboxStats(props: InboxStatsProps) {
         tone="transparent"
       >
         <Flex align="center" gap={3} paddingLeft={2}>
-          <Text muted size={2}>
-            <BarChartIcon />
-          </Text>
           <Text size={1} weight="semibold">
             {t('stats.title')}
           </Text>
@@ -173,23 +183,31 @@ export function InboxStats(props: InboxStatsProps) {
         </Stack>
 
         <Flex justify="space-between">
-          <Text size={1}>{t('stats.unassigned')}</Text>
-          <Text size={1} weight={unassignedCount > 0 ? 'semibold' : undefined}>
-            {unassignedCount}
-          </Text>
-        </Flex>
-
-        <Flex justify="space-between">
           <Text size={1}>{t('stats.clearedToday')}</Text>
           <Text size={1}>{clearedToday}</Text>
         </Flex>
 
-        {assigneeLoad.length > 0 && (
+        {(assigneeLoad.length > 0 || unassignedCount > 0) && (
           <Stack gap={2}>
             <Text muted size={0} weight="semibold">
               {t('stats.load.title')}
             </Text>
             <Stack gap={2}>
+              {/* Unassigned first, not a separate stat above this list —
+                  it's one more bucket of open items, same as any named
+                  person's, so it belongs where the others are counted, not
+                  singled out on its own line. */}
+              {unassignedCount > 0 && (
+                <Flex align="center" gap={2} justify="space-between">
+                  <Flex align="center" gap={2}>
+                    <UnassignedAvatar size={0} />
+                    <Text size={1}>{t('assignee.unassigned')}</Text>
+                  </Flex>
+                  <Text muted size={1}>
+                    {unassignedCount}
+                  </Text>
+                </Flex>
+              )}
               {assigneeLoad.map((person) => (
                 <Flex align="center" gap={2} justify="space-between" key={person.id}>
                   <Flex align="center" gap={2}>
@@ -203,6 +221,24 @@ export function InboxStats(props: InboxStatsProps) {
               ))}
             </Stack>
           </Stack>
+        )}
+
+        {onSummarize && (
+          // `justify="flex-start"`, not left to the `Stack`'s own default:
+          // a bare `Button` here rendered centered under the stats above it,
+          // reading as its own disconnected element rather than one more row
+          // in this card. `marginLeft` alone (an earlier attempt) offset the
+          // button's own padding but did nothing about the centering itself.
+          <Flex justify="flex-start" style={{marginLeft: -8}}>
+            <Button
+              fontSize={1}
+              icon={SparklesIcon}
+              mode="bleed"
+              onClick={onSummarize}
+              padding={2}
+              text={t('overview.askAi')}
+            />
+          </Flex>
         )}
       </Stack>
     </Card>

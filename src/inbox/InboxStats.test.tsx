@@ -18,8 +18,17 @@ function item(id: string, extra: Partial<InboxItem> = {}): InboxItem {
   return {id, title: `Item ${id}`, ...extra}
 }
 
-function row(sourceName: string, itemProps: Partial<InboxItem> & {id: string}): MergedRow {
-  return {key: `${sourceName} ${itemProps.id}`, sourceName, item: item(itemProps.id, itemProps)}
+function row(
+  sourceName: string,
+  itemProps: Partial<InboxItem> & {id: string},
+  rowProps: Partial<Pick<MergedRow, 'clearedAt' | 'clearedBy'>> = {},
+): MergedRow {
+  return {
+    key: `${sourceName} ${itemProps.id}`,
+    sourceName,
+    item: item(itemProps.id, itemProps),
+    ...rowProps,
+  }
 }
 
 const NOW = Date.parse('2026-06-15T12:00:00.000Z')
@@ -92,16 +101,27 @@ describe('groupByAssigneeLoad', () => {
 })
 
 describe('countClearedToday', () => {
-  it('counts only rows whose real cleared changedAt falls on the same local day as now', () => {
+  it('counts only rows whose clearedAt falls on the same local day as now', () => {
     const rows = [
-      row('drafts', {id: '1', changedAt: new Date(NOW).toISOString()}),
-      row('drafts', {id: '2', changedAt: new Date(NOW - 2 * DAY).toISOString()}),
-      row('tasks', {id: '3', changedAt: new Date(NOW).toISOString()}),
+      row('drafts', {id: '1'}, {clearedAt: new Date(NOW).toISOString()}),
+      row('drafts', {id: '2'}, {clearedAt: new Date(NOW - 2 * DAY).toISOString()}),
+      row('tasks', {id: '3'}, {clearedAt: new Date(NOW).toISOString()}),
     ]
     expect(countClearedToday(rows, NOW)).toBe(2)
   })
 
-  it('returns 0 for a row with no changedAt rather than throwing', () => {
+  it('counts a manual clear on the day it was actually cleared, not the day its content last changed', () => {
+    const rows = [
+      row(
+        'drafts',
+        {id: '1', changedAt: new Date(NOW - 30 * DAY).toISOString()},
+        {clearedAt: new Date(NOW).toISOString(), clearedBy: 'editor'},
+      ),
+    ]
+    expect(countClearedToday(rows, NOW)).toBe(1)
+  })
+
+  it('returns 0 for a row with no clearedAt rather than throwing', () => {
     expect(countClearedToday([row('drafts', {id: '1'})], NOW)).toBe(0)
   })
 })
@@ -124,10 +144,17 @@ describe('InboxStats', () => {
     expect(screen.getByText('Ada')).toBeTruthy()
   })
 
-  it('omits the per-assignee section entirely when nobody has anything assigned', () => {
+  it('shows an unassigned row in the per-assignee section, not a separate stat of its own', () => {
     const rows = [row('tasks', {id: '1'})]
 
     renderWithTheme(<InboxStats assignableRows={rows} clearedRows={[]} openRows={rows} />)
+
+    expect(screen.getByText('stats.load.title')).toBeTruthy()
+    expect(screen.getByText('assignee.unassigned')).toBeTruthy()
+  })
+
+  it('omits the per-assignee section entirely when there is nothing assignable at all', () => {
+    renderWithTheme(<InboxStats assignableRows={[]} clearedRows={[]} openRows={[]} />)
 
     expect(screen.queryByText('stats.load.title')).toBeNull()
   })

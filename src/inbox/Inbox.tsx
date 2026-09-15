@@ -1,5 +1,6 @@
 import {CheckmarkIcon} from '@sanity/icons/Checkmark'
 import {FilterIcon} from '@sanity/icons/Filter'
+import {SparklesIcon} from '@sanity/icons/Sparkles'
 import {
   Avatar,
   AvatarStack,
@@ -9,7 +10,6 @@ import {
   Card,
   Container,
   Flex,
-  Grid,
   Heading,
   Stack,
   Tab,
@@ -18,10 +18,12 @@ import {
   Text,
 } from '@sanity/ui'
 import {Menu, MenuButton, MenuItem} from '@sanity/ui/menu'
+import {Tooltip} from '@sanity/ui/tooltip'
 import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react'
-import {useCurrentUser, useTranslation} from 'sanity'
+import {useClient, useCurrentUser, useTranslation} from 'sanity'
+import {styled} from 'styled-components'
 
-import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
+import {API_VERSION, STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {type useDismissals} from '../store/useDismissals'
 import {type useSnoozes} from '../store/useSnoozes'
 import {useSharedInboxStore} from '../studio/inboxCountLayout'
@@ -45,11 +47,35 @@ interface InboxProps {
 }
 
 /**
- * Three columns, so `main` can take two thirds and `aside` one. Collapses to a
- * single stacked column below the widest breakpoints, where a sidebar would be
- * a sliver.
+ * `main` at two-thirds width, `aside` at one-third — a real CSS container
+ * query, not a viewport media query: this pane's own available width
+ * depends on the Studio's left nav (collapsed or expanded) as much as the
+ * browser window, so a breakpoint keyed to the viewport stacked (or didn't)
+ * at the wrong moments relative to how much room this pane actually had.
+ * Below 1280px of the pane's *own* width, a sidebar next to the list would
+ * be a sliver — stack instead.
+ *
+ * Two elements, not one: a container query cannot match the container it is
+ * querying, only that container's descendants (confirmed live — the single
+ * `ResponsiveColumns` version this replaced set `container-type` and its own
+ * `@container` rule on the same element, which the spec disallows, so the
+ * override silently never applied at any width, however wide the window).
+ * `ColumnsBoundary` establishes the container; `ResponsiveColumns`, its
+ * child, is what actually queries it.
  */
-const COLUMNS = [1, 1, 1, 3]
+const ColumnsBoundary = styled.div`
+  container-type: inline-size;
+`
+
+const ResponsiveColumns = styled.div`
+  display: grid;
+  gap: 32px;
+  grid-template-columns: 1fr;
+
+  @container (min-width: 1280px) {
+    grid-template-columns: 2fr 1fr;
+  }
+`
 
 const OPEN_TAB_ID = 'structure-inbox-open'
 const CLEARED_TAB_ID = 'structure-inbox-cleared'
@@ -98,7 +124,7 @@ export function BoundedSection(props: BoundedSectionProps) {
 
   const renderFallback = useCallback(
     (error: Error): ReactNode => (
-      <SectionCard error={error} icon={source.icon} title={source.title}>
+      <SectionCard error={error} title={source.title}>
         {null}
       </SectionCard>
     ),
@@ -222,6 +248,30 @@ export function Inbox({sources}: InboxProps) {
     setCreateSignals((current) => ({...current, [sourceName]: (current[sourceName] ?? 0) + 1}))
   }, [])
 
+  // A source-level action unrelated to any one item — "Scan for issues",
+  // say — rendered as its own button next to `AddMenu` rather than
+  // in a per-source header: `main` sources have no header of their own
+  // (see `InboxSource.action`'s own doc comment), and this is currently the
+  // only place in the pane that isn't tied to one specific source's items.
+  const actionSources = useMemo(
+    () => mainOrder.map((name) => reports[name]).filter((report): report is SourceReport => Boolean(report?.action)),
+    [mainOrder, reports],
+  )
+  const [runningActions, setRunningActions] = useState<Record<string, boolean>>({})
+  const runSourceAction = useCallback((report: SourceReport) => {
+    const {action} = report
+    if (!action) return
+    setRunningActions((current) => ({...current, [report.source.name]: true}))
+    action
+      .run()
+      .catch((error: unknown) => {
+        console.error('[sanity-plugin-structure-inbox] source action failed', error)
+      })
+      .finally(() => {
+        setRunningActions((current) => ({...current, [report.source.name]: false}))
+      })
+  }, [])
+
   // Every main-source row across *all three* tabs, not just whichever one is
   // currently selected — used only to decide which filter chips exist, never
   // to decide what's shown. Scoping this to just `view` used to mean the
@@ -233,8 +283,11 @@ export function Inbox({sources}: InboxProps) {
   // `matchesInboxFilters` below still only ever filters whatever `view` is
   // actually showing.
   const allRowsAnyView = useMemo(
-    () => (['open', 'cleared', 'snoozed'] as const).flatMap((v) => mergeRows(reports, mainOrder, v)),
-    [reports, mainOrder],
+    () =>
+      (['open', 'cleared', 'snoozed'] as const).flatMap((v) =>
+        mergeRows(reports, mainOrder, v, dismissals.state),
+      ),
+    [reports, mainOrder, dismissals.state],
   )
 
   // Every assignee present anywhere, not the full project roster — a chip
@@ -247,8 +300,18 @@ export function Inbox({sources}: InboxProps) {
     for (const row of allRowsAnyView) {
       if (row.item.assignee) byId.set(row.item.assignee.id, row.item.assignee)
     }
-    return [...byId.values()].sort((a, b) => a.label.localeCompare(b.label))
-  }, [allRowsAnyView])
+    // The viewer's own chip leads the stack — "is any of this mine" is the
+    // first question an editor asks of a shared queue, and the leftmost
+    // avatar is already the one that paints on top (see the z-index note
+    // below), so this doubles as "yours is the one always fully visible."
+    // Everyone else stays alphabetical, same as before.
+    return [...byId.values()].sort((a, b) => {
+      const aIsYou = a.id === currentUser?.id
+      const bIsYou = b.id === currentUser?.id
+      if (aIsYou !== bIsYou) return aIsYou ? -1 : 1
+      return a.label.localeCompare(b.label)
+    })
+  }, [allRowsAnyView, currentUser])
 
   // "Unassigned" only counts for a row whose source actually offers
   // `assign` — a todo or release was never assignable to begin with, so it
@@ -298,8 +361,51 @@ export function Inbox({sources}: InboxProps) {
   // while looking at Done or Snoozed. Kept separate from `allRowsAnyView`
   // above (which covers every tab at once, for the filter bar's own
   // available-assignee/-type lists).
-  const openRows = useMemo(() => mergeRows(reports, mainOrder, 'open'), [reports, mainOrder])
-  const clearedRows = useMemo(() => mergeRows(reports, mainOrder, 'cleared'), [reports, mainOrder])
+  const openRows = useMemo(
+    () => mergeRows(reports, mainOrder, 'open', dismissals.state),
+    [reports, mainOrder, dismissals.state],
+  )
+  const clearedRows = useMemo(
+    () => mergeRows(reports, mainOrder, 'cleared', dismissals.state),
+    [reports, mainOrder, dismissals.state],
+  )
+
+  // A pane-level read across everything currently open, not one item —
+  // same Agent Actions call `unpublishedDrafts.ts`'s own `assess` makes
+  // (`client.agent.action.prompt`), same "informational only, never
+  // automatic" shape: only ever runs on a click, never in the background,
+  // and never writes anything back. Capped at 30 rows so a large inbox
+  // doesn't turn one click into an unbounded prompt.
+  const summarizeClient = useClient({apiVersion: API_VERSION})
+  const [summary, setSummary] = useState<
+    {status: 'idle'} | {status: 'loading'} | {status: 'done'; message: string} | {status: 'error'}
+  >({status: 'idle'})
+
+  const handleSummarize = useCallback(async () => {
+    setSummary({status: 'loading'})
+    const digest = openRows
+      .slice(0, 30)
+      .map((row) => `- ${row.item.title}${row.item.subtitle ? ` (${row.item.subtitle})` : ''}`)
+      .join('\n')
+
+    try {
+      // Agent Actions rejects the plugin's own pinned `API_VERSION` outright
+      // ("Agent Actions are only available on apiVersion vX") — confirmed
+      // live; see `unpublishedDrafts.ts`'s own `assess`, which had the same
+      // bug. `withConfig` scopes the override to this one call.
+      const message = await summarizeClient
+        .withConfig({apiVersion: 'vX'})
+        .agent.action.prompt({
+          instruction:
+            'Given this list of open inbox items, one per line:\n$items\n---\n' +
+            'In two or three short sentences, say what looks most worth starting with first and why.',
+          instructionParams: {items: digest || 'Nothing is open right now.'},
+        })
+      setSummary({status: 'done', message})
+    } catch {
+      setSummary({status: 'error'})
+    }
+  }, [summarizeClient, openRows])
 
   // Only the main column counts toward the headline. The aside is context —
   // "three releases are scheduled" is not three things asking for your
@@ -375,8 +481,16 @@ export function Inbox({sources}: InboxProps) {
               // visible tooltip — `title` is what gives an icon-only avatar
               // the same hover-to-see-the-name Studio's own top-right avatar
               // already has, which matters more here: several of these can
-              // render as bare initials with no photo at all.
-              title={person.label}
+              // render as bare initials with no photo at all. Marks the
+              // viewer's own chip explicitly — two teammates can share a
+              // display name (a real case this project has hit), and without
+              // this an editor hovering their own avatar has no way to tell
+              // it apart from someone else's identically-named one.
+              title={
+                currentUser && person.id === currentUser.id
+                  ? t('assignee.you', {name: person.label})
+                  : person.label
+              }
               style={{
                 background: 'none',
                 // A ring matching the header's own background, not `none` —
@@ -542,15 +656,16 @@ export function Inbox({sources}: InboxProps) {
   return (
     <Stack>
       {/*
-       * Edge-to-edge and bordered, like every other pane's header — the flat
-       * title bar Sanity renders above this from the pane's own `.title()`
-       * carries only the static "Inbox" label, so without a border of its own
-       * this is where the pane actually reads as content that starts. Giving
-       * it the same bounded-header treatment as `SectionCard`'s title row
-       * below is what makes the two feel like one pane instead of a floating
-       * page followed by a list of cards.
+       * No border of its own, unlike an earlier version — the tab row right
+       * beneath the headline reads as its own self-evident navigation
+       * without one, and a single line under this whole block (headline,
+       * tabs, and the global actions beside them together) mostly just
+       * echoed the bordered card immediately below it, one pixel down.
+       * `MergedList`'s own card (and `SectionCard`'s, for the aside column)
+       * already draws that boundary, so this header stays edge-to-edge but
+       * open beneath it.
        */}
-      <Card borderBottom padding={[3, 3, 4]}>
+      <Card padding={[3, 3, 4]}>
         <Stack gap={4}>
           <Flex align="center" gap={3}>
             {/* Pulsing amber while something needs a look; a calm, static
@@ -569,7 +684,14 @@ export function Inbox({sources}: InboxProps) {
               tabs instead of squeezing both onto one, matching how
               `SelectionActions` already handles the same width constraint. */}
           <Flex align="center" gap={3} justify="space-between" wrap="wrap">
-            <TabList gap={1}>
+            {/* `minHeight` matching the action buttons' own real rendered
+                height (measured live: 33px) — `align="center"` above already
+                centers this row's two groups on the same axis (confirmed:
+                their centers already matched exactly), but a `Tab` is
+                shorter than a bordered `Button`, so without this the two
+                groups still visually read as sitting in different bands
+                even though they're mathematically centered together. */}
+            <TabList gap={1} style={{alignItems: 'center', display: 'flex', minHeight: 33}}>
               <Tab
                 aria-controls={PANEL_ID}
                 fontSize={1}
@@ -577,6 +699,17 @@ export function Inbox({sources}: InboxProps) {
                 label={t('tab.open')}
                 onClick={showOpen}
                 selected={view === 'open'}
+              />
+              {/* Open, Snoozed, Cleared — the actual lifecycle order (active,
+                  deferred, resolved), not the arbitrary order this used to
+                  be in. */}
+              <Tab
+                aria-controls={PANEL_ID}
+                fontSize={1}
+                id={SNOOZED_TAB_ID}
+                label={t('tab.snoozed')}
+                onClick={showSnoozed}
+                selected={view === 'snoozed'}
               />
               <Tab
                 aria-controls={PANEL_ID}
@@ -586,45 +719,124 @@ export function Inbox({sources}: InboxProps) {
                 onClick={showCleared}
                 selected={view === 'cleared'}
               />
-              <Tab
-                aria-controls={PANEL_ID}
-                fontSize={1}
-                id={SNOOZED_TAB_ID}
-                label={t('tab.snoozed')}
-                onClick={showSnoozed}
-                selected={view === 'snoozed'}
-              />
             </TabList>
 
-            {view === 'open' && (
-              <Flex gap={2} wrap="wrap">
-                <AddMenu
-                  creators={creators.map((report) => ({
-                    key: report.source.name,
-                    label:
-                      report.source.name === 'todos'
-                        ? t('todos.addButton')
-                        : `${t('inbox.addMenu')} ${report.source.title}`,
-                    onClick: () => requestCreate(report.source.name),
-                  }))}
+            {/* Global actions, not tied to the Open tab — a scan, an add,
+                nothing here depends on what's currently being looked at.
+                Rendered on every tab so nothing jumps or disappears just
+                from switching between Open/Snoozed/Cleared. */}
+            <Flex gap={2} wrap="wrap">
+              {/* Same reasoning as a source's own `action` below: a pane-
+                  level read, not tied to one source, so it belongs beside
+                  them rather than inside any one source's own controls. */}
+              <Tooltip
+                content={
+                  <Box padding={2}>
+                    <Text size={1}>{t('summarize.hint')}</Text>
+                  </Box>
+                }
+                placement="bottom"
+              >
+                <Button
+                  disabled={summary.status === 'loading'}
+                  fontSize={1}
+                  icon={SparklesIcon}
+                  mode="ghost"
+                  onClick={handleSummarize}
+                  text={summary.status === 'loading' ? t('summarize.loading') : t('summarize.ask')}
                 />
-                {/* Hidden-trigger dialogs only — `AddMenu` above is the only
-                    visible entry point now; each one still needs to be
-                    mounted somewhere to have a dialog `requestCreate` can
-                    pop open. */}
-                {creators.map((report) => (
-                  <CreateItemRow
-                    hideTrigger
-                    key={report.source.name}
-                    onCreate={(input) => report.create?.(input)}
-                    openSignal={createSignals[report.source.name]}
+              </Tooltip>
+
+              {/* Ahead of `AddMenu`, not after: `AddMenu` stays the
+                  right-most, primary action a returning editor already
+                  knows, and a source-level action is the newer, less
+                  frequent one. Ghost mode for the same reason — until
+                  there's a real signal to weigh one action over the
+                  other, neither should read as more important than
+                  the other. */}
+              {actionSources.map((report) => {
+                const {action} = report
+                if (!action) return null
+                const running = runningActions[report.source.name] ?? false
+                const button = (
+                  <Button
+                    disabled={running}
+                    fontSize={1}
+                    icon={action.icon}
+                    mode="ghost"
+                    onClick={() => runSourceAction(report)}
+                    text={running ? (action.pendingLabel ?? action.label) : action.label}
                   />
-                ))}
-              </Flex>
-            )}
+                )
+                if (!action.description) return <Box key={report.source.name}>{button}</Box>
+                return (
+                  <Tooltip content={<Box padding={2}><Text size={1}>{action.description}</Text></Box>} key={report.source.name} placement="bottom">
+                    {button}
+                  </Tooltip>
+                )
+              })}
+              <AddMenu
+                creators={creators.map((report) => ({
+                  key: report.source.name,
+                  label:
+                    report.source.name === 'todos'
+                      ? t('todos.addButton')
+                      : `${t('inbox.addMenu')} ${report.source.title}`,
+                  onClick: () => requestCreate(report.source.name),
+                }))}
+              />
+              {/* Hidden-trigger dialogs only — `AddMenu` above is the only
+                  visible entry point now; each one still needs to be
+                  mounted somewhere to have a dialog `requestCreate` can
+                  pop open. Mounted regardless of tab for the same reason
+                  `AddMenu` itself now is — adding a new item always adds
+                  it as open, whichever tab that dialog happened to be
+                  triggered from. */}
+              {creators.map((report) => (
+                <CreateItemRow
+                  hideTrigger
+                  key={report.source.name}
+                  onCreate={(input) => report.create?.(input)}
+                  openSignal={createSignals[report.source.name]}
+                />
+              ))}
+            </Flex>
           </Flex>
         </Stack>
       </Card>
+
+      {/* Same loading/done/error shape as `InboxRow.tsx`'s own `assessRow`
+          — this is the pane-level version of the same capability, not a
+          different pattern. Dismissible rather than tied to `summary.status`
+          alone: a stale read from before the list changed shouldn't linger
+          silently forever, but the editor decides when they're done with it,
+          not the next render. */}
+      {(summary.status === 'done' || summary.status === 'error') && (
+        <Box paddingX={4} paddingTop={4}>
+          <Container width={4}>
+            <Card border padding={3} radius={2} tone={summary.status === 'error' ? 'critical' : 'primary'}>
+              <Flex align="flex-start" gap={3} justify="space-between">
+                {/* Capped, not the full width of a 1600px-wide `Container`:
+                    a paragraph read that wide is uncomfortable to read —
+                    body text wants roughly 60-75 characters per line, not
+                    the same edge-to-edge width a data-dense row list uses. */}
+                <Box style={{maxWidth: '640px'}}>
+                  <Text size={1}>
+                    {summary.status === 'error' ? t('summarize.error') : summary.message}
+                  </Text>
+                </Box>
+                <Button
+                  fontSize={1}
+                  mode="bleed"
+                  onClick={() => setSummary({status: 'idle'})}
+                  padding={2}
+                  text={t('summarize.dismiss')}
+                />
+              </Flex>
+            </Card>
+          </Container>
+        </Box>
+      )}
 
       {main.map((source) => (
         <BoundedSourceFeed
@@ -644,62 +856,66 @@ export function Inbox({sources}: InboxProps) {
             }
             id={PANEL_ID}
           >
-            <Grid gap={4} gridTemplateColumns={COLUMNS}>
-              <Box gridColumn={[1, 1, 1, 2]}>
-                <MergedList
-                  assigneeFilter={assigneeFilter}
-                  dismissals={dismissals}
-                  filterBar={filterBar}
-                  maxHeight={sidebarHeight}
-                  order={mainOrder}
-                  reports={reports}
-                  snoozes={snoozes}
-                  typeFilter={typeFilter}
-                  view={view}
-                />
-              </Box>
-
-              {/* Always rendered now, `InboxStats` first — the persistent
-                  sidebar. Every aside source's own card is persistent too:
-                  each one already draws its own "All clear."/"Nothing
-                  snoozed." empty state internally, so there is no reason
-                  left to hide the whole card while it has nothing due.
-                  `ref` here is what `MergedList`'s own list height is capped
-                  against — see `sidebarHeight` above. */}
-              <Box gridColumn={1} ref={sidebarRef}>
-                <Stack gap={3}>
-                  <InboxStats
-                    assignableRows={assignableRows}
-                    clearedRows={clearedRows}
-                    openRows={openRows}
+            <ColumnsBoundary>
+              <ResponsiveColumns>
+                <Box>
+                  <MergedList
+                    assigneeFilter={assigneeFilter}
+                    dismissals={dismissals}
+                    filterBar={filterBar}
+                    maxHeight={sidebarHeight}
+                    order={mainOrder}
+                    reports={reports}
+                    snoozes={snoozes}
+                    typeFilter={typeFilter}
+                    view={view}
                   />
+                </Box>
 
-                  {/* Always `view="open"`, never the pane's own tab: an
-                      aside source offers no dismiss/snooze action of its
-                      own (InboxSection dropped that whole mechanism for
-                      aside content), so nothing can ever move a release
-                      into Done or Snoozed through this UI — following the
-                      Open/Done/Snoozed tabs here just meant Releases sat
-                      showing "Nothing snoozed." on a tab that can never
-                      hold anything, for every aside source there ever is. */}
-                  {aside.length > 0 && (
-                    <Stack gap={3}>
-                      {aside.map((source) => (
-                        <BoundedSection
-                          compact
-                          dismissals={dismissals}
-                          key={source.name}
-                          onCount={ignoreCount}
-                          snoozes={snoozes}
-                          source={source}
-                          view="open"
-                        />
-                      ))}
-                    </Stack>
-                  )}
-                </Stack>
-              </Box>
-            </Grid>
+                {/* Always rendered now, `InboxStats` first — the persistent
+                    sidebar. Every aside source's own card is persistent too:
+                    each one already draws its own "All clear."/"Nothing
+                    snoozed." empty state internally, so there is no reason
+                    left to hide the whole card while it has nothing due.
+                    `ref` here is what `MergedList`'s own list height is
+                    capped against — see `sidebarHeight` above. */}
+                <Box ref={sidebarRef}>
+                  <Stack gap={3}>
+                    <InboxStats
+                      assignableRows={assignableRows}
+                      clearedRows={clearedRows}
+                      onSummarize={handleSummarize}
+                      openRows={openRows}
+                    />
+
+                    {/* Always `view="open"`, never the pane's own tab: an
+                        aside source offers no dismiss/snooze action of its
+                        own (InboxSection dropped that whole mechanism for
+                        aside content), so nothing can ever move a release
+                        into Done or Snoozed through this UI — following the
+                        Open/Done/Snoozed tabs here just meant Releases sat
+                        showing "Nothing snoozed." on a tab that can never
+                        hold anything, for every aside source there ever
+                        is. */}
+                    {aside.length > 0 && (
+                      <Stack gap={3}>
+                        {aside.map((source) => (
+                          <BoundedSection
+                            compact
+                            dismissals={dismissals}
+                            key={source.name}
+                            onCount={ignoreCount}
+                            snoozes={snoozes}
+                            source={source}
+                            view="open"
+                          />
+                        ))}
+                      </Stack>
+                    )}
+                  </Stack>
+                </Box>
+              </ResponsiveColumns>
+            </ColumnsBoundary>
           </TabPanel>
         </Container>
       </Box>

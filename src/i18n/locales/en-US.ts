@@ -36,6 +36,7 @@ const enUS = {
   'audience.everyone': 'Everyone',
   'assignee.unassigned': 'Unassigned',
   'assignee.unassign': 'Unassign',
+  'assignee.you': '{{name}} (You)',
   'filter.type': 'Type',
   'source.loading': 'Loading…',
   'source.error.title': 'This section could not load',
@@ -45,6 +46,10 @@ const enUS = {
 
   'selection.select': 'Select',
   'selection.selectAll': 'Select all',
+  'selection.selectMenu': 'Selection options',
+  'selection.all': 'All',
+  'selection.none': 'None',
+  'row.menu': 'More actions',
   'selection.cancel': 'Cancel',
   'selection.undo': 'Undo',
   'selection.count_one': '{{count}} selected',
@@ -52,36 +57,50 @@ const enUS = {
 
   'undo.markedDone_one': '{{count}} marked as done',
   'undo.markedDone_other': '{{count}} marked as done',
-  'undo.acknowledged_one': '{{count}} acknowledged',
-  'undo.acknowledged_other': '{{count}} acknowledged',
+  'undo.markedNotDone_one': '{{count}} marked as not done',
+  'undo.markedNotDone_other': '{{count}} marked as not done',
+  'undo.cleared_one': '{{count}} cleared',
+  'undo.cleared_other': '{{count}} cleared',
   'undo.snoozed_one': '{{count}} snoozed',
   'undo.snoozed_other': '{{count}} snoozed',
   'undo.assigned_one': '{{count}} assigned to {{name}}',
   'undo.assigned_other': '{{count}} assigned to {{name}}',
-  'undo.savedToTodos_one': '{{count}} saved to your todos',
-  'undo.savedToTodos_other': '{{count}} saved to your todos',
   'undo.unassigned': 'Unassigned',
   'undo.done': 'Undone',
 
   'action.markDone': 'Mark as done',
   'action.markDone.resolves': 'Completes it for everyone, and removes it from your inbox.',
   'action.markDone.mixed':
-    'Completes what it can right now, and marks the rest seen — nothing else changes for those.',
+    'Completes what it can right now, and clears the rest — nothing changes in Sanity for those.',
   'action.markNotDone': 'Mark as not done',
-  'action.acknowledge': 'Acknowledge',
-  'action.acknowledge.hint': 'Marks it seen. Nothing changes in Sanity, and it stays in Open.',
+  'action.clear': 'Clear',
+  'action.clear.hint':
+    "Moves it to Cleared. Nothing changes in Sanity — you're calling it done yourself, and it comes back to Open if it changes again.",
   'action.wakeNow': 'Wake now',
 
   'action.snooze': 'Snooze',
-  'action.snooze.laterToday': 'Later today',
-  'action.snooze.tomorrow': 'Tomorrow',
-  'action.snooze.nextWeek': 'Next week',
 
   'action.assign': 'Assign to…',
-  'action.saveToTodos': 'Save to todos',
   'action.delete': 'Delete',
 
   'inbox.addMenu': 'Add',
+
+  // The Team/Private split within a tab's own row list — see
+  // `InboxSource.visibility`'s own doc comment for what decides which a row
+  // falls into. Deliberately not the same words as `audience.mine`/
+  // `audience.everyone`: those describe a display filter (who this is
+  // currently scoped to), this describes a structural fact (who could ever
+  // see it at all) — reusing the same copy for both would imply they're the
+  // same axis, which they aren't.
+  'inbox.section.shared': 'Team',
+  'inbox.section.private': 'Only you',
+
+  // The Cleared tab's own axis, orthogonal to Team/Only you above: whether
+  // Sanity itself confirmed this is done, or an editor just called it done
+  // themselves — see `mergeItems.ts`'s `MergedRow.clearedBy` for why this
+  // stays visible rather than the two kinds of "cleared" looking identical.
+  'cleared.confirmed': 'Confirmed',
+  'cleared.manual': 'Cleared by you',
 
   'todos.addPlaceholder': 'Add a todo…',
   'todos.addButton': 'Add todo',
@@ -97,12 +116,27 @@ const enUS = {
   'assess.loading': 'Asking AI…',
   'assess.error': 'Could not reach AI.',
 
+  // The pane-level counterpart to `assess.*` above — same Agent Actions
+  // call, applied to everything currently open instead of one item.
+  'summarize.ask': 'Summarize',
+  'summarize.loading': 'Summarizing…',
+  'summarize.error': 'Could not reach AI.',
+  'summarize.hint': 'Asks AI what looks most worth starting with, across everything open right now.',
+  // Not "Cancel" — nothing is in progress at this point, the read already
+  // happened; this closes it, same as dismissing any other read-only card.
+  'summarize.dismiss': 'Dismiss',
+
   'stats.title': 'Overview',
+  // A pointer to the pane-level "Summarize" action, not a second place the
+  // result renders — see `InboxStats.tsx`'s own `onSummarize` doc comment.
+  // Names what it's actually asking, not just "Ask AI" — that alone left
+  // even someone who knows this plugin well with no idea what the question
+  // even was.
+  'overview.askAi': 'Ask AI: what to work on first →',
   'stats.age.title': 'Open items by age',
   'stats.age.recent': '{{count}} new',
   'stats.age.week': '{{count}} this week',
   'stats.age.old': '{{count}} older',
-  'stats.unassigned': 'Unassigned',
   'stats.clearedToday': 'Cleared today',
   'stats.load.title': 'Open items by assignee',
 }

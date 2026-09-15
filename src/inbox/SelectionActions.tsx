@@ -1,9 +1,12 @@
-import {Box, Button, Card, Flex, Select, Stack, Text} from '@sanity/ui'
-import {type ChangeEvent} from 'react'
+import {CheckmarkIcon} from '@sanity/icons/Checkmark'
+import {ClockIcon} from '@sanity/icons/Clock'
+import {TrashIcon} from '@sanity/icons/Trash'
+import {Box, Button, Flex, Select, Text} from '@sanity/ui'
+import {Tooltip} from '@sanity/ui/tooltip'
+import {type ChangeEvent, type ComponentType} from 'react'
 import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
-import {type SnoozePreset} from '../store/snoozePresets'
 import {type InboxView} from './types'
 
 interface SelectionActionsProps {
@@ -16,43 +19,105 @@ interface SelectionActionsProps {
    * between is a mixed batch that does both at once.
    */
   resolvableCount: number
+  /**
+   * Whether the confirm button ("Mark as done"/"Clear"/"Mark as not
+   * done"/"Wake now") does anything at all for this selection. False only in
+   * the Open view, and only when every selected row is from a source with
+   * neither `resolve` nor `acknowledgable` (`todos`) — there is nothing
+   * real for it to do there (see `todos.ts`'s own doc comment: a todo is
+   * either still on the list or `remove`d, nothing in between), so the
+   * button is hidden rather than left sitting there as a dead click. Cleared
+   * and Snoozed always have something real to confirm, since every row
+   * there got there through a resolve, a manual clear, or a snooze — all of
+   * which this button can undo.
+   */
+  showConfirm: boolean
   busy: boolean
   onConfirm: () => void
   onCancel: () => void
   /**
-   * Offers the "Snooze" picker. Only meaningful in the open view — snoozing a
-   * row that is already done or already asleep says nothing.
+   * Offers "Snooze" — one click, one sensible default (see
+   * `SNOOZE_DEFAULT_PRESET` in `MergedList.tsx`), not a picker. Only
+   * meaningful in the open view — snoozing a row that is already done or
+   * already asleep says nothing.
    */
-  onSnooze?: (preset: SnoozePreset) => void
+  onSnooze?: () => void
   /** Who `onAssign` can hand the selection to — absent or empty hides the picker. */
   assignableUsers?: {id: string; label: string}[]
   /** Offers the "Assign" picker. Only meaningful in the open view, same reasoning as `onSnooze`. */
   onAssign?: (userId: string) => void
-  /** Offers "Save to todos". Only meaningful in the open view, same reasoning as `onSnooze`. */
-  onSaveToTodos?: () => void
-}
-
-const SNOOZE_PRESETS: SnoozePreset[] = ['laterToday', 'tomorrow', 'nextWeek']
-
-const SNOOZE_PRESET_LABEL_KEYS: Record<SnoozePreset, string> = {
-  laterToday: 'action.snooze.laterToday',
-  tomorrow: 'action.snooze.tomorrow',
-  nextWeek: 'action.snooze.nextWeek',
-}
-
-function isSnoozePreset(value: string): value is SnoozePreset {
-  return value in SNOOZE_PRESET_LABEL_KEYS
+  /**
+   * Offers "Delete" — for real removal (`todos`, say), not a soft dismiss.
+   * Used to live as a plain text link under a lone selected row
+   * (`InboxRow.tsx`'s own `removeRow`), which read as a stray control rather
+   * than a deliberate one; this is the standard place every other selection
+   * action already lives. Absent when nothing selected can actually be
+   * removed.
+   */
+  onDelete?: () => void
 }
 
 /**
- * The bar that appears once rows are selected.
+ * A single icon button with its label as a hover tooltip, not visible text —
+ * Snooze/Delete are well-understood by their glyph alone (the same bet
+ * Gmail's own selection toolbar makes), and dropping the text is what lets
+ * the whole bar stay content-sized instead of needing room to spell each one
+ * out. Cancel is the one exception — see the plain text `Button` below it
+ * gets instead of this.
+ */
+function IconAction(props: {
+  disabled: boolean
+  icon: ComponentType
+  label: string
+  onClick: () => void
+  tone?: 'default' | 'critical'
+}) {
+  const {disabled, icon: Icon, label, onClick, tone} = props
+  return (
+    <Tooltip
+      content={
+        <Box padding={2}>
+          <Text size={1}>{label}</Text>
+        </Box>
+      }
+      placement="bottom"
+    >
+      <Button
+        aria-label={label}
+        disabled={disabled}
+        icon={Icon}
+        mode="bleed"
+        onClick={onClick}
+        padding={2}
+        tone={tone}
+      />
+    </Tooltip>
+  )
+}
+
+/**
+ * The controls that replace the header's own filter bar once rows are
+ * selected — same slot, `MergedList.tsx`'s header `Flex`, opposite the
+ * select-all checkbox. Renders no card or border of its own: it lives inside
+ * a header that already has both, the same way Gmail's own selection
+ * toolbar takes over its list's existing top bar rather than opening a
+ * second one beneath it.
+ *
+ * Content-sized and left-grouped, not stretched to fill the space the filter
+ * bar used to take — an earlier version used `justify="space-between"` to
+ * spread Cancel and the actions across the whole row, which looked
+ * deliberate on a narrow phone (the reason it was built that way) but left a
+ * wide, dead gap on any normal-or-wider screen. Gmail's own selection
+ * toolbar is the model here: a tight cluster of icon buttons sized to their
+ * own content, not the container's.
  *
  * The primary action is always one verb for the tab it appears in — "Mark as
  * done"/"Acknowledge" in Open, "Mark as not done" in Cleared, "Wake now" in
  * Snoozed — never a menu of near-synonyms standing in for the same thing.
- * "Snooze" next to it in the Open view is not a synonym: it defers rather
- * than completes, which is why it earns a control of its own instead of
- * collapsing into the first.
+ * Kept as icon *and* text, unlike Cancel/Snooze/Delete: its label is the one
+ * piece of real information in this bar (which of several different verbs is
+ * about to happen), so it is the one control here that still needs to say
+ * that in words, not just a glyph.
  *
  * In the Open view, the label itself depends on `resolvableCount`: "Mark as
  * done" only when every selected row can really resolve (or a mixed batch —
@@ -61,24 +126,35 @@ function isSnoozePreset(value: string): value is SnoozePreset {
  * `splitItems.ts`'s own doc comment for why they're different actions, not
  * two names for the same one.
  *
- * The snooze picker is a plain `<select>` rather than a popover menu: this
- * kit ships no menu/popover primitive, and a native select needs none — it
- * gets keyboard and screen-reader behaviour for free.
+ * "Snooze" is a plain button, not a picker: an earlier version offered three
+ * presets (later today/tomorrow/next week) behind a native `<select>`, which
+ * read as its own small puzzle — a placeholder option rendered checkmarked
+ * like a real choice, three near-identical durations to weigh for a single
+ * "not now" click. One click, one default, is what "not now" actually needs.
  */
 export function SelectionActions(props: SelectionActionsProps) {
   const {
     count,
     view,
     resolvableCount,
+    showConfirm,
     busy,
     onConfirm,
     onCancel,
     onSnooze,
     assignableUsers,
     onAssign,
-    onSaveToTodos,
+    onDelete,
   } = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
+
+  // A manual Clear changes nothing in Sanity (see `action.clear.hint`) — the
+  // editor's own call, not a real completion. Only a real resolve ("Mark as
+  // done") earns the same filled, primary-toned button; Clear sits alongside
+  // Cancel/Snooze/Delete as a plain default-toned one instead, so the one
+  // button that visually shouts "primary action" is always one that
+  // actually does something for real.
+  const isRealResolve = view === 'open' && resolvableCount > 0
 
   const confirmLabel =
     view === 'cleared'
@@ -86,113 +162,82 @@ export function SelectionActions(props: SelectionActionsProps) {
       : view === 'snoozed'
         ? t('action.wakeNow')
         : resolvableCount === 0
-          ? t('action.acknowledge')
+          ? t('action.clear')
           : t('action.markDone')
 
   // Pinned to the placeholder rather than tracking the choice: the picker's
-  // job is to fire an action, not to remember one — leaving a preset showing
+  // job is to fire an action, not to remember one — leaving a choice showing
   // as "selected" after acting on it would misstate what just happened.
-  const handleSnoozeChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const value = event.currentTarget.value
-    if (isSnoozePreset(value)) onSnooze?.(value)
-  }
-
-  // Same "pinned to the placeholder" reasoning as the snooze picker above.
   const handleAssignChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const value = event.currentTarget.value
     if (value) onAssign?.(value)
   }
 
   return (
-    <Card borderBottom padding={2} radius={0} tone="primary">
-      {/* Two flat rows, not one nested flex: nesting a `flex={1}` group inside
-          a wrapping outer `Flex` let the two levels of `wrap` interleave —
-          on a narrow phone, Snooze, the count, and Cancel each landed on
-          their own line in source order rather than a predictable stack.
-          Pairing the count with Cancel up top (the one thing every mail
-          client's mobile selection bar agrees on) and letting the action
-          controls wrap as one plain row below sidesteps that entirely. */}
-      <Stack gap={2}>
-        <Flex align="center" justify="space-between">
-          <Box aria-live="polite" paddingLeft={2}>
-            <Text size={1} weight="medium">
-              {t('selection.count', {count})}
-            </Text>
-          </Box>
+    // No count text here — it renders in `MergedList.tsx`'s own header,
+    // next to the select-all menu that controls it, so this bar is only the
+    // actions themselves, free to sit flush right against the opposite end
+    // of the header from that count.
+    <Flex align="center" gap={1} wrap="wrap">
+      {/* Text, not an icon — an "X" here reads as "close/discard" (this
+          selection bar isn't a dialog to dismiss), where the same word
+          spelled out is unambiguous. Every other control in this cluster
+          only fires once you've chosen what happens to the selection; this
+          is the one that means "never mind", so it earns being named rather
+          than guessed at. */}
+      <Button disabled={busy} fontSize={1} mode="bleed" onClick={onCancel} padding={2} text={t('selection.cancel')} />
 
-          <Button
-            disabled={busy}
-            fontSize={1}
-            mode="bleed"
-            onClick={onCancel}
-            padding={2}
-            text={t('selection.cancel')}
-          />
-        </Flex>
+      {onSnooze && (
+        <IconAction disabled={busy} icon={ClockIcon} label={t('action.snooze')} onClick={onSnooze} />
+      )}
 
-        <Flex align="center" gap={2} paddingLeft={2} wrap="wrap">
-          {onSnooze && (
-            <Box>
-              <Select fontSize={1} onChange={handleSnoozeChange} value="">
-                <option disabled value="">
-                  {t('action.snooze')}
-                </option>
-                {SNOOZE_PRESETS.map((preset) => (
-                  <option key={preset} value={preset}>
-                    {t(SNOOZE_PRESET_LABEL_KEYS[preset])}
-                  </option>
-                ))}
-              </Select>
-            </Box>
-          )}
+      {onDelete && (
+        <IconAction
+          disabled={busy}
+          icon={TrashIcon}
+          label={t('action.delete')}
+          onClick={onDelete}
+          tone="critical"
+        />
+      )}
 
-          {onAssign && assignableUsers && assignableUsers.length > 0 && (
-            <Box>
-              <Select fontSize={1} onChange={handleAssignChange} value="">
-                <option disabled value="">
-                  {t('action.assign')}
-                </option>
-                {assignableUsers.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.label}
-                  </option>
-                ))}
-              </Select>
-            </Box>
-          )}
+      {onAssign && assignableUsers && assignableUsers.length > 0 && (
+        <Box>
+          <Select fontSize={1} onChange={handleAssignChange} value="">
+            <option disabled value="">
+              {t('action.assign')}
+            </option>
+            {assignableUsers.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.label}
+              </option>
+            ))}
+          </Select>
+        </Box>
+      )}
 
-          {onSaveToTodos && (
-            <Button
-              disabled={busy}
-              fontSize={1}
-              mode="bleed"
-              onClick={onSaveToTodos}
-              padding={2}
-              text={t('action.saveToTodos')}
-            />
-          )}
-
-          <Button
-            disabled={busy}
-            fontSize={1}
-            onClick={onConfirm}
-            padding={2}
-            text={confirmLabel}
-            title={
-              view === 'open'
-                ? t(
-                    resolvableCount === 0
-                      ? 'action.acknowledge.hint'
-                      : resolvableCount === count
-                        ? 'action.markDone.resolves'
-                        : 'action.markDone.mixed',
-                  )
-                : undefined
-            }
-            tone={view === 'open' ? 'positive' : 'default'}
-          />
-        </Flex>
-      </Stack>
-    </Card>
+      {showConfirm && (
+        <Button
+          disabled={busy}
+          fontSize={1}
+          icon={CheckmarkIcon}
+          onClick={onConfirm}
+          padding={2}
+          text={confirmLabel}
+          title={
+            view === 'open'
+              ? t(
+                  resolvableCount === 0
+                    ? 'action.clear.hint'
+                    : resolvableCount === count
+                      ? 'action.markDone.resolves'
+                      : 'action.markDone.mixed',
+                )
+              : undefined
+          }
+          tone={isRealResolve ? 'primary' : 'default'}
+        />
+      )}
+    </Flex>
   )
 }

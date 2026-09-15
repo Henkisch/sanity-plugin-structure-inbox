@@ -12,8 +12,12 @@ export interface SplitItems {
  * item's own data, never from per-editor dismissal state. `InboxItem.cleared`
  * is only ever set by a source that can verify real resolution (a task's own
  * `status`, say); a source with no way to verify that never sets it, so its
- * items are only ever open or snoozed here — being "acknowledged" doesn't
- * move an item out of open, see `useDismissals`.
+ * items are only ever open or snoozed here.
+ *
+ * A manual clear (an editor dismissing an item with no real `resolve`) is a
+ * separate axis this function knows nothing about — see `mergeRows` in
+ * `mergeItems.ts`, one layer up, for where a non-stale dismissal also pulls
+ * an "open" item from here into the Cleared view.
  *
  * Cleared wins over snoozed: an item Sanity itself confirms is resolved has
  * no need to also be asleep.

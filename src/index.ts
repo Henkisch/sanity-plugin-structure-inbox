@@ -10,6 +10,11 @@ export {
 } from './teamView/structureInboxTeamView'
 
 export type {InboxItem, InboxSource, InboxSourceResult} from './inbox/types'
+export {
+  assignmentDocId,
+  useAssignmentStore,
+  type AssignmentStore,
+} from './inbox/sources/assignmentStore'
 export {openTasks, type OpenTasksOptions} from './inbox/sources/openTasks'
 export {todos, type TodosOptions} from './inbox/sources/todos'
 export {unpublishedDrafts, type UnpublishedDraftsOptions} from './inbox/sources/unpublishedDrafts'

@@ -154,9 +154,14 @@ function isOverdue(dueBy?: string): boolean {
  * nothing: a task's own fields (a title, a due date) are thin next to the
  * document it's actually about.
  *
- * Also offers `assign`: the avatar on a task's own row reassigns it directly.
- * `useUserListWithPermissions`, which supplies who it can go to, is `@beta`
- * in Sanity's own typings, same as `useAddonDataset`.
+ * Deliberately does NOT offer `assign`: a `tasks.task` already has exactly
+ * one real assignee field, natively editable in Sanity's own Tasks UI —
+ * reassigning it a second way, from this row's avatar, would just be a
+ * redundant path to the same field, not a new capability. (`assignedTo` is
+ * still resolved to a label/photo for *display* below, via
+ * `useUserListWithPermissions` — only the write path is withheld.)
+ * `unpublishedDrafts.ts` is different: a draft has no native Sanity assignee
+ * at all, so `assign` there is real, not redundant.
  *
  * Tasks live in the Studio's addon dataset — the same one comments use — rather
  * than in the content dataset, and both `useAddonDataset` and the `tasks.task`
@@ -328,26 +333,6 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
         [result.items, result.rowAssignees, assigneesById],
       )
 
-      // Lets the avatar on a task's own row reassign it directly — the same
-      // `assign` shape `unpublishedDrafts` offers, but a plain patch here
-      // rather than a create-or-patch: every row this source lists is
-      // already a task, never a document standing in for one.
-      const assign = useMemo(() => {
-        if (!client || !assignable) return undefined
-
-        return {
-          users: assignable
-            .filter((user) => user.granted)
-            .map((user) => ({id: user.id, label: user.displayName || user.email || user.id})),
-          toUser: async (item: InboxItem, assignedTo: string) => {
-            await client.patch(item.id).set({assignedTo}).commit()
-          },
-          unassign: async (item: InboxItem) => {
-            await client.patch(item.id).unset(['assignedTo']).commit()
-          },
-        }
-      }, [client, assignable])
-
       return useMemo(
         () => ({
           items,
@@ -358,9 +343,17 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
                 await client.patch(item.id).set({status: 'closed'}).commit()
               }
             : undefined,
-          assign,
+          // The other half of `resolve` — powers "Mark as not done" in the
+          // Cleared view. Only `openTasks` can ever populate Cleared at all
+          // (see `InboxItem.cleared`'s own doc comment), so it's the only
+          // source with anything real to undo here.
+          reopen: client
+            ? async (item: InboxItem) => {
+                await client.patch(item.id).set({status: 'open'}).commit()
+              }
+            : undefined,
         }),
-        [items, result.loading, result.error, client, assign],
+        [items, result.loading, result.error, client],
       )
     },
   }

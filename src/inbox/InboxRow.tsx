@@ -1,9 +1,10 @@
-import {CheckmarkIcon} from '@sanity/icons/Checkmark'
+import {EllipsisVerticalIcon} from '@sanity/icons/EllipsisVertical'
+import {SparklesIcon} from '@sanity/icons/Sparkles'
 import {UserIcon} from '@sanity/icons/User'
 import {Avatar, Box, Button, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
 import {Menu, MenuButton, MenuDivider, MenuItem} from '@sanity/ui/menu'
 import {type CSSProperties, type MouseEvent, useCallback, useId, useState} from 'react'
-import {useTranslation} from 'sanity'
+import {useCurrentUser, useTranslation} from 'sanity'
 import {useRouter} from 'sanity/router'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
@@ -16,14 +17,6 @@ interface InboxRowProps {
   compact?: boolean
   /** Already ticked off. Only ever rendered while "Show done" is on. */
   done?: boolean
-  /**
-   * Seen, but not resolved — this editor (or someone else) acknowledged it
-   * without anything actually changing in Sanity. Independent of `done`:
-   * an acknowledged row is still open, still nagging, just marked as
-   * "someone's aware of this." Only meaningful in the Open view — never
-   * passed while `done` is also true.
-   */
-  acknowledged?: boolean
   /**
    * Omit both this and `onSelectedChange` for a source with no bulk-selection
    * mechanism of its own to hook into (today, every `aside` source: ambient
@@ -38,10 +31,16 @@ interface InboxRowProps {
    */
   leaving?: boolean
   onSelectedChange?: (item: InboxItem, selected: boolean) => void
-  /** The source's `assess`, if it has one — see `InboxSourceResult.assess`. */
+  /**
+   * The source's `assess`, if it has one — see `InboxSourceResult.assess`.
+   * Offered as an "Ask AI" entry in this row's own three-dot menu (never for
+   * a `compact` row, which has no menu at all — see `menuActions`), not a
+   * permanently-visible link: a small text button sitting under every row's
+   * title read as noise living there uninvited, especially once several rows
+   * on screen each grew one. The answer itself still renders inline, below
+   * the title, same as before — just only once actually asked for.
+   */
   onAssess?: (item: InboxItem) => Promise<string>
-  /** The source's `remove`, if it has one — see `InboxSourceResult.remove`. */
-  onRemove?: (item: InboxItem) => Promise<void> | void
   /**
    * Opens this one item's edit dialog — only ever set for a row with no
    * `intent` to navigate to instead (a todo has no document), since a row
@@ -64,14 +63,6 @@ interface InboxRowProps {
    */
   onUnassign?: (item: InboxItem) => void
   /**
-   * True when this row is selected and nothing else is. `assess`/`remove`
-   * only render then — with several rows selected, one "Ask AI" per row was
-   * exactly the busyness the rest of this pane was redesigned to avoid; the
-   * single-row case is the one place asking about — or deleting — one
-   * specific item still makes sense inline rather than through the bulk bar.
-   */
-  onlySelected?: boolean
-  /**
    * A small tag identifying which source this row came from, e.g.
    * "Unpublished drafts · Everyone". Only meaningful in the merged list — a
    * per-source card already says this via its own header, so it's omitted
@@ -79,6 +70,16 @@ interface InboxRowProps {
    * label said nothing the words didn't already say, just louder.
    */
   sourceLabel?: string
+  /**
+   * Per-row actions reachable without selecting first — a three-dot menu
+   * to the right of the assignee avatar, offering the same actions the
+   * bulk selection bar does (mark done/clear, snooze, wake, restore), for
+   * just this one row. Omit for a row with no such mechanism at all (every
+   * `aside` row today — ambient context, not a worklist). `onAssess`, when
+   * present, adds "Ask AI" to this same menu rather than needing its own —
+   * see its own doc comment.
+   */
+  menuActions?: {key: string; label: string; onClick: () => void; tone?: 'critical' | 'caution'}[]
 }
 
 type Assessment = {status: 'idle'} | {status: 'loading'} | {status: 'done'; message: string}
@@ -148,20 +149,19 @@ export function InboxRow(props: InboxRowProps) {
     item,
     compact = false,
     done = false,
-    acknowledged = false,
     selected = false,
     leaving = false,
     onSelectedChange,
     onAssess,
-    onRemove,
     onEdit,
     onReassign,
     assignableUsers,
     onUnassign,
-    onlySelected = false,
     sourceLabel,
+    menuActions,
   } = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
+  const currentUser = useCurrentUser()
   const {navigateIntent} = useRouter()
   const labelId = useId()
   const [assessment, setAssessment] = useState<Assessment>({status: 'idle'})
@@ -198,32 +198,16 @@ export function InboxRow(props: InboxRowProps) {
 
   const canReassign = Boolean(onReassign && assignableUsers && assignableUsers.length > 0)
 
-  const handleAssess = useCallback(
-    (event: MouseEvent) => {
-      event.stopPropagation()
-      if (!onAssess) return
-      setAssessment({status: 'loading'})
-      onAssess(item)
-        .then((message) => setAssessment({status: 'done', message}))
-        .catch(() => setAssessment({status: 'done', message: t('assess.error')}))
-    },
-    [onAssess, item, t],
-  )
-
-  // No local status to track on success: the row that just deleted itself is
-  // about to unmount as the parent re-renders without it. A failure has
-  // nowhere to show itself on a row that may no longer exist, so it goes to
-  // the console instead, the same as a failed resolve or assign elsewhere in
-  // this pane.
-  const handleRemove = useCallback(
-    (event: MouseEvent) => {
-      event.stopPropagation()
-      Promise.resolve(onRemove?.(item)).catch((error: unknown) => {
-        console.error('[sanity-plugin-structure-inbox] could not remove item', error)
-      })
-    },
-    [onRemove, item],
-  )
+  // No event to stop propagating here, unlike the row's other inline handlers
+  // — this only ever fires from a `MenuItem` inside a portal-rendered
+  // popover, never from anything nested inside the row's own clickable card.
+  const handleAssess = useCallback(() => {
+    if (!onAssess) return
+    setAssessment({status: 'loading'})
+    onAssess(item)
+      .then((message) => setAssessment({status: 'done', message}))
+      .catch(() => setAssessment({status: 'done', message: t('assess.error')}))
+  }, [onAssess, item, t])
 
   // A done row drops its own tone: the point of showing it is that it is
   // finished, and a caution-coloured finished row still reads as urgent.
@@ -250,20 +234,19 @@ export function InboxRow(props: InboxRowProps) {
     </Flex>
   )
 
-  const assessRow = onAssess && (
-    <Box>
-      {assessment.status === 'idle' && (
-        // `padding={0}`: a bleed button's own padding would indent "Ask AI"
-        // past the subtitle line above it, reading as a stray control rather
-        // than the row's own next line.
-        <Button
-          fontSize={0}
-          mode="bleed"
-          onClick={handleAssess}
-          padding={0}
-          text={t('assess.ask')}
-        />
-      )}
+  // No "idle" state to render here — asking is now the "Ask AI" entry in
+  // this row's own three-dot menu (see `onAssess`'s own doc comment), not a
+  // permanently-visible link. This only ever appears once that's actually
+  // been clicked, and stays until the row itself unmounts.
+  const assessRow = onAssess && assessment.status !== 'idle' && (
+    <Flex align="center" gap={2}>
+      {/* Marks this line as AI-sourced at a glance — without it, a plain
+          muted line here read as just another piece of row metadata (same
+          size and weight as the subtitle above it), not a read that came
+          from asking AI. */}
+      <Text muted size={0}>
+        <SparklesIcon />
+      </Text>
       {assessment.status === 'loading' && (
         <Text muted size={0}>
           {t('assess.loading')}
@@ -274,7 +257,7 @@ export function InboxRow(props: InboxRowProps) {
           {assessment.message}
         </Text>
       )}
-    </Box>
+    </Flex>
   )
 
   // A Jira-style avatar chip, not another line of text — the row already
@@ -305,7 +288,13 @@ export function InboxRow(props: InboxRowProps) {
           size={compact ? 0 : 1}
           src={assignee?.imageUrl}
           style={canReassign ? {cursor: 'pointer', opacity: assignee ? 1 : 0.4} : undefined}
-          title={assignee?.label ?? t('assignee.unassigned')}
+          title={
+            assignee
+              ? currentUser && assignee.id === currentUser.id
+                ? t('assignee.you', {name: assignee.label})
+                : assignee.label
+              : t('assignee.unassigned')
+          }
         />
         {/* A person glyph on the faint circle above reads as "nobody yet" at
             a glance — an empty circle alone looked like a loading state or a
@@ -365,42 +354,73 @@ export function InboxRow(props: InboxRowProps) {
     )
   })()
 
-  const removeRow = onRemove && (
-    <Box>
-      <Button
-        fontSize={0}
-        mode="bleed"
-        onClick={handleRemove}
-        padding={0}
-        text={t('action.delete')}
-        tone="critical"
+  // "Ask AI" goes first — reading before acting. Never for a `compact` row:
+  // those have no menu at all today (every `aside` row — ambient context,
+  // not a worklist), and `assess` isn't reason enough to grow one just for
+  // this.
+  const allMenuActions = [
+    ...(onAssess && !compact
+      ? [{key: 'assess', label: t('assess.ask'), onClick: handleAssess}]
+      : []),
+    ...(menuActions ?? []),
+  ]
+
+  // The same actions the bulk selection bar offers, reachable for just this
+  // one row without ticking its checkbox first — the direct-manipulation
+  // path the avatar's own reassign picker already established for `assign`.
+  const menuButton = allMenuActions.length > 0 && (
+    <Box onClick={stopPropagation}>
+      <MenuButton
+        button={
+          <Button
+            aria-label={t('row.menu')}
+            icon={EllipsisVerticalIcon}
+            mode="bleed"
+            padding={2}
+          />
+        }
+        id={`${labelId}-menu`}
+        menu={
+          <Menu>
+            {allMenuActions.map((menuAction) => (
+              <MenuItem
+                key={menuAction.key}
+                onClick={menuAction.onClick}
+                text={menuAction.label}
+                tone={menuAction.tone}
+              />
+            ))}
+          </Menu>
+        }
+        popover={{placement: 'bottom-end', portal: true}}
       />
     </Box>
   )
 
+  // Whether the assess result actually renders below the title — used to
+  // decide the row's own vertical alignment further down, not just whether
+  // to render this block.
+  const hasExtraRow = !compact && Boolean(assessRow)
+
   const label = (
-    <Stack flex={1} gap={2}>
-      <Flex align="center" gap={2}>
+    // `minWidth: 0` at every flex level down to the text itself: a flex
+    // item's default `min-width: auto` lets its content (an unbreakable
+    // long URL, for a broken-link finding's own title) dictate a wider
+    // minimum than the row actually has room for, so `textOverflow`
+    // "ellipsis" below never got a chance to kick in — the row just forced
+    // the whole card wider, past its own container, instead of truncating.
+    <Stack flex={1} gap={2} style={{minWidth: 0}}>
+      <Flex align="center" gap={2} style={{minWidth: 0}}>
         <Text
           id={labelId}
           muted={done}
           size={1}
+          style={{minWidth: 0}}
           textOverflow="ellipsis"
           weight={compact ? undefined : 'medium'}
         >
           {item.title}
         </Text>
-        {/* Only while still Open — a `done` row is already muted, and
-            showing "seen" on top of "resolved" would say nothing new.
-            Never claims resolution itself: see `acknowledged`'s own doc
-            comment. */}
-        {acknowledged && !done && (
-          <span title={t('action.acknowledge.hint')}>
-            <Text muted size={1}>
-              <CheckmarkIcon />
-            </Text>
-          </span>
-        )}
       </Flex>
       {(sourceLabel || item.subtitle || item.timestamp) && (
         <Text muted size={0} textOverflow="ellipsis">
@@ -411,13 +431,7 @@ export function InboxRow(props: InboxRowProps) {
           {item.timestamp && <RelativeTime timestamp={item.timestamp} />}
         </Text>
       )}
-      {/* Only for a lone selected row: see `onlySelected` above. */}
-      {!compact && onlySelected && (assessRow || removeRow) && (
-        <Flex gap={3}>
-          {assessRow}
-          {removeRow}
-        </Flex>
-      )}
+      {hasExtraRow && <Flex gap={3}>{assessRow}</Flex>}
     </Stack>
   )
 
@@ -433,8 +447,11 @@ export function InboxRow(props: InboxRowProps) {
       >
         <Flex align="center" gap={1}>
           {checkbox}
-          <Box flex={1}>{label}</Box>
+          <Box flex={1} style={{minWidth: 0}}>
+          {label}
+        </Box>
           {assigneeAvatar}
+          {menuButton}
         </Flex>
       </Card>
     )
@@ -449,15 +466,21 @@ export function InboxRow(props: InboxRowProps) {
       style={exitStyle}
       tone={selected ? 'primary' : tone}
     >
-      {/* `flex-start`, not `center`: the assess row can make this taller than
-          a single line, and a vertically-centered checkbox then floats away
-          from the title it labels. */}
-      <Flex align="flex-start" gap={2}>
+      {/* Centered normally — the common case is just a title and a
+          subtitle line, and a top-aligned checkbox there floated away from
+          the row's actual visual center. `flex-start` only once the assess
+          row/remove link actually make this row taller than that (the same
+          condition gating that block below): a vertically-centered checkbox
+          on a taller row floats away from the title it labels instead. */}
+      <Flex align={hasExtraRow ? 'flex-start' : 'center'} gap={2}>
         {checkbox}
 
-        <Box flex={1}>{label}</Box>
+        <Box flex={1} style={{minWidth: 0}}>
+          {label}
+        </Box>
 
         {assigneeAvatar}
+        {menuButton}
       </Flex>
     </Card>
   )

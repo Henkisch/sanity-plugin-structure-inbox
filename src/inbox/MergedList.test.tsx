@@ -1,7 +1,7 @@
 import {cleanup, fireEvent, screen} from '@testing-library/react'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
-import {EMPTY_DISMISSALS} from '../store/dismissals'
+import {EMPTY_DISMISSALS, withDismissal} from '../store/dismissals'
 import {EMPTY_SNOOZES} from '../store/snoozes'
 import {type Dismissals} from '../store/useDismissals'
 import {type Snoozes} from '../store/useSnoozes'
@@ -14,7 +14,9 @@ afterEach(cleanup)
 
 vi.mock('sanity', async (importOriginal) => {
   const actual = await importOriginal<typeof import('sanity')>()
-  return {...actual, useRelativeTime: () => 'a while ago'}
+  // `InboxRow` calls `useCurrentUser` (for the "(You)" tooltip suffix), which
+  // needs a full Studio `source` context this suite does not build.
+  return {...actual, useRelativeTime: () => 'a while ago', useCurrentUser: () => null}
 })
 
 function item(id: string, extra: Partial<InboxItem> = {}): InboxItem {
@@ -42,6 +44,11 @@ function selectItem(title: string) {
   const checkbox = document.querySelector<HTMLInputElement>(`input[aria-labelledby="${labelId}"]`)
   if (!checkbox) throw new Error(`no checkbox labelled by "${title}"`)
   fireEvent.click(checkbox)
+}
+
+/** Opens a row's own three-dot menu without selecting it — only safe to use with a single row on screen, since the trigger's own label ("row.menu") is not per-row. */
+function openRowMenu() {
+  fireEvent.click(screen.getByRole('button', {name: 'row.menu'}))
 }
 
 function renderList(props: {
@@ -116,7 +123,7 @@ describe('MergedList', () => {
     expect(screen.getByText(/Unpublished drafts/)).toBeTruthy()
   })
 
-  it('resolves a real source for real and only acknowledges the one with no resolve', async () => {
+  it('resolves a real source for real and only clears the one with no resolve', async () => {
     const resolve = vi.fn().mockResolvedValue(undefined)
     const reports = {
       tasks: report('tasks', 'Tasks', {open: [item('t1', {title: 'Task one'})], resolve}),
@@ -127,34 +134,44 @@ describe('MergedList', () => {
 
     selectItem('Task one')
     selectItem('Draft one')
-    fireEvent.click(screen.getByText('action.markDone'))
+    // `getByRole('button', ...)`, not `getByText`: each row now also has its
+    // own three-dot menu item with the same label, hidden in its own popover
+    // markup — this disambiguates the bulk selection bar's actual button.
+    fireEvent.click(screen.getByRole('button', {name: 'action.markDone'}))
 
     await vi.waitFor(() => expect(resolve).toHaveBeenCalledTimes(1))
     expect(resolve).toHaveBeenCalledWith(expect.objectContaining({id: 't1'}))
-    // The task really resolved — it never gets dismissed/acknowledged, since
-    // Sanity's own state is what will move it to Cleared next fetch. The
-    // draft has no `resolve`, so it's the *only* one acknowledged.
+    // The task really resolved — it never gets dismissed/cleared manually,
+    // since Sanity's own state is what will move it to Cleared next fetch.
+    // The draft has no `resolve`, so it's the *only* one cleared manually.
     expect(dismissals.dismiss).toHaveBeenCalledTimes(1)
     expect(dismissals.dismiss).toHaveBeenCalledWith('drafts', 'd1')
   })
 
-  it("restores a cleared-view selection through each row's own source", () => {
+  it("reopens a cleared-view selection through each row's own source", async () => {
+    const reopenDraft = vi.fn().mockResolvedValue(undefined)
+    const reopenTask = vi.fn().mockResolvedValue(undefined)
     const reports = {
-      drafts: report('drafts', 'Drafts', {cleared: [item('d1', {title: 'Draft one'})]}),
-      tasks: report('tasks', 'Tasks', {cleared: [item('t1', {title: 'Task one'})]}),
+      drafts: report('drafts', 'Drafts', {
+        cleared: [item('d1', {title: 'Draft one'})],
+        reopen: reopenDraft,
+      }),
+      tasks: report('tasks', 'Tasks', {cleared: [item('t1', {title: 'Task one'})], reopen: reopenTask}),
     }
 
-    const {dismissals} = renderList({reports, order: ['drafts', 'tasks'], view: 'cleared'})
+    renderList({reports, order: ['drafts', 'tasks'], view: 'cleared'})
 
     selectItem('Draft one')
     selectItem('Task one')
-    fireEvent.click(screen.getByText('action.markNotDone'))
+    // `getByRole('button', ...)`: each row's own three-dot menu also has a
+    // same-labeled item — see the analogous fix above.
+    fireEvent.click(screen.getByRole('button', {name: 'action.markNotDone'}))
 
-    expect(dismissals.restore).toHaveBeenCalledWith('drafts', 'd1')
-    expect(dismissals.restore).toHaveBeenCalledWith('tasks', 't1')
+    await vi.waitFor(() => expect(reopenDraft).toHaveBeenCalledWith(expect.objectContaining({id: 'd1'})))
+    expect(reopenTask).toHaveBeenCalledWith(expect.objectContaining({id: 't1'}))
   })
 
-  it('snoozes a selection regardless of which source it came from, and acknowledges it too', async () => {
+  it('snoozes a selection regardless of which source it came from, and marks it seen too', async () => {
     const reports = {
       drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]}),
       tasks: report('tasks', 'Tasks', {open: [item('t1', {title: 'Task one'})]}),
@@ -164,7 +181,9 @@ describe('MergedList', () => {
 
     selectItem('Draft one')
     selectItem('Task one')
-    fireEvent.change(screen.getByDisplayValue('action.snooze'), {target: {value: 'tomorrow'}})
+    // `getByRole('button', ...)`: each row's own three-dot menu also has a
+    // same-labeled "Snooze" item.
+    fireEvent.click(screen.getByRole('button', {name: 'action.snooze'}))
 
     // Snoozing fades the rows out first — see `EXIT_ANIMATION_MS` — so the
     // actual `snooze` calls land a beat after the picker fires.
@@ -189,16 +208,13 @@ describe('MergedList', () => {
     expect(screen.getByText('selection.count')).toBeTruthy()
 
     fireEvent.click(screen.getByText('Click me'))
-    // The bar lingers briefly so its collapse can ease shut rather than snap
-    // — see `useDelayedUnmount`.
     await vi.waitFor(() => expect(screen.queryByText('selection.count')).toBeNull())
   })
 
-  it('suppresses per-row ask AI and delete once more than one row is selected', () => {
+  it('keeps bulk delete available for both a single and a multi-row selection', () => {
     const reports = {
       drafts: report('drafts', 'Drafts', {
         open: [item('d1', {title: 'Draft one'}), item('d2', {title: 'Draft two'})],
-        assess: vi.fn(),
         remove: vi.fn(),
       }),
     }
@@ -206,12 +222,49 @@ describe('MergedList', () => {
     renderList({reports, order: ['drafts']})
 
     selectItem('Draft one')
-    expect(screen.getByText('assess.ask')).toBeTruthy()
-    expect(screen.getByText('action.delete')).toBeTruthy()
+    expect(screen.getByRole('button', {name: 'action.delete'})).toBeTruthy()
 
     selectItem('Draft two')
-    expect(screen.queryByText('assess.ask')).toBeNull()
-    expect(screen.queryByText('action.delete')).toBeNull()
+    expect(screen.getByRole('button', {name: 'action.delete'})).toBeTruthy()
+  })
+
+  it('offers "Ask AI" in a row\'s own menu rather than a persistent link, and shows the answer inline once asked', async () => {
+    const assess = vi.fn().mockResolvedValue('Looks fine.')
+    const reports = {
+      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})], assess}),
+    }
+
+    renderList({reports, order: ['drafts']})
+
+    // No standing link/button under the row — only the menu item, hidden in
+    // its own popover markup until opened (same reasoning as every other
+    // menu action's `getByRole('button', ...)` disambiguation elsewhere in
+    // this file).
+    expect(screen.queryByRole('button', {name: 'assess.ask'})).toBeNull()
+
+    openRowMenu()
+    fireEvent.click(screen.getByRole('menuitem', {name: 'assess.ask'}))
+
+    expect(assess).toHaveBeenCalledWith(expect.objectContaining({id: 'd1'}))
+    await screen.findByText('Looks fine.')
+  })
+
+  it('hides the confirm button for a selection that has nothing real for it to do (todos)', () => {
+    const reports = {
+      todos: report('todos', 'Todos', {
+        acknowledgable: false,
+        open: [item('td1', {title: 'A todo'})],
+      }),
+    }
+
+    renderList({reports, order: ['todos']})
+
+    selectItem('A todo')
+    expect(screen.queryByRole('button', {name: 'action.clear'})).toBeNull()
+    expect(screen.queryByRole('button', {name: 'action.markDone'})).toBeNull()
+    // Cancel is still there — the selection itself is still real, only
+    // confirming it isn't.
+    expect(screen.getByText('selection.count')).toBeTruthy()
   })
 
   it('selects and clears every row from the select-all header', async () => {
@@ -223,15 +276,66 @@ describe('MergedList', () => {
 
     renderList({reports, order: ['drafts']})
 
-    const selectAll = screen.getByTitle('selection.selectAll')
+    const selectAll = screen.getByLabelText<HTMLInputElement>('selection.selectAll')
     fireEvent.click(selectAll)
-    // No `resolve` on this source, so the action bar offers "Acknowledge",
-    // not "Mark as done" — see `SelectionActions.tsx`'s own doc comment.
-    expect(screen.getByText('action.acknowledge')).toBeTruthy()
+    // No `resolve` on this source, so the action bar offers "Clear", not
+    // "Mark as done" — see `SelectionActions.tsx`'s own doc comment.
+    // `getByRole('button', ...)`: each row's own three-dot menu also has a
+    // same-labeled item.
+    expect(screen.getByRole('button', {name: 'action.clear'})).toBeTruthy()
     expect(selectAll).toHaveProperty('checked', true)
 
     fireEvent.click(selectAll)
-    await vi.waitFor(() => expect(screen.queryByText('action.acknowledge')).toBeNull())
+    await vi.waitFor(() => expect(screen.queryByRole('button', {name: 'action.clear'})).toBeNull())
+  })
+
+  it('moves a dismissed row straight to Cleared, tagged as cleared by the editor', () => {
+    const reports = {
+      drafts: report('drafts', 'Drafts', {
+        open: [item('d1', {title: 'Draft one'}), item('d2', {title: 'Draft two'})],
+      }),
+    }
+    const dismissed: Dismissals = {
+      state: withDismissal(EMPTY_DISMISSALS, 'drafts', 'd1'),
+      dismiss: vi.fn(),
+      restore: vi.fn(),
+    }
+
+    renderList({reports, order: ['drafts'], dismissals: dismissed})
+    // Only the untouched draft is left in Open.
+    expect(screen.getByText('Draft two')).toBeTruthy()
+    expect(screen.queryByText('Draft one')).toBeNull()
+
+    cleanup()
+
+    renderList({reports, order: ['drafts'], dismissals: dismissed, view: 'cleared'})
+    expect(screen.getByText('Draft one')).toBeTruthy()
+    expect(screen.getByText(/cleared\.manual/)).toBeTruthy()
+  })
+
+  it('never treats a dismissal as a manual clear for a source that opted out of acknowledgable, even with one on record', () => {
+    const reports = {
+      todos: report('todos', 'Todos', {
+        acknowledgable: false,
+        open: [item('td1', {title: 'A todo'})],
+      }),
+    }
+    const dismissed: Dismissals = {
+      // A dismissal from before this source turned `acknowledgable` off —
+      // routing must not trust it, the same way the write side no longer
+      // offers a way to create or undo one.
+      state: withDismissal(EMPTY_DISMISSALS, 'todos', 'td1'),
+      dismiss: vi.fn(),
+      restore: vi.fn(),
+    }
+
+    renderList({reports, order: ['todos'], dismissals: dismissed})
+    expect(screen.getByText('A todo')).toBeTruthy()
+
+    cleanup()
+
+    renderList({reports, order: ['todos'], dismissals: dismissed, view: 'cleared'})
+    expect(screen.queryByText('A todo')).toBeNull()
   })
 
   it('marks the select-all header indeterminate when only some rows are selected', () => {
@@ -245,12 +349,12 @@ describe('MergedList', () => {
 
     selectItem('Draft one')
 
-    const selectAll = screen.getByTitle<HTMLInputElement>('selection.selectAll')
+    const selectAll = screen.getByLabelText<HTMLInputElement>('selection.selectAll')
     expect(selectAll.checked).toBe(false)
     expect(selectAll.indeterminate).toBe(true)
   })
 
-  it('brings a mistakenly-acknowledged selection back with undo', async () => {
+  it('brings a mistakenly-cleared selection back with undo', async () => {
     const reports = {
       drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]}),
     }
@@ -258,10 +362,11 @@ describe('MergedList', () => {
     const {dismissals} = renderList({reports, order: ['drafts']})
 
     selectItem('Draft one')
-    // No `resolve` on this source, so the button reads "Acknowledge" — see
+    // No `resolve` on this source, so the button reads "Clear" — see
     // `SelectionActions.tsx`'s own doc comment on why the label depends on
-    // `resolvableCount`.
-    fireEvent.click(screen.getByText('action.acknowledge'))
+    // `resolvableCount`. `getByRole('button', ...)`: the row's own three-dot
+    // menu also has a same-labeled item.
+    fireEvent.click(screen.getByRole('button', {name: 'action.clear'}))
 
     await vi.waitFor(() => expect(dismissals.dismiss).toHaveBeenCalledWith('drafts', 'd1'))
 
@@ -277,7 +382,9 @@ describe('MergedList', () => {
     const {snoozes, dismissals} = renderList({reports, order: ['drafts']})
 
     selectItem('Draft one')
-    fireEvent.change(screen.getByDisplayValue('action.snooze'), {target: {value: 'tomorrow'}})
+    // `getByRole('button', ...)`: the row's own three-dot menu also has a
+    // same-labeled "Snooze" item.
+    fireEvent.click(screen.getByRole('button', {name: 'action.snooze'}))
 
     await vi.waitFor(() =>
       expect(snoozes.snooze).toHaveBeenCalledWith('drafts', 'd1', expect.any(String)),
@@ -289,7 +396,7 @@ describe('MergedList', () => {
     // 1000ms window on its own, with nothing actually wrong.
     fireEvent.click(await screen.findByText('selection.undo', {}, {timeout: 5000}))
     expect(snoozes.wake).toHaveBeenCalledWith('drafts', 'd1')
-    // Undo reverses the acknowledge-on-snooze too, not just the snooze itself.
+    // Undo reverses the seen-marker snoozing also sets, not just the snooze itself.
     expect(dismissals.restore).toHaveBeenCalledWith('drafts', 'd1')
   })
 
@@ -329,108 +436,6 @@ describe('MergedList', () => {
 
     selectItem('Task one')
     expect(screen.queryByText('action.assign')).toBeNull()
-  })
-
-  it('offers "save to todos" only when exactly one source has create', () => {
-    const create = vi.fn()
-    const reports = {
-      todos: report('todos', 'Todos', {create, open: [item('td1', {title: 'Todo one'})]}),
-      tasks: report('tasks', 'Tasks', {open: [item('t1', {title: 'Task one'})]}),
-    }
-
-    renderList({reports, order: ['todos', 'tasks']})
-
-    selectItem('Task one')
-    expect(screen.getByText('action.saveToTodos')).toBeTruthy()
-
-    selectItem('Todo one')
-    expect(screen.getByText('action.saveToTodos')).toBeTruthy()
-  })
-
-  it('does not offer "save to todos" when zero or two-or-more sources have create', () => {
-    const noCreators = {
-      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]}),
-      tasks: report('tasks', 'Tasks', {open: [item('t1', {title: 'Task one'})]}),
-    }
-
-    renderList({reports: noCreators, order: ['drafts', 'tasks']})
-    selectItem('Draft one')
-    expect(screen.queryByText('action.saveToTodos')).toBeNull()
-    cleanup()
-
-    const twoCreators = {
-      todos: report('todos', 'Todos', {create: vi.fn(), open: [item('td1', {title: 'Todo one'})]}),
-      releases: report('releases', 'Releases', {
-        create: vi.fn(),
-        open: [item('r1', {title: 'Release one'})],
-      }),
-    }
-
-    renderList({reports: twoCreators, order: ['todos', 'releases']})
-    selectItem('Todo one')
-    expect(screen.queryByText('action.saveToTodos')).toBeNull()
-  })
-
-  it("saves each selected row's title/description/dueBy to the sole creator, regardless of source", async () => {
-    const create = vi.fn().mockResolvedValue(undefined)
-    const reports = {
-      todos: report('todos', 'Todos', {
-        create,
-        open: [item('td1', {title: 'Todo one', description: 'Todo desc'})],
-      }),
-      drafts: report('drafts', 'Drafts', {
-        open: [item('d1', {title: 'Draft one', description: 'Draft desc'})],
-      }),
-      tasks: report('tasks', 'Tasks', {
-        open: [item('t1', {title: 'Task one', dueBy: '2026-02-01'})],
-      }),
-    }
-
-    renderList({reports, order: ['todos', 'drafts', 'tasks']})
-
-    selectItem('Todo one')
-    selectItem('Draft one')
-    selectItem('Task one')
-    fireEvent.click(screen.getByText('action.saveToTodos'))
-
-    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(3))
-    expect(create).toHaveBeenCalledWith({
-      title: 'Todo one',
-      description: 'Todo desc',
-      dueBy: undefined,
-    })
-    expect(create).toHaveBeenCalledWith({
-      title: 'Draft one',
-      description: 'Draft desc',
-      dueBy: undefined,
-    })
-    expect(create).toHaveBeenCalledWith({
-      title: 'Task one',
-      description: undefined,
-      dueBy: '2026-02-01',
-    })
-  })
-
-  it('clears the selection and shows an undo toast with the saved count', async () => {
-    const create = vi.fn().mockResolvedValue(undefined)
-    const reports = {
-      todos: report('todos', 'Todos', {create}),
-      drafts: report('drafts', 'Drafts', {
-        open: [item('d1', {title: 'Draft one'}), item('d2', {title: 'Draft two'})],
-      }),
-    }
-
-    renderList({reports, order: ['todos', 'drafts']})
-
-    selectItem('Draft one')
-    selectItem('Draft two')
-    fireEvent.click(screen.getByText('action.saveToTodos'))
-
-    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(2))
-    expect(await screen.findByText('undo.savedToTodos')).toBeTruthy()
-    // The bar lingers briefly so its collapse can ease shut rather than snap
-    // — see `useDelayedUnmount`.
-    await vi.waitFor(() => expect(screen.queryByText('selection.count')).toBeNull())
   })
 
   it('does not render its own "add new" trigger — that now lives in Inbox.tsx\'s tab row', () => {
@@ -497,5 +502,95 @@ describe('MergedList', () => {
     renderList({reports: {}, order: ['drafts']})
 
     expect(screen.getByText('source.loading')).toBeTruthy()
+  })
+})
+
+describe("a row's own three-dot menu", () => {
+  it('resolves a row for real via its menu, without selecting it first', async () => {
+    const resolve = vi.fn().mockResolvedValue(undefined)
+    const reports = {
+      tasks: report('tasks', 'Tasks', {open: [item('t1', {title: 'Task one'})], resolve}),
+    }
+
+    const {dismissals} = renderList({reports, order: ['tasks']})
+
+    openRowMenu()
+    fireEvent.click(screen.getByRole('menuitem', {name: 'action.markDone'}))
+
+    await vi.waitFor(() => expect(resolve).toHaveBeenCalledWith(expect.objectContaining({id: 't1'})))
+    expect(dismissals.dismiss).not.toHaveBeenCalled()
+  })
+
+  it('clears a row with no resolve via its menu, without selecting it first', async () => {
+    const reports = {
+      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]}),
+    }
+
+    const {dismissals} = renderList({reports, order: ['drafts']})
+
+    openRowMenu()
+    fireEvent.click(screen.getByRole('menuitem', {name: 'action.clear'}))
+
+    await vi.waitFor(() => expect(dismissals.dismiss).toHaveBeenCalledWith('drafts', 'd1'))
+  })
+
+  it('restores a manually-cleared row via its own menu in the Cleared view', async () => {
+    const reports = {
+      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]}),
+    }
+    const dismissed: Dismissals = {
+      state: withDismissal(EMPTY_DISMISSALS, 'drafts', 'd1'),
+      dismiss: vi.fn(),
+      restore: vi.fn(),
+    }
+
+    renderList({reports, order: ['drafts'], dismissals: dismissed, view: 'cleared'})
+
+    openRowMenu()
+    fireEvent.click(screen.getByRole('menuitem', {name: 'action.markNotDone'}))
+
+    await vi.waitFor(() => expect(dismissed.restore).toHaveBeenCalledWith('drafts', 'd1'))
+  })
+
+  it('snoozes a single row via its menu', async () => {
+    const reports = {
+      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]}),
+    }
+
+    const {snoozes} = renderList({reports, order: ['drafts']})
+
+    openRowMenu()
+    fireEvent.click(screen.getByRole('menuitem', {name: 'action.snooze'}))
+
+    await vi.waitFor(() =>
+      expect(snoozes.snooze).toHaveBeenCalledWith('drafts', 'd1', expect.any(String)),
+    )
+  })
+
+  it('reopens a single cleared row via its menu', async () => {
+    const reopen = vi.fn().mockResolvedValue(undefined)
+    const reports = {
+      drafts: report('drafts', 'Drafts', {cleared: [item('d1', {title: 'Draft one'})], reopen}),
+    }
+
+    renderList({reports, order: ['drafts'], view: 'cleared'})
+
+    openRowMenu()
+    fireEvent.click(screen.getByRole('menuitem', {name: 'action.markNotDone'}))
+
+    await vi.waitFor(() => expect(reopen).toHaveBeenCalledWith(expect.objectContaining({id: 'd1'})))
+  })
+
+  it('wakes a single snoozed row via its menu', () => {
+    const reports = {
+      drafts: report('drafts', 'Drafts', {snoozed: [item('d1', {title: 'Draft one'})]}),
+    }
+
+    const {snoozes} = renderList({reports, order: ['drafts'], view: 'snoozed'})
+
+    openRowMenu()
+    fireEvent.click(screen.getByRole('menuitem', {name: 'action.wakeNow'}))
+
+    expect(snoozes.wake).toHaveBeenCalledWith('drafts', 'd1')
   })
 })

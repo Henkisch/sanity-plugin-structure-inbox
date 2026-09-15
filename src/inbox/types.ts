@@ -59,6 +59,16 @@ export interface InboxItem {
   /** Colours the row. Use sparingly — everything urgent means nothing is. */
   tone?: 'default' | 'primary' | 'positive' | 'caution' | 'critical'
   /**
+   * Overrides the source's own static title in the row's category segment
+   * ("Task · Everyone", "Broken reference · Everyone") — for a source whose
+   * items aren't all the same kind of thing, e.g. `linkCheckerFindings`
+   * produces both broken-link and broken-reference findings from one
+   * source, and a single static `InboxSource.title` can't say the right
+   * word for both. Omit when every item from a source is the same kind
+   * (the common case) — the source's own title already says it once.
+   */
+  category?: string
+  /**
    * Where clicking the row takes the editor. Omit for an item with nowhere to go.
    *
    * `'release'` is Sanity's own globally-registered intent for opening a
@@ -133,6 +143,29 @@ export interface InboxSourceResult {
    */
   resolve?: (item: InboxItem) => Promise<void>
   /**
+   * Whether "seen but not resolved" means anything for this source's items.
+   * Defaults to `true` for any source with no `resolve` — that's the normal
+   * case (a draft, a broken link: something external, worth quietly marking
+   * as reviewed without pretending it's done). Set explicitly to `false` for
+   * a source whose items have no such in-between state to mark — `todos` is
+   * the one built-in example: a todo is either still on the list or deleted,
+   * there is no external "resolved elsewhere" to await, so acknowledging one
+   * would just be a dead click that changes nothing meaningful. When `false`,
+   * the confirm/acknowledge control is omitted entirely for this source's
+   * rows rather than offered and left to silently do nothing.
+   */
+  acknowledgable?: boolean
+  /**
+   * Undoes a real resolution — reopens a closed task, say. Only meaningful
+   * for a source that also offers `resolve`: nothing else can ever produce
+   * a `cleared` item in the first place (see `InboxItem.cleared`'s own doc
+   * comment), so nothing else has anything real to undo. Powers "Mark as
+   * not done" in the Cleared view — omitting it there is a real gap, not a
+   * safe default: without it, that control has nothing to call and quietly
+   * does nothing.
+   */
+  reopen?: (item: InboxItem) => Promise<void>
+  /**
    * Adds a brand-new item to this source's own list.
    *
    * Only a source that keeps its items itself — nothing external creates
@@ -191,6 +224,34 @@ export interface InboxSourceResult {
    * doing nothing when clicked.
    */
   update?: (item: InboxItem, input: CreateItemInput) => Promise<void> | void
+  /**
+   * A single, source-level action unrelated to any one item — "Scan for
+   * broken links", say.
+   *
+   * An `aside` source renders this as a small button in its own header
+   * (`InboxSection.tsx`). A `main` source has no header of its own — every
+   * `main` source's items merge into one list (`MergedList`) — so `Inbox.tsx`
+   * instead renders it as its own button next to `AddMenu`, on the pane's
+   * shared tab row.
+   *
+   * Optional: most sources have nothing like this — their items already
+   * come from something else that keeps itself up to date (a live query),
+   * with no separate "go do the underlying work now" step to trigger.
+   */
+  action?: {
+    label: string
+    run: () => Promise<void>
+    /** Shown on the button while `run`'s promise is pending. Defaults to `label`. */
+    pendingLabel?: string
+    /**
+     * Explains what the action actually does, shown as a tooltip on hover —
+     * the button's own label ("Scan for issues") names it, not what it
+     * covers. Omit for an action self-explanatory from its label alone.
+     */
+    description?: string
+    /** Shown on the button before the label. Omit for a plain text button. */
+    icon?: ComponentType
+  }
 }
 
 /**
@@ -229,6 +290,22 @@ export interface InboxSource {
    * @defaultValue 'everyone'
    */
   audience?: 'mine' | 'everyone'
+
+  /**
+   * Whether a teammate's own Inbox could ever show this source's items at
+   * all — a structural fact about where the data lives, not a display
+   * preference. Not the same axis as `audience`: an `audience: 'mine'`
+   * source (an `onlyMine`-scoped task feed, say) still reads a real, shared
+   * Sanity document — a teammate with a different config would see the same
+   * task. `'private'` is for the rare source with no shared document behind
+   * it at all — `todos` is the one built-in example, kept in a per-editor
+   * store nothing else ever reads. Drives the "Team"/"Only you"
+   * section split in `MergedList.tsx`; when only one of the two is ever
+   * populated, no split renders at all.
+   *
+   * @defaultValue 'shared'
+   */
+  visibility?: 'shared' | 'private'
 
   /**
    * Exempts this source's dismissals from the 90-day TTL that ages out every

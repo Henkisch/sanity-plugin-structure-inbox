@@ -1,5 +1,5 @@
-import {Box, Stack, Text} from '@sanity/ui'
-import {useEffect, useMemo, useState} from 'react'
+import {Box, Button, Stack, Text} from '@sanity/ui'
+import {useCallback, useEffect, useMemo, useState} from 'react'
 import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
@@ -28,9 +28,10 @@ interface InboxSectionProps {
  * sources render through `MergedList` instead, which is where the bulk
  * selection/mark-done/snooze bar this component used to carry now lives
  * exclusively). Aside content is ambient context to glance at and open, not
- * a worklist to multi-select and clear, so this is a plain read-only list:
- * open, done and snoozed tabs still split it, and a single row can still be
- * reassigned, asked about, or removed on its own — just nothing bulk.
+ * a worklist to triage, so this is a plain read-only list: open, done and
+ * snoozed tabs still split it, and a single row can still be reassigned on
+ * its own — but no per-row "Ask AI" or delete either, both of which only
+ * make sense for something on a worklist, and no bulk actions at all.
  *
  * Each source gets its own component so its `useItems` hook has a stable call
  * position of its own. A single component looping over sources would break the
@@ -40,11 +41,25 @@ export function InboxSection(props: InboxSectionProps) {
   const {source, dismissals, snoozes, view, compact = false, onCount} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
-  const {items, loading, error, create, assess, assign, remove, update} = source.useItems()
+  const {items, loading, error, create, assign, update, action} = source.useItems()
   const showUndoToast = useUndoToast()
 
   // The item being edited, if any — see `MergedList` for the full reasoning.
   const [editingId, setEditingId] = useState<string | null>(null)
+
+  // Pending state for `action` lives here, not inside the source — the
+  // source only knows how to run it, not whether a click is in flight.
+  const [actionRunning, setActionRunning] = useState(false)
+  const handleAction = useCallback(() => {
+    if (!action) return
+    setActionRunning(true)
+    action
+      .run()
+      .catch((error: unknown) => {
+        console.error('[sanity-plugin-structure-inbox] source action failed', error)
+      })
+      .finally(() => setActionRunning(false))
+  }, [action])
 
   // A snoozed item wakes on its own once `until` passes, which needs a clock
   // to notice — reading one straight in the render body would be an impure
@@ -90,10 +105,21 @@ export function InboxSection(props: InboxSectionProps) {
 
   return (
     <SectionCard
+      badge={
+        action && (
+          <Button
+            disabled={actionRunning}
+            fontSize={1}
+            mode="ghost"
+            onClick={handleAction}
+            padding={2}
+            text={actionRunning ? (action.pendingLabel ?? action.label) : action.label}
+          />
+        )
+      }
       // Handed over rather than thrown: throwing here would escape the boundary
       // that this very component renders, and take the whole tool with it.
       error={error}
-      icon={source.icon}
       // Only for `mine`: `everyone` is the common case (most sources default
       // to it), and naming it on every header read as a leftover rather than
       // information — the same reasoning `describeSource` in `MergedList`
@@ -150,7 +176,6 @@ export function InboxSection(props: InboxSectionProps) {
                 done={view === 'cleared'}
                 item={item}
                 key={item.id}
-                onAssess={assess}
                 onEdit={update ? () => setEditingId(item.id) : undefined}
                 onReassign={
                   assign
@@ -186,7 +211,6 @@ export function InboxSection(props: InboxSectionProps) {
                       }
                     : undefined
                 }
-                onRemove={remove}
               />
             ))}
           </Stack>
