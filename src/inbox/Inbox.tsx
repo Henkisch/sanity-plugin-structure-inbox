@@ -26,6 +26,7 @@ import {styled} from 'styled-components'
 import {promptJson} from '../ai/promptJson'
 import {useAgentClient} from '../ai/useAgentClient'
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
+import {useAssessments} from '../store/useAssessments'
 import {type useDismissals} from '../store/useDismissals'
 import {type useSnoozes} from '../store/useSnoozes'
 import {useSharedInboxStore} from '../studio/inboxCountLayout'
@@ -191,6 +192,11 @@ export function BoundedSourceFeed(props: BoundedSourceFeedProps) {
 export function Inbox({sources}: InboxProps) {
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const {dismissals, snoozes} = useSharedInboxStore()
+  // Not through `useSharedInboxStore`, unlike dismissals/snoozes: nothing
+  // outside this pane needs a cached assessment (no open-count-style
+  // always-mounted consumer reads it), so a plain local instance is enough —
+  // only `InboxRow` ever reads or writes one.
+  const assessments = useAssessments()
   const currentUser = useCurrentUser()
   const [view, setView] = useState<InboxView>('open')
 
@@ -945,6 +951,7 @@ export function Inbox({sources}: InboxProps) {
               <ResponsiveColumns>
                 <Box>
                   <MergedList
+                    assessments={assessments}
                     assigneeFilter={assigneeFilter}
                     dismissals={dismissals}
                     filterBar={filterBar}

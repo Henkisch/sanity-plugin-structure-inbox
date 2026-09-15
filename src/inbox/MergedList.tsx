@@ -7,6 +7,7 @@ import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {resolveSnoozeUntil, type SnoozePreset} from '../store/snoozePresets'
+import {type Assessments} from '../store/useAssessments'
 import {type Dismissals} from '../store/useDismissals'
 import {type Snoozes} from '../store/useSnoozes'
 import {CreateItemRow} from './CreateItemRow'
@@ -32,6 +33,8 @@ interface MergedListProps {
   view: InboxView
   dismissals: Dismissals
   snoozes: Snoozes
+  /** Optional: a source-less test render (see `MergedList.test.tsx`) has no cache to read from. Real callers always pass one. */
+  assessments?: Assessments
   /**
    * State owned by `Inbox.tsx` (it also needs it for the pane's own headline
    * count) — applied to `allRows` below. Multi-select: empty means "no
@@ -69,8 +72,18 @@ interface MergedListProps {
  * one at a time.
  */
 export function MergedList(props: MergedListProps) {
-  const {reports, order, view, dismissals, snoozes, assigneeFilter, typeFilter, filterBar, maxHeight} =
-    props
+  const {
+    reports,
+    order,
+    view,
+    dismissals,
+    snoozes,
+    assessments,
+    assigneeFilter,
+    typeFilter,
+    filterBar,
+    maxHeight,
+  } = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
   const allRows = useMemo(
@@ -562,16 +575,32 @@ export function MergedList(props: MergedListProps) {
         : undefined
     const baseLabel = describeSource(report, row.item)
     const sourceLabel = [baseLabel, clearedLabel].filter(Boolean).join(' · ') || undefined
+    // A cache hit seeds the row's own state directly (see `InboxRow`'s
+    // `initialAssessment`), so it renders instantly with no click at all —
+    // and a wrapped `onAssess`, not the source's own, so a live result gets
+    // cached the moment it comes back. Neither depends on the source's own
+    // `assess` existing: both are simply absent when it doesn't.
+    const initialAssessment = report?.assess
+      ? (assessments?.read(row.sourceName, row.item.id, row.item.changedAt) ?? undefined)
+      : undefined
+    const onAssess = report?.assess
+      ? async (item: InboxItem) => {
+          const assessment = await report.assess!(item)
+          assessments?.write(row.sourceName, item.id, assessment, item.changedAt)
+          return assessment
+        }
+      : undefined
     return (
       <InboxRow
         assigneeReadOnly={report?.assigneeReadOnly}
         assignableUsers={report?.assign?.users}
         done={view === 'cleared'}
+        initialAssessment={initialAssessment}
         item={row.item}
         key={row.key}
         leaving={leavingKeys.has(row.key)}
         menuActions={buildMenuActions(row, report)}
-        onAssess={report?.assess}
+        onAssess={onAssess}
         onProposeFix={report?.proposeFix}
         onEdit={
           report?.update

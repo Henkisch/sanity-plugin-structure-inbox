@@ -42,6 +42,8 @@ interface InboxRowProps {
    * the title, same as before — just only once actually asked for.
    */
   onAssess?: (item: InboxItem) => Promise<InboxAssessment>
+  /** A cached assessment for this exact item, if one's on record — seeds `assessment` below so a cache hit renders instantly, with no click. */
+  initialAssessment?: InboxAssessment
   /**
    * The source's `proposeFix`, if it has one and `item.fixable` says this
    * particular row is one of the eligible ones — see
@@ -189,6 +191,7 @@ export function InboxRow(props: InboxRowProps) {
     leaving = false,
     onSelectedChange,
     onAssess,
+    initialAssessment,
     onProposeFix,
     onEdit,
     onReassign,
@@ -202,7 +205,13 @@ export function InboxRow(props: InboxRowProps) {
   const currentUser = useCurrentUser()
   const {navigateIntent} = useRouter()
   const labelId = useId()
-  const [assessment, setAssessment] = useState<Assessment>({status: 'idle'})
+  // A cache hit renders instantly and silently — no click, no badge saying
+  // "cached", no timestamp: the invalidation is exact (see `readAssessment`'s
+  // own doc comment), so a cached assessment is, by construction, a read of
+  // the exact version of the item on screen right now.
+  const [assessment, setAssessment] = useState<Assessment>(() =>
+    initialAssessment ? {status: 'done', ...initialAssessment} : {status: 'idle'},
+  )
   const [fix, setFix] = useState<FixState>({status: 'idle'})
 
   // Checking a box marks the row, it does not act on it. Which action follows

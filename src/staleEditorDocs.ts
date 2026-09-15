@@ -1,8 +1,9 @@
-/** The three document types this plugin ever writes for an editor's own state. */
+/** The document types this plugin ever writes for an editor's own state. */
 export const EDITOR_DOC_TYPES = [
   'structureInbox.dismissals',
   'structureInbox.snoozes',
   'structureInbox.todos',
+  'structureInbox.assessments',
 ] as const
 
 /** One of this plugin's own per-editor documents, as returned by a GROQ query. */

@@ -36,6 +36,7 @@ export {SectionCard} from './ui/SectionCard'
 // `buildDigest`, or finding a departed editor's leftover documents with
 // `findStaleEditorDocuments` — see "Recipe: a digest outside the Studio" and
 // "Recipe: cleaning up after a departed editor" in the README.
+export {parseAssessments, type AssessmentState, type CachedAssessment} from './store/assessments'
 export {isDismissed, parseDismissals, type DismissalState} from './store/dismissals'
 export {isSnoozed, parseSnoozes, type SnoozeState} from './store/snoozes'
 export {parseTodos, type TodoItem, type TodosState} from './store/todos'
