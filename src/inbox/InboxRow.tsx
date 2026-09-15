@@ -1,3 +1,4 @@
+import {CheckmarkIcon} from '@sanity/icons/Checkmark'
 import {UserIcon} from '@sanity/icons/User'
 import {Avatar, Box, Button, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
 import {Menu, MenuButton, MenuDivider, MenuItem} from '@sanity/ui/menu'
@@ -15,6 +16,14 @@ interface InboxRowProps {
   compact?: boolean
   /** Already ticked off. Only ever rendered while "Show done" is on. */
   done?: boolean
+  /**
+   * Seen, but not resolved — this editor (or someone else) acknowledged it
+   * without anything actually changing in Sanity. Independent of `done`:
+   * an acknowledged row is still open, still nagging, just marked as
+   * "someone's aware of this." Only meaningful in the Open view — never
+   * passed while `done` is also true.
+   */
+  acknowledged?: boolean
   /**
    * Omit both this and `onSelectedChange` for a source with no bulk-selection
    * mechanism of its own to hook into (today, every `aside` source: ambient
@@ -139,6 +148,7 @@ export function InboxRow(props: InboxRowProps) {
     item,
     compact = false,
     done = false,
+    acknowledged = false,
     selected = false,
     leaving = false,
     onSelectedChange,
@@ -370,15 +380,28 @@ export function InboxRow(props: InboxRowProps) {
 
   const label = (
     <Stack flex={1} gap={2}>
-      <Text
-        id={labelId}
-        muted={done}
-        size={1}
-        textOverflow="ellipsis"
-        weight={compact ? undefined : 'medium'}
-      >
-        {item.title}
-      </Text>
+      <Flex align="center" gap={2}>
+        <Text
+          id={labelId}
+          muted={done}
+          size={1}
+          textOverflow="ellipsis"
+          weight={compact ? undefined : 'medium'}
+        >
+          {item.title}
+        </Text>
+        {/* Only while still Open — a `done` row is already muted, and
+            showing "seen" on top of "resolved" would say nothing new.
+            Never claims resolution itself: see `acknowledged`'s own doc
+            comment. */}
+        {acknowledged && !done && (
+          <span title={t('action.acknowledge.hint')}>
+            <Text muted size={1}>
+              <CheckmarkIcon />
+            </Text>
+          </span>
+        )}
+      </Flex>
       {(sourceLabel || item.subtitle || item.timestamp) && (
         <Text muted size={0} textOverflow="ellipsis">
           {sourceLabel}

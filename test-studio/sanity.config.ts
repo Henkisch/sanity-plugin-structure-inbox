@@ -1,19 +1,21 @@
 import {visionTool} from '@sanity/vision'
 import {defineConfig} from 'sanity'
+import {linkChecker} from 'sanity-plugin-link-checker'
 import {
   openTasks,
   structureInbox,
+  structureInboxTeamView,
   todos,
   unpublishedDrafts,
   upcomingReleases,
 } from 'sanity-plugin-structure-inbox'
+import {linkCheckerFindings} from 'sanity-plugin-structure-inbox/link-checker'
 import {structureTool} from 'sanity/structure'
 import {type StructureResolver} from 'sanity/structure'
 
 import {activeToolLayoutProbe} from './plugins/activeToolLayoutProbe'
 import {navBadgeSpike} from './plugins/navBadgeSpike'
 import {navbarBadgeSpike} from './plugins/navbarBadgeSpike'
-import {teamViewSpike} from './plugins/teamViewSpike'
 import {schemaTypes} from './schemaTypes'
 
 const projectId = process.env.SANITY_STUDIO_PROJECT_ID!
@@ -45,6 +47,10 @@ export default defineConfig([
     dataset,
     plugins: [
       structureTool({structure}),
+      // The plugin that actually runs scans and writes the report document
+      // `linkCheckerFindings()` below reads — the Inbox source has nothing
+      // to show without this also being installed.
+      linkChecker(),
       // `showInList` is off by default; this workspace turns it on so both the
       // visible entry and the invisible resolution get exercised somewhere.
       structureInbox({
@@ -61,6 +67,7 @@ export default defineConfig([
           unpublishedDrafts({olderThanDays: 0}),
           upcomingReleases(),
           todos(),
+          linkCheckerFindings(),
         ],
       }),
       visionTool(),
@@ -158,17 +165,17 @@ export default defineConfig([
     schema: {types: schemaTypes},
   },
   {
-    // Plan 012 spike: a throwaway "who's sitting on what" team view, grouping
-    // the same 'everyone'-audience items the personal Inbox pane already
-    // fetches, by assignee instead of by tone/timestamp. See
-    // `plans/012-team-wide-view.md`. Not a shipped surface — kept in its own
-    // workspace so it never appears next to the real Inbox pane.
+    // Plan 018: the real, shipped "who's sitting on what" team view —
+    // 'everyone'-audience items the personal Inbox pane already fetches,
+    // grouped by assignee instead of by tone/timestamp. See
+    // `plans/018-team-view-production.md`. Kept in its own workspace so it
+    // never appears next to the real Inbox pane.
     name: 'teamViewSpike',
-    title: 'Team view spike',
+    title: 'Team view',
     basePath: '/team-view-spike',
     projectId,
     dataset,
-    plugins: [structureTool({structure}), teamViewSpike(), visionTool()],
+    plugins: [structureTool({structure}), structureInboxTeamView(), visionTool()],
     schema: {types: schemaTypes},
   },
 ])

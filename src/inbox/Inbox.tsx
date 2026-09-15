@@ -1,7 +1,9 @@
+import {CheckmarkIcon} from '@sanity/icons/Checkmark'
 import {FilterIcon} from '@sanity/icons/Filter'
 import {
   Avatar,
   AvatarStack,
+  Badge,
   Box,
   Button,
   Card,
@@ -16,12 +18,13 @@ import {
   Text,
 } from '@sanity/ui'
 import {Menu, MenuButton, MenuItem} from '@sanity/ui/menu'
-import {type ReactNode, useCallback, useEffect, useMemo, useState} from 'react'
-import {useTranslation} from 'sanity'
+import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import {useCurrentUser, useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
-import {useDismissals} from '../store/useDismissals'
-import {useSnoozes} from '../store/useSnoozes'
+import {type useDismissals} from '../store/useDismissals'
+import {type useSnoozes} from '../store/useSnoozes'
+import {useSharedInboxStore} from '../studio/inboxCountLayout'
 import {SectionCard} from '../ui/SectionCard'
 import {SectionErrorBoundary} from '../ui/SectionErrorBoundary'
 import {StatusDot} from '../ui/StatusDot'
@@ -35,6 +38,7 @@ import {mergeRows} from './mergeItems'
 import {MergedList} from './MergedList'
 import {SourceFeed, type SourceReport} from './SourceFeed'
 import {type InboxSource, type InboxView} from './types'
+import {useElementHeight} from './useElementHeight'
 
 interface InboxProps {
   sources: InboxSource[]
@@ -48,7 +52,7 @@ interface InboxProps {
 const COLUMNS = [1, 1, 1, 3]
 
 const OPEN_TAB_ID = 'structure-inbox-open'
-const DONE_TAB_ID = 'structure-inbox-done'
+const CLEARED_TAB_ID = 'structure-inbox-cleared'
 const SNOOZED_TAB_ID = 'structure-inbox-snoozed'
 const PANEL_ID = 'structure-inbox-panel'
 
@@ -117,7 +121,6 @@ export function BoundedSection(props: BoundedSectionProps) {
 
 interface BoundedSourceFeedProps {
   source: InboxSource
-  dismissals: ReturnType<typeof useDismissals>
   snoozes: ReturnType<typeof useSnoozes>
   now: number
   onReport: (sourceName: string, report: SourceReport) => void
@@ -135,37 +138,36 @@ interface BoundedSourceFeedProps {
  * this directly without a full Studio source context.
  */
 export function BoundedSourceFeed(props: BoundedSourceFeedProps) {
-  const {source, dismissals, snoozes, now, onReport} = props
+  const {source, snoozes, now, onReport} = props
 
   const handleCatch = useCallback(
     (error: Error) => {
-      onReport(source.name, {source, error, open: [], done: [], snoozed: []})
+      onReport(source.name, {source, error, open: [], cleared: [], snoozed: []})
     },
     [source, onReport],
   )
 
   return (
     <SectionErrorBoundary fallback={null} onCatch={handleCatch}>
-      <SourceFeed
-        dismissals={dismissals}
-        now={now}
-        onReport={onReport}
-        snoozes={snoozes}
-        source={source}
-      />
+      <SourceFeed now={now} onReport={onReport} snoozes={snoozes} source={source} />
     </SectionErrorBoundary>
   )
 }
 
 export function Inbox({sources}: InboxProps) {
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
-  const neverExpireDismissalSources = useMemo(
-    () => sources.filter((source) => source.neverExpireDismissals).map((source) => source.name),
-    [sources],
-  )
-  const dismissals = useDismissals(neverExpireDismissalSources)
-  const snoozes = useSnoozes()
+  const {dismissals, snoozes} = useSharedInboxStore()
+  const currentUser = useCurrentUser()
   const [view, setView] = useState<InboxView>('open')
+
+  // Caps the Inbox list at the sidebar's own actual rendered height, rather
+  // than an eyeballed pixel constant — the sidebar's height already varies
+  // with how many aside sources are configured, so a fixed cap could either
+  // clip earlier than necessary or leave the list towering over a short
+  // sidebar. `undefined` until the first measurement; `MergedList` falls
+  // back to a sane default for that one render.
+  const sidebarRef = useRef<HTMLDivElement>(null)
+  const sidebarHeight = useElementHeight(sidebarRef)
 
   // A snoozed item wakes on its own once `until` passes — see the identical
   // reasoning `InboxSection` used to carry itself, now shared by every main
@@ -177,7 +179,7 @@ export function Inbox({sources}: InboxProps) {
   }, [])
 
   const showOpen = useCallback(() => setView('open'), [])
-  const showDone = useCallback(() => setView('done'), [])
+  const showCleared = useCallback(() => setView('cleared'), [])
   const showSnoozed = useCallback(() => setView('snoozed'), [])
 
   const [reports, setReports] = useState<Record<string, SourceReport>>({})
@@ -225,12 +227,13 @@ export function Inbox({sources}: InboxProps) {
   // to decide what's shown. Scoping this to just `view` used to mean the
   // filter bar itself would appear, disappear, and re-shuffle its chips as
   // an editor switched tabs (Snoozed showing one lone unassigned draft has
-  // nothing to filter on its own, even though Open and Done both do) — which
-  // reads as the controls being broken, not as them correctly reflecting a
-  // smaller tab. The chips themselves stay stable; `matchesInboxFilters`
-  // below still only ever filters whatever `view` is actually showing.
+  // nothing to filter on its own, even though Open and Cleared both do) —
+  // which reads as the controls being broken, not as them correctly
+  // reflecting a smaller tab. The chips themselves stay stable;
+  // `matchesInboxFilters` below still only ever filters whatever `view` is
+  // actually showing.
   const allRowsAnyView = useMemo(
-    () => (['open', 'done', 'snoozed'] as const).flatMap((v) => mergeRows(reports, mainOrder, v)),
+    () => (['open', 'cleared', 'snoozed'] as const).flatMap((v) => mergeRows(reports, mainOrder, v)),
     [reports, mainOrder],
   )
 
@@ -296,6 +299,7 @@ export function Inbox({sources}: InboxProps) {
   // above (which covers every tab at once, for the filter bar's own
   // available-assignee/-type lists).
   const openRows = useMemo(() => mergeRows(reports, mainOrder, 'open'), [reports, mainOrder])
+  const clearedRows = useMemo(() => mergeRows(reports, mainOrder, 'cleared'), [reports, mainOrder])
 
   // Only the main column counts toward the headline. The aside is context —
   // "three releases are scheduled" is not three things asking for your
@@ -306,6 +310,23 @@ export function Inbox({sources}: InboxProps) {
     () => openRows.filter((row) => matchesInboxFilters(row, assigneeFilter, typeFilter)).length,
     [openRows, assigneeFilter, typeFilter],
   )
+
+  // Names who the headline is about — a shared team inbox by default (no
+  // filter means "everyone's queue," not "your queue"), narrowing to "you" or
+  // a named person only once the assignee filter actually picks out exactly
+  // one. Several people, or Unassigned in the mix, has no single clean noun
+  // to name, so the headline just states the count with no "on X" at all
+  // rather than guess at a phrase.
+  const headlineSubject = useMemo((): {kind: 'team' | 'you' | 'generic'} | {kind: 'named'; name: string} => {
+    if (assigneeFilter.size === 0) return {kind: 'team'}
+    if (assigneeFilter.size === 1) {
+      const [only] = assigneeFilter
+      if (currentUser && only === currentUser.id) return {kind: 'you'}
+      const person = availableAssignees.find((assignee) => assignee.id === only)
+      if (person) return {kind: 'named', name: person.label}
+    }
+    return {kind: 'generic'}
+  }, [assigneeFilter, availableAssignees, currentUser])
 
   // `openRows` restricted to sources that offer `assign` — the only ones
   // "unassigned" means anything for (a todo or release was never assignable
@@ -339,13 +360,11 @@ export function Inbox({sources}: InboxProps) {
               and the ring's square corners showed past the circle). A
               wrapper button owns its own box model instead, leaving both
               components exactly as they render everywhere else. */}
-          {/* Explicit, increasing `zIndex` left to right: each avatar
-              overlaps the *previous* one's right edge (see `AvatarStack`'s
-              own negative-margin overlap), so whichever one is later in the
-              stack has to paint on top of its neighbour for that overlap to
-              read as "in front of," not "tucked behind." Plain DOM order
-              alone left the browser to decide, which put the earlier one on
-              top instead. */}
+          {/* Explicit, decreasing `zIndex` left to right: the leftmost
+              avatar has the highest z-index and paints on top, each later
+              one tucked behind the one before it. Plain DOM order alone
+              left the browser to decide, which put the later one on top
+              instead. */}
           {availableAssignees.map((person, index) => (
             <button
               aria-label={person.label}
@@ -363,17 +382,26 @@ export function Inbox({sources}: InboxProps) {
                 // A ring matching the header's own background, not `none` —
                 // the same "cutout" every avatar-stack that reads as clean
                 // separation (rather than photos just smashed together)
-                // uses. Measured off this exact header rather than guessed:
-                // Sanity UI exposes no theme custom property for it, and
-                // this plugin doesn't attempt light/dark-adaptive color
-                // anywhere else either, so a fixed value matches the
-                // existing pattern rather than being a new exception.
-                border: '2px solid rgb(13, 14, 18)',
+                // uses. `--card-bg-color` is the ancestor `<Card>`'s own CSS
+                // custom property (set by Sanity UI, not this plugin), so
+                // this tracks whatever that Card's background actually is —
+                // including a theme or scheme switch — instead of a color
+                // measured once off the dark theme and frozen.
+                border: '2px solid var(--card-bg-color)',
                 borderRadius: '50%',
                 boxShadow: assigneeFilter.has(person.id) ? '0 0 0 2px currentColor' : 'none',
                 color: 'inherit',
                 cursor: 'pointer',
                 font: 'inherit',
+                // `AvatarStack`'s own built-in overlap (the theme's
+                // `avatar.sizes[1].distance`, ~4px) is too thin for the ring
+                // above to read as a cutout — at that overlap the two
+                // borders just about touch, so adjacent avatars looked like
+                // flush circles with no visible separation. Stacking extra
+                // negative margin on top of it widens the overlap enough
+                // for the on-top avatar's own ring to visibly bite into the
+                // one behind.
+                marginLeft: index > 0 ? '-4px' : undefined,
                 padding: 0,
                 position: 'relative',
                 // `AvatarStack` wraps each child in its own `inline-block`
@@ -385,7 +413,7 @@ export function Inbox({sources}: InboxProps) {
                 // baseline, so it holds regardless of which one an avatar
                 // happens to render as.
                 verticalAlign: 'middle',
-                zIndex: index + 1,
+                zIndex: availableAssignees.length - index,
               }}
               type="button"
             >
@@ -403,21 +431,24 @@ export function Inbox({sources}: InboxProps) {
                 // A ring matching the header's own background, not `none` —
                 // the same "cutout" every avatar-stack that reads as clean
                 // separation (rather than photos just smashed together)
-                // uses. Measured off this exact header rather than guessed:
-                // Sanity UI exposes no theme custom property for it, and
-                // this plugin doesn't attempt light/dark-adaptive color
-                // anywhere else either, so a fixed value matches the
-                // existing pattern rather than being a new exception.
-                border: '2px solid rgb(13, 14, 18)',
+                // uses. `--card-bg-color` is the ancestor `<Card>`'s own CSS
+                // custom property (set by Sanity UI, not this plugin), so
+                // this tracks whatever that Card's background actually is —
+                // including a theme or scheme switch — instead of a color
+                // measured once off the dark theme and frozen.
+                border: '2px solid var(--card-bg-color)',
                 borderRadius: '50%',
                 boxShadow: assigneeFilter.has(ASSIGNEE_UNASSIGNED) ? '0 0 0 2px currentColor' : 'none',
                 color: 'inherit',
                 cursor: 'pointer',
                 font: 'inherit',
+                // See the matching comment above: widens the built-in
+                // overlap enough for the ring to read as a visible cutout.
+                marginLeft: availableAssignees.length > 0 ? '-4px' : undefined,
                 padding: 0,
                 position: 'relative',
                 verticalAlign: 'middle',
-                zIndex: availableAssignees.length + 1,
+                zIndex: 0,
               }}
               type="button"
             >
@@ -430,14 +461,29 @@ export function Inbox({sources}: InboxProps) {
       {availableTypes.length > 1 && (
         <MenuButton
           button={
-            <Button
-              aria-label={t('filter.type')}
-              fontSize={1}
-              icon={FilterIcon}
-              mode={typeFilter.size > 0 ? 'default' : 'bleed'}
-              padding={2}
-              tone={typeFilter.size > 0 ? 'primary' : 'default'}
-            />
+            <Box style={{position: 'relative'}}>
+              <Button aria-label={t('filter.type')} fontSize={1} icon={FilterIcon} mode="bleed" padding={2} />
+              {typeFilter.size > 0 && (
+                // A count instead of a blue "active" fill — the fill read as
+                // just another button state, not as "N filters applied."
+                <Badge
+                  fontSize={0}
+                  padding={1}
+                  radius="full"
+                  style={{
+                    minWidth: '1.2em',
+                    pointerEvents: 'none',
+                    position: 'absolute',
+                    right: -4,
+                    textAlign: 'center',
+                    top: -4,
+                  }}
+                  tone="primary"
+                >
+                  {typeFilter.size}
+                </Badge>
+              )}
+            </Box>
           }
           id="structure-inbox-type-filter"
           menu={
@@ -459,6 +505,7 @@ export function Inbox({sources}: InboxProps) {
               </Box>
               {availableTypes.map((report) => (
                 <MenuItem
+                  iconRight={typeFilter.has(report.source.name) ? CheckmarkIcon : undefined}
                   key={report.source.name}
                   onClick={() => toggleType(report.source.name)}
                   pressed={typeFilter.has(report.source.name)}
@@ -511,7 +558,9 @@ export function Inbox({sources}: InboxProps) {
                 which contradicts "nothing waiting on you". */}
             <StatusDot tone={openCount > 0 ? 'attention' : 'clear'} />
             <Heading size={1}>
-              {openCount === 0 ? t('inbox.allClear') : t('inbox.waiting', {count: openCount})}
+              {openCount === 0
+                ? t(`inbox.allClear.${headlineSubject.kind}`, headlineSubject)
+                : t(`inbox.waiting.${headlineSubject.kind}`, {count: openCount, ...headlineSubject})}
             </Heading>
           </Flex>
 
@@ -532,10 +581,10 @@ export function Inbox({sources}: InboxProps) {
               <Tab
                 aria-controls={PANEL_ID}
                 fontSize={1}
-                id={DONE_TAB_ID}
-                label={t('tab.done')}
-                onClick={showDone}
-                selected={view === 'done'}
+                id={CLEARED_TAB_ID}
+                label={t('tab.cleared')}
+                onClick={showCleared}
+                selected={view === 'cleared'}
               />
               <Tab
                 aria-controls={PANEL_ID}
@@ -579,7 +628,6 @@ export function Inbox({sources}: InboxProps) {
 
       {main.map((source) => (
         <BoundedSourceFeed
-          dismissals={dismissals}
           key={source.name}
           now={now}
           onReport={handleReport}
@@ -592,7 +640,7 @@ export function Inbox({sources}: InboxProps) {
         <Container width={4}>
           <TabPanel
             aria-labelledby={
-              view === 'open' ? OPEN_TAB_ID : view === 'done' ? DONE_TAB_ID : SNOOZED_TAB_ID
+              view === 'open' ? OPEN_TAB_ID : view === 'cleared' ? CLEARED_TAB_ID : SNOOZED_TAB_ID
             }
             id={PANEL_ID}
           >
@@ -602,6 +650,7 @@ export function Inbox({sources}: InboxProps) {
                   assigneeFilter={assigneeFilter}
                   dismissals={dismissals}
                   filterBar={filterBar}
+                  maxHeight={sidebarHeight}
                   order={mainOrder}
                   reports={reports}
                   snoozes={snoozes}
@@ -614,12 +663,14 @@ export function Inbox({sources}: InboxProps) {
                   sidebar. Every aside source's own card is persistent too:
                   each one already draws its own "All clear."/"Nothing
                   snoozed." empty state internally, so there is no reason
-                  left to hide the whole card while it has nothing due. */}
-              <Box gridColumn={1}>
+                  left to hide the whole card while it has nothing due.
+                  `ref` here is what `MergedList`'s own list height is capped
+                  against — see `sidebarHeight` above. */}
+              <Box gridColumn={1} ref={sidebarRef}>
                 <Stack gap={3}>
                   <InboxStats
                     assignableRows={assignableRows}
-                    dismissals={dismissals}
+                    clearedRows={clearedRows}
                     openRows={openRows}
                   />
 

@@ -5,18 +5,32 @@
 const enUS = {
   'inbox.title': 'Inbox',
 
-  'inbox.allClear': 'Nothing waiting on you',
-  'inbox.waiting_one': '{{count}} thing waiting on you',
-  'inbox.waiting_other': '{{count}} things waiting on you',
+  // Which "who" the headline names depends on the assignee filter: nobody
+  // selected reads as the whole team's queue, exactly one selected can name
+  // that person (or "you" when it's the viewer themself), and anything else
+  // (several people, or Unassigned in the mix) has no single clean noun to
+  // name, so it says nothing rather than guess.
+  'inbox.allClear.team': 'Nothing waiting on your team',
+  'inbox.allClear.you': 'Nothing waiting on you',
+  'inbox.allClear.named': 'Nothing waiting on {{name}}',
+  'inbox.allClear.generic': 'Nothing waiting',
+  'inbox.waiting.team_one': '{{count}} thing waiting on your team',
+  'inbox.waiting.team_other': '{{count}} things waiting on your team',
+  'inbox.waiting.you_one': '{{count}} thing waiting on you',
+  'inbox.waiting.you_other': '{{count}} things waiting on you',
+  'inbox.waiting.named_one': '{{count}} thing waiting on {{name}}',
+  'inbox.waiting.named_other': '{{count}} things waiting on {{name}}',
+  'inbox.waiting.generic_one': '{{count}} thing waiting',
+  'inbox.waiting.generic_other': '{{count}} things waiting',
   'tab.open': 'Open',
-  'tab.done': 'Done',
+  'tab.cleared': 'Cleared',
   'tab.snoozed': 'Snoozed',
   'inbox.unconfigured.title': 'Nothing in your inbox yet',
   'inbox.unconfigured.description':
     'Pass sources to structureInbox() to fill this pane — open tasks, upcoming releases, forgotten drafts.',
 
   'source.empty': 'All clear.',
-  'source.noneDone': 'Nothing ticked off yet.',
+  'source.noneCleared': 'Nothing cleared yet.',
   'source.noneSnoozed': 'Nothing snoozed.',
   'audience.mine': 'Assigned to you',
   'audience.everyone': 'Everyone',
@@ -38,6 +52,8 @@ const enUS = {
 
   'undo.markedDone_one': '{{count}} marked as done',
   'undo.markedDone_other': '{{count}} marked as done',
+  'undo.acknowledged_one': '{{count}} acknowledged',
+  'undo.acknowledged_other': '{{count}} acknowledged',
   'undo.snoozed_one': '{{count}} snoozed',
   'undo.snoozed_other': '{{count}} snoozed',
   'undo.assigned_one': '{{count}} assigned to {{name}}',
@@ -48,9 +64,12 @@ const enUS = {
   'undo.done': 'Undone',
 
   'action.markDone': 'Mark as done',
-  'action.markDone.mine': 'Removes it from your inbox. Nothing changes for anyone else.',
   'action.markDone.resolves': 'Completes it for everyone, and removes it from your inbox.',
+  'action.markDone.mixed':
+    'Completes what it can right now, and marks the rest seen — nothing else changes for those.',
   'action.markNotDone': 'Mark as not done',
+  'action.acknowledge': 'Acknowledge',
+  'action.acknowledge.hint': 'Marks it seen. Nothing changes in Sanity, and it stays in Open.',
   'action.wakeNow': 'Wake now',
 
   'action.snooze': 'Snooze',

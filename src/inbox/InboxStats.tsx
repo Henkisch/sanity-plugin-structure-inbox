@@ -4,8 +4,6 @@ import {useMemo, useState} from 'react'
 import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
-import {type DismissalState} from '../store/dismissals'
-import {type Dismissals} from '../store/useDismissals'
 import {initials} from './InboxRow'
 import {type MergedRow} from './mergeItems'
 
@@ -81,13 +79,16 @@ function isToday(isoTimestamp: string, now: number): boolean {
   )
 }
 
-/** How many items, across every source, this editor dismissed today. */
-export function countClearedToday(dismissed: DismissalState['dismissed'], now: number): number {
+/**
+ * How many items, across every source, actually got cleared today — a real,
+ * source-confirmed `changedAt`, not a dismissal. An editor acknowledging
+ * things all afternoon no longer inflates this; only Sanity itself moving an
+ * item to `cleared` does.
+ */
+export function countClearedToday(clearedRows: readonly MergedRow[], now: number): number {
   let count = 0
-  for (const items of Object.values(dismissed)) {
-    for (const at of Object.values(items)) {
-      if (isToday(at, now)) count += 1
-    }
+  for (const row of clearedRows) {
+    if (row.item.changedAt && isToday(row.item.changedAt, now)) count += 1
   }
   return count
 }
@@ -97,7 +98,8 @@ interface InboxStatsProps {
   openRows: MergedRow[]
   /** `openRows`, restricted to sources that offer `assign` — the only ones "unassigned" means anything for. */
   assignableRows: MergedRow[]
-  dismissals: Dismissals
+  /** Every cleared row, across every main source — same unfiltered shape as `openRows`. */
+  clearedRows: MergedRow[]
 }
 
 /**
@@ -111,7 +113,7 @@ interface InboxStatsProps {
  * the whole-team picture underneath that, so the two stay independent.
  */
 export function InboxStats(props: InboxStatsProps) {
-  const {openRows, assignableRows, dismissals} = props
+  const {openRows, assignableRows, clearedRows} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
   // Not a ticking clock: a summary card is allowed to be up to a session
@@ -123,10 +125,7 @@ export function InboxStats(props: InboxStatsProps) {
   const ageBuckets = useMemo(() => bucketByAge(openRows, now), [openRows, now])
   const unassignedCount = useMemo(() => countUnassigned(assignableRows), [assignableRows])
   const assigneeLoad = useMemo(() => groupByAssigneeLoad(openRows), [openRows])
-  const clearedToday = useMemo(
-    () => countClearedToday(dismissals.state.dismissed, now),
-    [dismissals.state, now],
-  )
+  const clearedToday = useMemo(() => countClearedToday(clearedRows, now), [clearedRows, now])
 
   return (
     <Card border overflow="hidden" radius={3} shadow={0}>

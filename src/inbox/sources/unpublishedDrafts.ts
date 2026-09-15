@@ -1,3 +1,4 @@
+import {type SanityClient} from '@sanity/client'
 import {DocumentsIcon} from '@sanity/icons/Documents'
 import {useCallback, useMemo} from 'react'
 import {useObservable} from 'react-rx'
@@ -15,6 +16,8 @@ import {
 } from 'sanity'
 
 import {API_VERSION} from '../../constants'
+import {type SnoozeState} from '../../store/snoozes'
+import {splitItems} from '../splitItems'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {filterAuthoredBy} from './authoredBy'
 import {optionalHook} from './capability'
@@ -151,12 +154,86 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
     onlyMine = false,
   } = options
 
+  /**
+   * The base draft fetch, with no assignee info attached — deliberately
+   * shared between `useItems` and `useOpenCount` below. Unlike the
+   * assignee-join further down `useItems` goes on to do, this part needs
+   * nothing from the addon dataset, which is what makes it safe for
+   * `useOpenCount` to reuse: that hook exists specifically to run from a
+   * place (`src/studio/inboxCountLayout.tsx`'s always-mounted provider)
+   * where the addon dataset's own context is not reliably present.
+   */
+  function useDraftFetch(
+    client: SanityClient,
+    schema: ReturnType<typeof useSchema>,
+    userId: string | undefined,
+  ): InboxSourceResult {
+    const result$ = useMemo(() => {
+      // Read once per `[client, schema, userId]` recompute, same as this
+      // logic did inline inside `useItems()` before this hook was extracted
+      // — not a live clock, just this fetch's own "as of now" cutoff.
+      // eslint-disable-next-line react/purity -- see comment above
+      const before = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString()
+      const params = {before, limit, types: types ?? null}
+
+      const toItem = (row: DraftRow): InboxItem => ({
+        id: row._id,
+        title: row.title || row._id,
+        subtitle: schema.get(row._type)?.title || row._type,
+        timestamp: row._updatedAt,
+        changedAt: row._updatedAt,
+        intent: {
+          type: 'edit',
+          // The published id is what an `edit` intent expects; the draft is
+          // what it opens.
+          params: {id: row._id.replace(/^drafts\./, ''), type: row._type},
+        },
+      })
+
+      const fetch$ = client.observable.fetch<DraftRow[]>(QUERY, params).pipe(
+        switchMap((rows) => {
+          // Without a user there is nobody to filter by, so listing
+          // everything beats listing nothing.
+          if (!onlyMine || !userId || rows.length === 0) return of(rows)
+
+          return from(
+            filterAuthoredBy(
+              client,
+              rows.map((row) => row._id),
+              userId,
+            ),
+          ).pipe(map((mine) => rows.filter((row) => mine.has(row._id))))
+        }),
+      )
+
+      return liveQuery$(client, QUERY, params, fetch$).pipe(
+        map((rows): InboxSourceResult => ({items: rows.map(toItem)})),
+        startWith<InboxSourceResult>({items: [], loading: true}),
+        catchError((error: Error) => of<InboxSourceResult>({items: [], error})),
+      )
+    }, [client, schema, userId])
+
+    return useObservable(result$, {items: [], loading: true})
+  }
+
   return {
     name: 'unpublishedDrafts',
     title,
     icon: DocumentsIcon,
     placement,
     audience: onlyMine ? 'mine' : 'everyone',
+
+    useOpenCount(snoozes: SnoozeState, now: number): number | null {
+      const client = useClient({apiVersion: API_VERSION})
+      const schema = useSchema()
+      const userId = useCurrentUser()?.id
+      const result = useDraftFetch(client, schema, userId)
+
+      return useMemo(() => {
+        if (result.loading || result.error) return null
+        return splitItems(result.items, 'unpublishedDrafts', snoozes, now).open.length
+      }, [result, snoozes, now])
+    },
 
     useItems(): InboxSourceResult {
       const client = useClient({apiVersion: API_VERSION})
@@ -169,48 +246,7 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
       // a sensible assignee.
       const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
 
-      const result$ = useMemo(() => {
-        const before = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString()
-        const params = {before, limit, types: types ?? null}
-
-        const toItem = (row: DraftRow): InboxItem => ({
-          id: row._id,
-          title: row.title || row._id,
-          subtitle: schema.get(row._type)?.title || row._type,
-          timestamp: row._updatedAt,
-          changedAt: row._updatedAt,
-          intent: {
-            type: 'edit',
-            // The published id is what an `edit` intent expects; the draft is
-            // what it opens.
-            params: {id: row._id.replace(/^drafts\./, ''), type: row._type},
-          },
-        })
-
-        const fetch$ = client.observable.fetch<DraftRow[]>(QUERY, params).pipe(
-          switchMap((rows) => {
-            // Without a user there is nobody to filter by, so listing
-            // everything beats listing nothing.
-            if (!onlyMine || !userId || rows.length === 0) return of(rows)
-
-            return from(
-              filterAuthoredBy(
-                client,
-                rows.map((row) => row._id),
-                userId,
-              ),
-            ).pipe(map((mine) => rows.filter((row) => mine.has(row._id))))
-          }),
-        )
-
-        return liveQuery$(client, QUERY, params, fetch$).pipe(
-          map((rows): InboxSourceResult => ({items: rows.map(toItem)})),
-          startWith<InboxSourceResult>({items: [], loading: true}),
-          catchError((error: Error) => of<InboxSourceResult>({items: [], error})),
-        )
-      }, [client, schema, userId])
-
-      const result = useObservable(result$, {items: [], loading: true})
+      const result = useDraftFetch(client, schema, userId)
 
       // Live, same reasoning as `result$`: someone assigning or closing a task
       // elsewhere should update a draft's avatar without the editor having to

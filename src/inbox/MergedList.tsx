@@ -4,6 +4,7 @@ import {type ReactNode, useCallback, useMemo, useState} from 'react'
 import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
+import {isDismissed} from '../store/dismissals'
 import {resolveSnoozeUntil, type SnoozePreset} from '../store/snoozePresets'
 import {type Dismissals} from '../store/useDismissals'
 import {type Snoozes} from '../store/useSnoozes'
@@ -45,6 +46,14 @@ interface MergedListProps {
    * narrow this column and never the aside sources beside it.
    */
   filterBar?: ReactNode
+  /**
+   * Caps the list's own height, in pixels — typically the sidebar's actual
+   * rendered height (`Inbox.tsx` measures it live), so this column never
+   * grows taller than its neighbour. `undefined` before that measurement
+   * exists yet (the very first render), in which case a fixed fallback is
+   * used instead — see where this is read below.
+   */
+  maxHeight?: number
 }
 
 /**
@@ -60,7 +69,8 @@ interface MergedListProps {
  * one at a time.
  */
 export function MergedList(props: MergedListProps) {
-  const {reports, order, view, dismissals, snoozes, assigneeFilter, typeFilter, filterBar} = props
+  const {reports, order, view, dismissals, snoozes, assigneeFilter, typeFilter, filterBar, maxHeight} =
+    props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
   const allRows = useMemo(() => mergeRows(reports, order, view), [reports, order, view])
@@ -119,7 +129,7 @@ export function MergedList(props: MergedListProps) {
   }, [allSelected, rows])
 
   const confirmSelection = useCallback(async () => {
-    if (view === 'done') {
+    if (view === 'cleared') {
       for (const row of selected) dismissals.restore(row.sourceName, row.item.id)
       setSelectedKeys([])
       return
@@ -132,47 +142,66 @@ export function MergedList(props: MergedListProps) {
     }
 
     const targets = [...selected]
+    // Only a row whose source can actually resolve it leaves the list —
+    // that's the only case Sanity's own state is about to change, so it's
+    // the only case the fade-then-remove animation applies to. A row with
+    // no `resolve` gets acknowledged in place instead: no animation, no
+    // exit, it stays exactly where it is (see `splitItems.ts`'s own doc
+    // comment for why acknowledging never moves an item to Cleared).
+    const resolvableTargets = targets.filter((row) => Boolean(reports[row.sourceName]?.resolve))
+    const acknowledgeOnlyTargets = targets.filter((row) => !reports[row.sourceName]?.resolve)
 
     // Cleared immediately — the bar disappearing is the confirmation the
-    // click landed; the rows themselves fade a beat longer before the
-    // mutation that actually removes them runs, see `EXIT_ANIMATION_MS`.
+    // click landed; the resolvable rows themselves fade a beat longer
+    // before the mutation that actually removes them runs, see
+    // `EXIT_ANIMATION_MS`.
     setSelectedKeys([])
-    setLeavingKeys((current) => new Set([...current, ...targets.map((row) => row.key)]))
-    await wait(EXIT_ANIMATION_MS)
+    if (resolvableTargets.length > 0) {
+      setLeavingKeys((current) => new Set([...current, ...resolvableTargets.map((row) => row.key)]))
+      await wait(EXIT_ANIMATION_MS)
+    }
 
     setBusy(true)
     try {
       // Each row resolves through its own source's `resolve` — a mixed
-      // selection is fine, `Promise.allSettled` means one item failing (or
-      // having no `resolve` at all) never strands the rest.
+      // selection is fine, `Promise.allSettled` means one item failing
+      // never strands the rest.
       const results = await Promise.allSettled(
-        targets.map((row) => {
+        resolvableTargets.map((row) => {
           const resolve = reports[row.sourceName]?.resolve
           return resolve ? resolve(row.item) : Promise.resolve()
         }),
       )
 
-      let dismissedCount = 0
-      results.forEach((result, index) => {
-        const row = targets[index]
+      let resolvedCount = 0
+      results.forEach((result) => {
         if (result.status === 'fulfilled') {
-          dismissals.dismiss(row.sourceName, row.item.id)
-          dismissedCount += 1
+          resolvedCount += 1
         } else {
           console.error('[sanity-plugin-structure-inbox] could not resolve item', result.reason)
         }
       })
 
+      for (const row of acknowledgeOnlyTargets) dismissals.dismiss(row.sourceName, row.item.id)
+
       setLeavingKeys((current) => {
         const next = new Set(current)
-        targets.forEach((row) => next.delete(row.key))
+        resolvableTargets.forEach((row) => next.delete(row.key))
         return next
       })
 
-      if (dismissedCount > 0) {
+      // A real resolve isn't reversible from here (the task actually
+      // closed, say) — no undo offered for it, just a plain confirmation.
+      // Acknowledging is fully reversible (only local state changed), so
+      // that one gets a real undo.
+      if (resolvedCount > 0) {
+        showUndoToast({title: t('undo.markedDone', {count: resolvedCount})})
+      }
+      if (acknowledgeOnlyTargets.length > 0) {
         showUndoToast({
-          title: t('undo.markedDone', {count: dismissedCount}),
-          onUndo: () => targets.forEach((row) => dismissals.restore(row.sourceName, row.item.id)),
+          title: t('undo.acknowledged', {count: acknowledgeOnlyTargets.length}),
+          onUndo: () =>
+            acknowledgeOnlyTargets.forEach((row) => dismissals.restore(row.sourceName, row.item.id)),
         })
       }
     } finally {
@@ -190,7 +219,13 @@ export function MergedList(props: MergedListProps) {
       setLeavingKeys((current) => new Set([...current, ...targets.map((row) => row.key)]))
 
       setTimeout(() => {
-        for (const row of targets) snoozes.snooze(row.sourceName, row.item.id, until)
+        for (const row of targets) {
+          snoozes.snooze(row.sourceName, row.item.id, until)
+          // Snoozing is also seeing it — same "someone's aware of this"
+          // marker Open's own acknowledge action sets, so the item doesn't
+          // read as newly-unseen the moment it wakes back into Open.
+          dismissals.dismiss(row.sourceName, row.item.id)
+        }
 
         setLeavingKeys((current) => {
           const next = new Set(current)
@@ -200,11 +235,15 @@ export function MergedList(props: MergedListProps) {
 
         showUndoToast({
           title: t('undo.snoozed', {count: targets.length}),
-          onUndo: () => targets.forEach((row) => snoozes.wake(row.sourceName, row.item.id)),
+          onUndo: () =>
+            targets.forEach((row) => {
+              snoozes.wake(row.sourceName, row.item.id)
+              dismissals.restore(row.sourceName, row.item.id)
+            }),
         })
       }, EXIT_ANIMATION_MS)
     },
-    [selected, snoozes, showUndoToast, t],
+    [selected, snoozes, dismissals, showUndoToast, t],
   )
 
   // Only offered when every selected row shares one source, and that source
@@ -317,10 +356,10 @@ export function MergedList(props: MergedListProps) {
   const describeSource = useCallback(
     (report: SourceReport | undefined, item: InboxItem): string | undefined => {
       if (!report) return undefined
-      // An avatar chip already says who — restating it as "Assigned to you"
-      // right next to that avatar was the "so much stuff on those items"
-      // this row's own assignee avatar was added to fix.
-      if (item.assignee) return report.source.title
+      // The avatar chip already shows a face, but not a name at this size —
+      // naming the assignee here is the only place on the row that actually
+      // spells it out.
+      if (item.assignee) return `${report.source.title} · ${item.assignee.label}`
       // An item nobody has picked up yet, from a source that actually offers
       // `assign`, already shows the faint placeholder avatar
       // (`InboxRow.tsx`) — "Unassigned" here names that placeholder instead
@@ -415,7 +454,9 @@ export function MergedList(props: MergedListProps) {
               onConfirm={confirmSelection}
               onSaveToTodos={view === 'open' && soleCreator ? confirmSaveToTodos : undefined}
               onSnooze={view === 'open' ? confirmSnooze : undefined}
-              resolves={selected.every((row) => Boolean(reports[row.sourceName]?.resolve))}
+              resolvableCount={
+                selected.filter((row) => Boolean(reports[row.sourceName]?.resolve)).length
+              }
               view={view}
             />
           )}
@@ -460,8 +501,8 @@ export function MergedList(props: MergedListProps) {
         ) : isEmpty ? (
           <Box padding={3}>
             <Text muted size={1}>
-              {view === 'done'
-                ? t('source.noneDone')
+              {view === 'cleared'
+                ? t('source.noneCleared')
                 : view === 'snoozed'
                   ? t('source.noneSnoozed')
                   : t('source.empty')}
@@ -502,18 +543,22 @@ export function MergedList(props: MergedListProps) {
                 the persistent sidebar next to this column has its own
                 (roughly stable) height, and an Inbox list that could grow
                 taller than it forever made that neighbour look like an
-                afterthought. `560px` is a rough eyeball (~9 rows), not a
-                pixel-synced measurement against the sidebar's actual
-                rendered height — that would need a `ResizeObserver` and
-                isn't justified yet. */}
-            <Box style={{maxHeight: 560, overflowY: 'auto'}}>
+                afterthought. `maxHeight` is the sidebar's own live rendered
+                height (`Inbox.tsx` measures it with a `ResizeObserver`);
+                `560` (~9 rows) is only a placeholder for the one render
+                before that measurement exists. */}
+            <Box style={{maxHeight: maxHeight ?? 560, overflowY: 'auto'}}>
               <Stack gap={1} padding={1}>
                 {rows.map((row) => {
                 const report = reports[row.sourceName]
                 return (
                   <InboxRow
+                    acknowledged={
+                      view === 'open' &&
+                      isDismissed(dismissals.state, row.sourceName, row.item.id, row.item.changedAt)
+                    }
                     assignableUsers={report?.assign?.users}
-                    done={view === 'done'}
+                    done={view === 'cleared'}
                     item={row.item}
                     key={row.key}
                     leaving={leavingKeys.has(row.key)}
