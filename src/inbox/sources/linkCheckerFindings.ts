@@ -30,7 +30,13 @@ import {useAgentClient} from '../../ai/useAgentClient'
 import {API_VERSION} from '../../constants'
 import {type SnoozeState} from '../../store/snoozes'
 import {splitItems} from '../splitItems'
-import {type FixProposal, type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
+import {
+  type FixProposal,
+  type InboxAssessment,
+  type InboxItem,
+  type InboxSource,
+  type InboxSourceResult,
+} from '../types'
 import {useAssignmentStore} from './assignmentStore'
 import {optionalHook} from './capability'
 import {liveQuery$} from './liveQuery'
@@ -473,7 +479,7 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
       const assess = useMemo(() => {
         if (!agentClient) return undefined
 
-        return async (item: InboxItem) => {
+        return async (item: InboxItem): Promise<InboxAssessment> => {
           const finding = findingsByKey.get(item.id)
           if (!finding) throw new Error('No finding found for this item — has it been rescanned?')
 
@@ -482,10 +488,20 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
               ? `Given the following document:\n$document\n---\nField '${finding.fieldPath}' holds a reference to a document that no longer exists. In one short, specific sentence, suggest what to do about it.`
               : `Given the following document:\n$document\n---\nField '${finding.fieldPath}' holds a broken external link (${finding.href}). In one short, specific sentence, suggest what to do about it.`
 
-          return agentClient.agent.action.prompt({
+          const message = await agentClient.agent.action.prompt({
             instruction,
             instructionParams: {document: {type: 'document', documentId: finding.fromId}},
           })
+
+          // Severity here is already fully known — a reference finding is
+          // broken by construction, a confirmed-broken link is a real
+          // problem, an unverifiable one is a maybe (same distinction
+          // `toItem`'s own `tone` already draws) — asking the model to also
+          // judge how bad it is would just be re-deriving a fact this source
+          // already has for certain.
+          const tone = finding.kind === 'reference' || finding.result.status === 'broken' ? 'critical' : 'caution'
+
+          return {message, tone}
         }
       }, [agentClient, findingsByKey])
 

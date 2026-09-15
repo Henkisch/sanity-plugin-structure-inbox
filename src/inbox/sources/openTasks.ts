@@ -16,7 +16,7 @@ import {
 import {useAgentClient} from '../../ai/useAgentClient'
 import {type SnoozeState} from '../../store/snoozes'
 import {splitItems} from '../splitItems'
-import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
+import {type InboxAssessment, type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {optionalHook, useSafely} from './capability'
 import {liveQuery$} from './liveQuery'
 import {useOpenTaskDetail} from './openTaskDetail'
@@ -355,9 +355,9 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
       const assess = useMemo(() => {
         if (!agentClient) return undefined
 
-        return async (item: InboxItem) => {
+        return async (item: InboxItem): Promise<InboxAssessment> => {
           const targetId = item.intent?.type === 'edit' ? item.intent.params.id : undefined
-          return agentClient.agent.action.prompt({
+          const message = await agentClient.agent.action.prompt({
             instruction: targetId
               ? "Given the following document:\n$document\n---\nThere's an open task about it: " +
                 `"${item.title}". In one short, specific sentence, suggest a concrete next step.`
@@ -367,6 +367,11 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
               ? {document: {type: 'document', documentId: targetId}}
               : {items: item.title},
           })
+
+          // Overdue-ness is already a deterministic fact this source computed
+          // for the row itself (`item.tone`, from `isOverdue` above) — reuse
+          // it rather than asking the model to also judge how urgent this is.
+          return item.tone === 'critical' ? {message, tone: 'critical'} : {message}
         }
       }, [agentClient])
 

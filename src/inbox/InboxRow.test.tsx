@@ -5,6 +5,7 @@ import {cleanup, fireEvent, render, screen} from '@testing-library/react'
 import {type ReactElement} from 'react'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
+import {AssessmentUnavailableError} from '../ai/assessment'
 import {InboxRow} from './InboxRow'
 import {type InboxItem} from './types'
 
@@ -175,5 +176,50 @@ describe('InboxRow', () => {
     renderRow(<InboxRow item={item()} onSelectedChange={vi.fn()} selected={false} />)
 
     expect(screen.queryByTitle('assignee.unassigned')).toBeNull()
+  })
+
+  describe('assess', () => {
+    function askAi() {
+      fireEvent.click(screen.getByRole('button', {name: 'row.menu'}))
+      fireEvent.click(screen.getByRole('menuitem', {name: 'assess.ask'}))
+    }
+
+    it('renders a resolved assessment with a tone', async () => {
+      const onAssess = vi.fn().mockResolvedValue({message: 'Missing a hero image.', tone: 'critical'})
+
+      renderRow(<InboxRow item={item()} onAssess={onAssess} onSelectedChange={vi.fn()} selected={false} />)
+      askAi()
+
+      expect(await screen.findByText('Missing a hero image.')).toBeTruthy()
+    })
+
+    it('renders a resolved assessment with no tone', async () => {
+      const onAssess = vi.fn().mockResolvedValue({message: 'Looks ready to publish.'})
+
+      renderRow(<InboxRow item={item()} onAssess={onAssess} onSelectedChange={vi.fn()} selected={false} />)
+      askAi()
+
+      expect(await screen.findByText('Looks ready to publish.')).toBeTruthy()
+    })
+
+    it('renders assess.unavailable, not assess.error, when the model answered but not usably', async () => {
+      const onAssess = vi.fn().mockRejectedValue(new AssessmentUnavailableError())
+
+      renderRow(<InboxRow item={item()} onAssess={onAssess} onSelectedChange={vi.fn()} selected={false} />)
+      askAi()
+
+      expect(await screen.findByText('assess.unavailable')).toBeTruthy()
+      expect(screen.queryByText('assess.error')).toBeNull()
+    })
+
+    it('renders assess.error for a plain transport failure', async () => {
+      const onAssess = vi.fn().mockRejectedValue(new Error('network down'))
+
+      renderRow(<InboxRow item={item()} onAssess={onAssess} onSelectedChange={vi.fn()} selected={false} />)
+      askAi()
+
+      expect(await screen.findByText('assess.error')).toBeTruthy()
+      expect(screen.queryByText('assess.unavailable')).toBeNull()
+    })
   })
 })

@@ -14,11 +14,13 @@ import {
   type UserListWithPermissionsOptions,
 } from 'sanity'
 
+import {AssessmentUnavailableError, parseAssessment} from '../../ai/assessment'
+import {promptJson} from '../../ai/promptJson'
 import {useAgentClient} from '../../ai/useAgentClient'
 import {API_VERSION} from '../../constants'
 import {type SnoozeState} from '../../store/snoozes'
 import {splitItems} from '../splitItems'
-import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
+import {type InboxAssessment, type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {useAssignmentStore} from './assignmentStore'
 import {filterAuthoredBy} from './authoredBy'
 import {optionalHook} from './capability'
@@ -267,15 +269,22 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
       const assess = useMemo(() => {
         if (!agentClient) return undefined
 
-        return async (item: InboxItem) => {
-          const message = await agentClient.agent.action.prompt({
-            instruction:
-              'Given the following document:\n$document\n---\n' +
-              'In one short, specific sentence: does this draft look ready to publish, ' +
-              'or what looks unfinished about it?',
-            instructionParams: {document: {type: 'document', documentId: item.id}},
-          })
-          return message
+        return async (item: InboxItem): Promise<InboxAssessment> => {
+          const raw = await promptJson<unknown>(
+            agentClient,
+            'Given the following document:\n$document\n---\n' +
+              'Assess whether this draft looks ready to publish.\n' +
+              'Answer with JSON only, no prose and no code fences, in this exact shape:\n' +
+              '{"message": "<one short, specific sentence>", "tone": "<one of: positive, caution, critical>"}\n' +
+              'Use "positive" when it looks ready, "caution" when something is thin or ' +
+              'unpolished, "critical" when something required is plainly missing. Name the ' +
+              'specific thing rather than describing the document in general.',
+            {document: {type: 'document', documentId: item.id}},
+          )
+
+          const assessment = parseAssessment(raw)
+          if (!assessment) throw new AssessmentUnavailableError()
+          return assessment
         }
       }, [agentClient])
 

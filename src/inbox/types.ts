@@ -146,6 +146,27 @@ export interface FixProposal {
 }
 
 /**
+ * What a source's `assess` hands back.
+ *
+ * `tone` is the model's own read on how bad the news is, and is deliberately
+ * *not* the same thing as `InboxItem.tone`: that one is a fact the source
+ * computed (a task past its due date), this one is an opinion about a
+ * document's contents. They render in different places so an editor can tell
+ * which they are looking at, and `tone` here never affects where the row
+ * sorts — the merged list's order stays deterministic and explainable
+ * (`mergeItems.ts`), which is the property that makes it worth trusting at a
+ * glance.
+ *
+ * @public
+ */
+export interface InboxAssessment {
+  /** One short, specific sentence. Rendered as-is. */
+  message: string
+  /** How bad it looks, if the model committed to one. */
+  tone?: InboxItem['tone']
+}
+
+/**
  * One AI-suggested personal todo — `Inbox.tsx`'s own "Ask AI: what to work
  * on first" trigger, `InboxStats.tsx`'s own rendering of the result. Not
  * part of `InboxSourceResult`: this reads across every open row at once
@@ -228,7 +249,7 @@ export interface InboxSourceResult {
    * Optional because it needs a real document to look at; a source with
    * nothing backing its items (`todos`) has nothing to offer here.
    */
-  assess?: (item: InboxItem) => Promise<string>
+  assess?: (item: InboxItem) => Promise<InboxAssessment>
   /**
    * Proposes a concrete, reviewable fix — the "action" half of "insight,
    * then action" that `assess` alone only ever gives the "insight" half of.

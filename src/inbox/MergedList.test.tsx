@@ -229,7 +229,7 @@ describe('MergedList', () => {
   })
 
   it('offers "Ask AI" in a row\'s own menu rather than a persistent link, and shows the answer inline once asked', async () => {
-    const assess = vi.fn().mockResolvedValue('Looks fine.')
+    const assess = vi.fn().mockResolvedValue({message: 'Looks fine.'})
     const reports = {
       drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})], assess}),
     }

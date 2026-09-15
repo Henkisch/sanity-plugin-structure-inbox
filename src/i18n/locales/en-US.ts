@@ -118,6 +118,7 @@ const enUS = {
   'assess.ask': 'Ask AI',
   'assess.loading': 'Asking AI…',
   'assess.error': 'Could not reach AI.',
+  'assess.unavailable': 'AI could not read this one.',
 
   // The "action" half of "insight, then action" — assess only ever reads;
   // this proposes a real change, so it needs its own Apply/Dismiss rather

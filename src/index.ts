@@ -9,7 +9,15 @@ export {
   type StructureInboxTeamViewConfig,
 } from './teamView/structureInboxTeamView'
 
-export type {InboxItem, InboxSource, InboxSourceResult} from './inbox/types'
+export type {
+  FixProposal,
+  InboxAssessment,
+  InboxItem,
+  InboxSource,
+  InboxSourceResult,
+  SuggestTodosState,
+  TodoSuggestion,
+} from './inbox/types'
 export {
   assignmentDocId,
   useAssignmentStore,

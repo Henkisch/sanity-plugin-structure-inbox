@@ -7,9 +7,10 @@ import {type CSSProperties, type MouseEvent, useCallback, useId, useState} from 
 import {useCurrentUser, useTranslation} from 'sanity'
 import {useRouter} from 'sanity/router'
 
+import {AssessmentUnavailableError} from '../ai/assessment'
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {RelativeTime} from './RelativeTime'
-import {type FixProposal, type InboxItem} from './types'
+import {type FixProposal, type InboxAssessment, type InboxItem} from './types'
 
 interface InboxRowProps {
   item: InboxItem
@@ -40,7 +41,7 @@ interface InboxRowProps {
    * on screen each grew one. The answer itself still renders inline, below
    * the title, same as before — just only once actually asked for.
    */
-  onAssess?: (item: InboxItem) => Promise<string>
+  onAssess?: (item: InboxItem) => Promise<InboxAssessment>
   /**
    * The source's `proposeFix`, if it has one and `item.fixable` says this
    * particular row is one of the eligible ones — see
@@ -100,7 +101,10 @@ interface InboxRowProps {
   menuActions?: {key: string; label: string; onClick: () => void; tone?: 'critical' | 'caution'}[]
 }
 
-type Assessment = {status: 'idle'} | {status: 'loading'} | {status: 'done'; message: string}
+type Assessment =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'done'; message: string; tone?: InboxItem['tone']}
 
 // `'none'` (proposeFix resolved, nothing good to suggest) is a distinct
 // state from `'error'` (the call itself failed) — both render as a single
@@ -240,10 +244,11 @@ export function InboxRow(props: InboxRowProps) {
     if (!onAssess) return
     setAssessment({status: 'loading'})
     onAssess(item)
-      .then((message) => setAssessment({status: 'done', message}))
+      .then((assessment) => setAssessment({status: 'done', ...assessment}))
       .catch((error: unknown) => {
         console.error('[sanity-plugin-structure-inbox] assess failed', error)
-        setAssessment({status: 'done', message: t('assess.error')})
+        const message = error instanceof AssessmentUnavailableError ? t('assess.unavailable') : t('assess.error')
+        setAssessment({status: 'done', message})
       })
   }, [onAssess, item, t])
 
@@ -312,11 +317,23 @@ export function InboxRow(props: InboxRowProps) {
           {t('assess.loading')}
         </Text>
       )}
-      {assessment.status === 'done' && (
-        <Text muted size={0}>
-          {assessment.message}
-        </Text>
-      )}
+      {assessment.status === 'done' &&
+        (assessment.tone ? (
+          // A tone-carrying assessment gets a small coloured card — `Text`
+          // itself has no `tone` prop in this design system, and this is the
+          // one place an assessment's own severity actually shows up (never
+          // the row's own tone, never the sort — see `InboxAssessment`'s own
+          // doc comment on why those stay separate).
+          <Card padding={1} radius={2} tone={assessment.tone}>
+            <Text muted size={0}>
+              {assessment.message}
+            </Text>
+          </Card>
+        ) : (
+          <Text muted size={0}>
+            {assessment.message}
+          </Text>
+        ))}
     </Flex>
   )
 
