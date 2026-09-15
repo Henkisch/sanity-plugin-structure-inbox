@@ -14,6 +14,7 @@ import {structureTool} from 'sanity/structure'
 import {type StructureResolver} from 'sanity/structure'
 
 import {activeToolLayoutProbe} from './plugins/activeToolLayoutProbe'
+import {clusterSpike} from './plugins/clusterSpike'
 import {navBadgeSpike} from './plugins/navBadgeSpike'
 import {navbarBadgeSpike} from './plugins/navbarBadgeSpike'
 import {schemaTypes} from './schemaTypes'
@@ -176,6 +177,19 @@ export default defineConfig([
     projectId,
     dataset,
     plugins: [structureTool({structure}), structureInboxTeamView(), visionTool()],
+    schema: {types: schemaTypes},
+  },
+  {
+    // Plan 025 spike: does clustering the merged inbox list into shared
+    // problems produce groups an editor would recognise? See
+    // `plans/mellow-weaving-cascade.md`'s "Findings — plan 025" and
+    // `./plugins/clusterSpike.tsx`.
+    name: 'clusterSpike',
+    title: 'Cluster spike',
+    basePath: '/cluster-spike',
+    projectId,
+    dataset,
+    plugins: [structureTool({structure}), clusterSpike()],
     schema: {types: schemaTypes},
   },
 ])
