@@ -36,6 +36,7 @@ export function SourceFeed(props: SourceFeedProps) {
     loading,
     error,
     resolve,
+    reopen,
     create,
     assess,
     proposeFix,
@@ -55,7 +56,9 @@ export function SourceFeed(props: SourceFeedProps) {
 
   // This destructure is a hardcoded allowlist, not `...rest` — every new
   // field `InboxSourceResult` gains (`proposeFix`, `assigneeReadOnly`,
-  // `openDetail` all found this out the hard way) has to be added here,
+  // `openDetail`, and `reopen` itself — found missing here well after it
+  // shipped, silently making "Mark as not done" a dead click the whole
+  // time — all found this out the hard way) has to be added here,
   // to `capabilities` below, and to its own `has*`/fingerprint entry in the
   // effect's dependency list, or it never reaches `MergedList` at all: it
   // silently drops out right here, at the one place every source's result
@@ -80,6 +83,7 @@ export function SourceFeed(props: SourceFeedProps) {
   // firing report always reads the latest ones.
   const capabilities = useRef({
     resolve,
+    reopen,
     create,
     assess,
     proposeFix,
@@ -94,6 +98,7 @@ export function SourceFeed(props: SourceFeedProps) {
   useEffect(() => {
     capabilities.current = {
       resolve,
+      reopen,
       create,
       assess,
       proposeFix,
@@ -108,6 +113,7 @@ export function SourceFeed(props: SourceFeedProps) {
   })
 
   const hasResolve = Boolean(resolve)
+  const hasReopen = Boolean(reopen)
   const hasCreate = Boolean(create)
   const hasAssess = Boolean(assess)
   const hasProposeFix = Boolean(proposeFix)
@@ -130,6 +136,7 @@ export function SourceFeed(props: SourceFeedProps) {
     cleared,
     snoozed,
     hasResolve,
+    hasReopen,
     hasCreate,
     hasAssess,
     hasProposeFix,
