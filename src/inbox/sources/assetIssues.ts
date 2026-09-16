@@ -18,6 +18,9 @@ import {liveQuery$} from './liveQuery'
 /** Real image/file asset documents this project's own dataset holds. */
 const ASSET_TYPES = ['sanity.imageAsset', 'sanity.fileAsset']
 
+/** A plain field name — no `[index]`/`.nested`/`->` — the only shape safe to interpolate directly into a GROQ query string. Same guard `linkCheckerFindings.ts` uses for the equivalent interpolation. */
+const SIMPLE_FIELD_PATH = /^[a-zA-Z0-9_]+$/
+
 /**
  * Above this many total assets, `unused` is skipped (reports zero rows)
  * rather than run — Sanity's own documented recipe for finding orphaned
@@ -103,6 +106,12 @@ export function findAltEligibleImageFields(
       const isWrapperWithImage = !isDirectImage && hasImageSubfield(fieldType.fields)
       if (!isDirectImage && !isWrapperWithImage) continue
       if (!hasAltSibling(fieldType.fields, altFieldName)) continue
+      // Guards the GROQ interpolation below (`assetIssues`'s missing-/poor-alt
+      // queries splice `field.fieldName` straight into the query string) —
+      // a real Sanity field name is already restricted to a safe identifier
+      // shape at schema-definition time, so this is a defensive skip, not a
+      // check expected to ever actually reject a genuine schema field.
+      if (!SIMPLE_FIELD_PATH.test(field.name)) continue
 
       results.push({
         documentType: typeName,
@@ -227,6 +236,12 @@ interface AssetIssuesFetch {
  */
 export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
   const {limit = 20, title = 'Asset issues', maxSizeBytes = 5 * 1024 * 1024, altFieldName = 'alt'} = options
+
+  if (!SIMPLE_FIELD_PATH.test(altFieldName)) {
+    throw new Error(
+      `[sanity-plugin-structure-inbox] assetIssues: altFieldName must be a plain field name, got "${altFieldName}"`,
+    )
+  }
 
   return {
     name: 'assetIssues',

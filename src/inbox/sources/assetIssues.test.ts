@@ -1,6 +1,7 @@
 import {describe, expect, it} from 'vitest'
 
 import {
+  assetIssues,
   classifyAltText,
   findAltEligibleImageFields,
   formatAssetSize,
@@ -168,6 +169,34 @@ describe('findAltEligibleImageFields', () => {
     expect(findAltEligibleImageFields(schema, 'alt')).toEqual([
       {documentType: 'event', documentTypeTitle: 'Event', fieldName: 'coverImage', fieldTitle: 'coverImage'},
     ])
+  })
+
+  it('skips a field whose name would not be safe to interpolate into a GROQ query', () => {
+    const type = {
+      name: 'post',
+      title: 'Post',
+      jsonType: 'object' as const,
+      type: documentType,
+      fields: [{name: 'hero-image', type: imageType([{name: 'alt', type: stringType}])}],
+    }
+    const schema = {getTypeNames: () => ['post'], get: () => type}
+
+    expect(findAltEligibleImageFields(schema, 'alt')).toEqual([])
+  })
+})
+
+describe('assetIssues', () => {
+  it('throws when given a malformed altFieldName', () => {
+    expect(() => assetIssues({altFieldName: 'alt.text'})).toThrow('alt.text')
+    expect(() => assetIssues({altFieldName: 'alt->text'})).toThrow(
+      /altFieldName must be a plain field name/,
+    )
+  })
+
+  it('does not throw for a normal altFieldName', () => {
+    expect(() => assetIssues()).not.toThrow()
+    expect(() => assetIssues({altFieldName: 'alt'})).not.toThrow()
+    expect(() => assetIssues({altFieldName: 'description'})).not.toThrow()
   })
 })
 
