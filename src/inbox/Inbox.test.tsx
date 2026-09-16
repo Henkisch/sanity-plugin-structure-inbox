@@ -1,8 +1,8 @@
 import {ThemeProvider} from '@sanity/ui'
 import {buildTheme} from '@sanity/ui/theme'
 import {ToastProvider} from '@sanity/ui/toast'
-import {act, cleanup, fireEvent, render, screen} from '@testing-library/react'
-import {afterEach, describe, expect, it, vi} from 'vitest'
+import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react'
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {EMPTY_DISMISSALS} from '../store/dismissals'
 import {EMPTY_SNOOZES} from '../store/snoozes'
@@ -13,6 +13,35 @@ import {BoundedSection, BoundedSourceFeed, Inbox} from './Inbox'
 import {type SourceReport} from './SourceFeed'
 import {type InboxSource} from './types'
 
+// Real, minimal content-type schema — one document type, one string field
+// — enough for `surveyContentTypes` (via `getProjectDigest`) to issue a
+// real `count()` (and, once it sees documents, a real sample) fetch
+// through `clientFetchMock` below. Same `isDocumentSchemaType`-satisfying
+// shape `projectDigest.test.ts`'s own `schemaWith` helper already
+// established.
+const SURVEYABLE_SCHEMA = {
+  getTypeNames: () => ['post'],
+  get: (name: string) =>
+    name === 'post'
+      ? {
+          name: 'post',
+          title: 'Post',
+          fields: [{name: 'title', type: {jsonType: 'string'}}],
+          jsonType: 'object',
+          type: {name: 'document'},
+        }
+      : undefined,
+} as never
+
+const DEFAULT_SCHEMA = {getTypeNames: () => [], get: () => undefined} as never
+
+const {useAgentClientMock, promptJsonMock, clientFetchMock, useSchemaMock} = vi.hoisted(() => ({
+  useAgentClientMock: vi.fn(() => ({}) as never),
+  promptJsonMock: vi.fn(),
+  clientFetchMock: vi.fn(),
+  useSchemaMock: vi.fn(),
+}))
+
 // `Inbox` itself (unlike `BoundedSection`/`BoundedSourceFeed` above) calls
 // `useClient`, `useSchema`, `useCurrentUser`, `useSharedInboxStore` (via
 // `../studio/inboxCountLayout`) and `useAgentClient` — a full Studio source
@@ -20,26 +49,23 @@ import {type InboxSource} from './types'
 // already established for the `sanity`/`useAgentClient`/`promptJson` half of
 // this; `useClient`/`useSchema` and `../studio/inboxCountLayout` are the two
 // additions `Inbox` itself needs beyond what rendering `MergedList` alone
-// does.
+// does. `useClient`/`useSchema` are real `vi.fn()`s (not fixed arrows), so
+// the `getProjectDigest` cache tests below can supply a real, surveyable
+// schema and assert against `clientFetchMock`'s own call count.
 vi.mock('sanity', async (importOriginal) => {
   const actual = await importOriginal<typeof import('sanity')>()
   return {
     ...actual,
     useRelativeTime: () => 'a while ago',
     useCurrentUser: () => null,
-    useClient: () => ({}) as never,
+    useClient: () => ({fetch: clientFetchMock}) as never,
     // `AddMenu` (always mounted alongside `mainColumnActions`, regardless of
     // whether any source actually offers `create`) calls `schema.getTypeNames()`
     // unconditionally — a bare `{}` stub throws there before this suite ever
     // reaches the AI-insights menu it's actually testing.
-    useSchema: () => ({getTypeNames: () => [], get: () => undefined}) as never,
+    useSchema: useSchemaMock,
   }
 })
-
-const {useAgentClientMock, promptJsonMock} = vi.hoisted(() => ({
-  useAgentClientMock: vi.fn(() => ({}) as never),
-  promptJsonMock: vi.fn(),
-}))
 
 vi.mock('../ai/useAgentClient', () => ({useAgentClient: useAgentClientMock}))
 vi.mock('../ai/promptJson', () => ({promptJson: promptJsonMock}))
@@ -55,9 +81,21 @@ vi.mock('../studio/inboxCountLayout', () => ({
   }),
 }))
 
+// `vitest.config.ts`'s own global `restoreMocks: true` calls
+// `mockRestore()` on every `vi.fn()` before each test — including
+// `useSchemaMock`, which (unlike `useAgentClientMock`, created with an
+// initial `vi.fn(() => ({}))` implementation that survives a restore)
+// has no implementation of its own, so a restore leaves it returning
+// `undefined` rather than reverting to a prior `mockReturnValue`. Setting
+// the default here, in `beforeEach` (which runs after that global
+// restore), is what actually makes it stick for every test that doesn't
+// override it.
+beforeEach(() => {
+  useSchemaMock.mockReturnValue(DEFAULT_SCHEMA)
+})
+
 afterEach(() => {
   cleanup()
-  promptJsonMock.mockReset()
 })
 
 /**
@@ -267,5 +305,78 @@ describe('Inbox handleSuggestTodos', () => {
 
     expect(await screen.findByText('Second suggestion')).toBeTruthy()
     expect(screen.queryByText('First suggestion')).toBeNull()
+  })
+})
+
+// Plan 042: `getProjectDigest` (`Inbox.tsx`) is the short-TTL-cached survey
+// shared between "Find content gaps" and Ask — these cases prove the cache
+// itself, not `surveyContentTypes`'s own per-type behaviour (already
+// covered in `projectDigest.test.ts`).
+describe('Inbox getProjectDigest cache', () => {
+  it('shares one survey between Find content gaps and Ask within the TTL window', async () => {
+    useSchemaMock.mockReturnValue(SURVEYABLE_SCHEMA)
+    // One real content type (`post`) — `count()` then a text sample, the
+    // only two fetches one full `surveyContentTypes` run makes here.
+    clientFetchMock.mockResolvedValueOnce(2).mockResolvedValueOnce(['Doc A', 'Doc B'])
+    promptJsonMock.mockResolvedValue({keys: [], reason: 'no match', gaps: []})
+
+    renderWithTheme(<Inbox ask contentGaps={{}} sources={[todosSource()]} />)
+
+    openAiInsightsMenu()
+    fireEvent.click(screen.getByRole('menuitem', {name: /contentGaps\.ask/}))
+
+    // The first read runs the real survey: exactly the count + sample
+    // fetch for the one surveyable type.
+    await waitFor(() => expect(promptJsonMock).toHaveBeenCalledTimes(1))
+    expect(clientFetchMock).toHaveBeenCalledTimes(2)
+
+    // Ask, submitted right after — well within `PROJECT_DIGEST_TTL_MS` —
+    // should reuse the cached survey rather than running a second one.
+    fireEvent.change(screen.getByPlaceholderText('ask.placeholder'), {
+      target: {value: 'anything about the spring campaign'},
+    })
+    fireEvent.click(screen.getByRole('button', {name: 'ask.submit'}))
+
+    await waitFor(() => expect(promptJsonMock).toHaveBeenCalledTimes(2))
+    // Still 2, not 4: Ask's own read never re-ran `surveyContentTypes`.
+    expect(clientFetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('clears the cache on a rejected survey instead of replaying the same rejection', async () => {
+    useSchemaMock.mockReturnValue(SURVEYABLE_SCHEMA)
+    clientFetchMock.mockRejectedValueOnce(new Error('network down'))
+
+    renderWithTheme(<Inbox contentGaps={{}} sources={[todosSource()]} />)
+
+    openAiInsightsMenu()
+    fireEvent.click(screen.getByRole('menuitem', {name: /contentGaps\.ask/}))
+
+    // The failed survey fails this whole read (unlike Ask's own optional
+    // fallback) — `handleFindContentGaps` has no content without it.
+    await waitFor(() => expect(clientFetchMock).toHaveBeenCalledTimes(1))
+    expect(promptJsonMock).not.toHaveBeenCalled()
+
+    // A second attempt, right after — still well within the TTL window —
+    // must retry the survey rather than reuse the remembered rejection.
+    // Same still-open menu as before — selecting an item doesn't close
+    // this `MenuButton` (the same reason `handleSuggestTodos`'s own test
+    // above clicks its item twice without reopening in between); a second
+    // `openAiInsightsMenu()` call here would instead *toggle it closed*.
+    clientFetchMock.mockResolvedValueOnce(2).mockResolvedValueOnce(['Doc A'])
+    promptJsonMock.mockResolvedValue({gaps: []})
+
+    // Reopening this `MenuButton` a second time (rather than reusing the
+    // still-open one, which the first item's own selection already
+    // closed) leaves its popover content out of the accessibility tree
+    // in this jsdom environment even once reopened (`aria-expanded`
+    // flips back to `true`, but the popover panel itself keeps a stale
+    // `hidden` attribute) — `hidden: true` looks past that; the item is
+    // genuinely present and clickable underneath, same as a real reopen.
+    openAiInsightsMenu()
+    fireEvent.click(screen.getByRole('menuitem', {hidden: true, name: /contentGaps\.ask/}))
+
+    await waitFor(() => expect(promptJsonMock).toHaveBeenCalledTimes(1))
+    // 1 (rejected) + 2 (count + sample on retry) = 3, not stuck at 1.
+    expect(clientFetchMock).toHaveBeenCalledTimes(3)
   })
 })
