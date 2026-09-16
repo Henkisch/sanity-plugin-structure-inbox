@@ -6,7 +6,7 @@ import {
   getRealDocumentTypeNames,
   surveyContentTypes,
   type ContentTypeSummary,
-} from './contentGapsDigest'
+} from './projectDigest'
 
 // `isDocumentSchemaType` (real `@sanity/types` export) requires
 // `jsonType === 'object'` plus a `.type` chain that reaches a type named
