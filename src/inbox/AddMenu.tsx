@@ -54,7 +54,7 @@ export function AddMenu() {
       .filter((name) => !isHiddenType(name))
       .map((name) => schema.get(name))
       .filter((type) => type !== undefined && isDocumentSchemaType(type))
-      .map((type) => ({name: type.name, title: type.title || type.name}))
+      .map((type) => ({name: type.name, title: type.title || type.name, icon: type.icon}))
       .sort((a, b) => a.title.localeCompare(b.title))
   }, [schema])
 
@@ -76,7 +76,7 @@ export function AddMenu() {
         <Menu>
           {documentTypes.map((type) => (
             <MenuItem
-              icon={AddIcon}
+              icon={type.icon || AddIcon}
               key={type.name}
               onClick={() => navigateIntent('create', {type: type.name})}
               text={type.title}

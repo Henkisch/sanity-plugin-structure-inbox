@@ -1118,7 +1118,14 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
       {(summary.status === 'done' || summary.status === 'error') && (
         <Box marginBottom={4}>
           <AnimateIn>
-            <Card border padding={4} radius={2} tone={summary.status === 'error' ? 'critical' : 'primary'}>
+            <Card
+              border
+              paddingBottom={5}
+              paddingTop={3}
+              paddingX={4}
+              radius={2}
+              tone={summary.status === 'error' ? 'critical' : 'primary'}
+            >
               <Stack gap={3}>
                 <Flex align="center" justify="space-between">
                   <Text size={1} weight="semibold">
@@ -1129,6 +1136,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
                     mode="bleed"
                     onClick={() => setSummary({status: 'idle'})}
                     padding={2}
+                    style={{marginRight: -8, marginTop: -6}}
                     text={t('summarize.dismiss')}
                   />
                 </Flex>
@@ -1160,7 +1168,9 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
           <AnimateIn>
             <Card
               border
-              padding={4}
+              paddingBottom={5}
+              paddingTop={3}
+              paddingX={4}
               radius={2}
               tone={suggestions.status === 'error' ? 'critical' : 'primary'}
             >
@@ -1209,6 +1219,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
                         mode="bleed"
                         onClick={() => setSuggestions({status: 'idle'})}
                         padding={2}
+                        style={{marginRight: -8, marginTop: -6}}
                         text={t('todoSuggest.dismissAll')}
                       />
                     </Flex>
@@ -1276,7 +1287,9 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
             <AnimateIn>
               <Card
                 border
-                padding={4}
+                paddingBottom={5}
+                paddingTop={3}
+                paddingX={4}
                 radius={2}
                 tone={contentGapsResult.status === 'error' ? 'critical' : 'primary'}
               >
@@ -1318,6 +1331,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
                           mode="bleed"
                           onClick={() => setContentGapsResult({status: 'idle'})}
                           padding={2}
+                          style={{marginRight: -8, marginTop: -6}}
                           text={t('contentGaps.dismissAll')}
                         />
                       </Flex>
@@ -1381,7 +1395,9 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
             <AnimateIn>
               <Card
                 border
-                padding={4}
+                paddingBottom={5}
+                paddingTop={3}
+                paddingX={4}
                 radius={2}
                 tone={result.status === 'error' ? 'critical' : 'primary'}
               >
@@ -1395,6 +1411,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
                       mode="bleed"
                       onClick={() => dismissActionResult(report.source.name)}
                       padding={2}
+                      style={{marginRight: -8, marginTop: -6}}
                       text={t('sourceAction.dismiss')}
                     />
                   </Flex>
@@ -1469,11 +1486,18 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
           breakpoint. */}
       <Card padding={[3, 3, 4]}>
         <Stack gap={4}>
-          <Flex align="center" gap={3}>
+          <Flex align="flex-start" gap={3}>
             {/* Pulsing amber while something needs a look; a calm, static
                 green once it doesn't — pulsing green would read as urgent,
-                which contradicts "nothing waiting on you". */}
-            <StatusDot tone={openCount > 0 ? 'attention' : 'clear'} />
+                which contradicts "nothing waiting on you". `align="flex-start"`
+                (not `center`) because the greeting can wrap to two lines on
+                narrow screens — centering against the whole block sat the dot
+                too low against the first line. The `translateY` nudges it
+                back down from the row's own top edge to sit level with that
+                first line's optical centre instead. */}
+            <Box style={{transform: 'translateY(-6px)'}}>
+              <StatusDot tone={openCount > 0 ? 'attention' : 'clear'} />
+            </Box>
             <Heading size={1}>
               {/* First name of the actual viewer, not `headlineSubject`'s
                   own name — that one names whoever the assignee filter
