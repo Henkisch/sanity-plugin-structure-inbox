@@ -638,12 +638,10 @@ needs it installed:
 ```ts
 import {structureInbox} from 'sanity-plugin-structure-inbox'
 import {linkCheckerFindings} from 'sanity-plugin-structure-inbox/link-checker'
-import {linkChecker} from 'sanity-plugin-link-checker'
 
 export default defineConfig({
   plugins: [
     structureTool(),
-    linkChecker(), // runs the scans this source reads
     structureInbox({
       sources: [
         // ...your other sources
@@ -653,6 +651,15 @@ export default defineConfig({
   ],
 })
 ```
+
+`linkChecker()` — `sanity-plugin-link-checker`'s own Studio tool — is
+**not required** here and deliberately left out of that example:
+`linkCheckerFindings()` reads and runs scans directly from that plugin's
+headless `core` (`readReport`/`runScan`/`writeReport`), the same engine its
+own "Run scan" button and CLI call, and needs no Studio tool mounted to do
+either. Only its npm package is a dependency of this integration, not its
+separate tool tab. Add `linkChecker()` to `plugins` yourself only if you
+also want that plugin's own standalone panel or CLI, alongside the Inbox.
 
 No `resolve`: confirming a link is actually fixed means re-running that
 plugin's own scan, which is its job, not this pane's — ticking an item here

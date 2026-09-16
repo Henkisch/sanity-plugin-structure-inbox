@@ -1,6 +1,5 @@
 import {visionTool} from '@sanity/vision'
 import {defineConfig} from 'sanity'
-import {linkChecker} from 'sanity-plugin-link-checker'
 import {
   needsAttention,
   openTasks,
@@ -50,10 +49,12 @@ export default defineConfig([
     dataset,
     plugins: [
       structureTool({structure}),
-      // The plugin that actually runs scans and writes the report document
-      // `linkCheckerFindings()` below reads — the Inbox source has nothing
-      // to show without this also being installed.
-      linkChecker(),
+      // `linkChecker()`, the standalone plugin's own Studio tool, is
+      // deliberately NOT registered here: `linkCheckerFindings()` below
+      // reads and runs scans directly from that plugin's headless `core`
+      // (`readReport`/`runScan`/`writeReport`) and needs no Studio tool
+      // mounted to do either — see that source's own doc comment. Only the
+      // npm package is a dependency; its separate tool tab is not wanted.
       // `showInList` is off by default; this workspace turns it on so both the
       // visible entry and the invisible resolution get exercised somewhere.
       structureInbox({
