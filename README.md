@@ -1,11 +1,18 @@
 # sanity-plugin-structure-inbox
 
+[![npm version](https://img.shields.io/npm/v/sanity-plugin-structure-inbox.svg)](https://www.npmjs.com/package/sanity-plugin-structure-inbox)
+[![npm downloads](https://img.shields.io/npm/dm/sanity-plugin-structure-inbox.svg)](https://www.npmjs.com/package/sanity-plugin-structure-inbox)
+[![license](https://img.shields.io/npm/l/sanity-plugin-structure-inbox.svg)](./LICENSE)
+![Sanity Studio v6](https://img.shields.io/badge/Sanity%20Studio-v6-red)
+
 Turns the empty Structure canvas into an inbox.
 
 Before an editor clicks anything, the right-hand side of the Structure tool is blank — on the most
 visited screen in the Studio. This plugin fills it with the things actually waiting on them:
 drafts left unpublished, releases coming up, whatever else you feed it. Each one can be opened, or
 ticked off.
+
+![The Inbox pane, populated with tasks, drafts and releases](./media/hero.png)
 
 > **Requires Sanity Studio v6.**
 
@@ -358,6 +365,8 @@ is and when a source needs it.
 
 ### Asking AI about an item
 
+![A row's Ask AI reply: a one-line read on whether the draft looks ready to publish](./media/ask-ai.png)
+
 `unpublishedDrafts` also offers `assess`: click **Ask AI** on a row and Sanity's
 Agent Actions gives a one-line read — "looks ready to publish", "still missing
 a hero image". Informational only; it never writes to the document, so it
@@ -379,6 +388,8 @@ useItems() {
 ```
 
 ### Assigning an item to someone else
+
+![The Assign to… picker, open on a selected row](./media/assign.png)
 
 Most built-in sources offer `assign`: select rows, then pick a name from the
 **Assign to…** picker. This is delegation, not ownership — a row needs no
@@ -730,6 +741,8 @@ structureTool({
 ```
 
 ## Grounding AI reads in your project
+
+![The AI insights menu: Summarize, Suggest todos, and Find content gaps](./media/ai-insights.png)
 
 ```ts
 structureInbox({
