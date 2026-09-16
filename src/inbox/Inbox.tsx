@@ -21,20 +21,22 @@ import {
 import {Menu, MenuButton, MenuItem} from '@sanity/ui/menu'
 import {Tooltip} from '@sanity/ui/tooltip'
 import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react'
-import {useCurrentUser, useTranslation} from 'sanity'
+import {useClient, useCurrentUser, useSchema, useTranslation} from 'sanity'
 import {keyframes, styled} from 'styled-components'
 
 import {promptJson} from '../ai/promptJson'
 import {useAgentClient} from '../ai/useAgentClient'
-import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
+import {API_VERSION, STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {useAssessments} from '../store/useAssessments'
 import {type useDismissals} from '../store/useDismissals'
 import {type useSnoozes} from '../store/useSnoozes'
 import {useSharedInboxStore} from '../studio/inboxCountLayout'
+import {type StructureInboxConfig} from '../types'
 import {SectionCard} from '../ui/SectionCard'
 import {SectionErrorBoundary} from '../ui/SectionErrorBoundary'
 import {StatusDot} from '../ui/StatusDot'
 import {AddMenu} from './AddMenu'
+import {formatContentGapsDigest, surveyContentTypes} from './contentGapsDigest'
 import {CreateItemRow} from './CreateItemRow'
 import {ASSIGNEE_UNASSIGNED, matchesInboxFilters} from './inboxFilterSentinels'
 import {InboxSection} from './InboxSection'
@@ -50,6 +52,8 @@ interface InboxProps {
   sources: InboxSource[]
   /** See `StructureInboxConfig.ask`'s own doc comment. */
   ask?: boolean
+  /** See `StructureInboxConfig.contentGaps`'s own doc comment. */
+  contentGaps?: StructureInboxConfig['contentGaps']
 }
 
 /**
@@ -213,8 +217,10 @@ export function BoundedSourceFeed(props: BoundedSourceFeedProps) {
   )
 }
 
-export function Inbox({sources, ask = false}: InboxProps) {
+export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
+  const client = useClient({apiVersion: API_VERSION})
+  const schema = useSchema()
   const {dismissals, snoozes} = useSharedInboxStore()
   // Not through `useSharedInboxStore`, unlike dismissals/snoozes: nothing
   // outside this pane needs a cached assessment (no open-count-style
@@ -517,6 +523,60 @@ export function Inbox({sources, ask = false}: InboxProps) {
     }
   }, [agentClient, openRows])
 
+  // "Find content gaps" — same "insight, then nothing automatic" shape as
+  // Summarize/Suggest todos above, but reading the project's own content
+  // instead of the current queue: only rendered at all when
+  // `StructureInboxConfig.contentGaps` is configured (see that option's own
+  // doc comment for why this is opt-in, unlike everything else here).
+  const [contentGapsResult, setContentGapsResult] = useState<
+    | {status: 'idle'}
+    | {status: 'loading'}
+    | {status: 'done'; items: {title: string; reason: string}[]}
+    | {status: 'error'}
+  >({status: 'idle'})
+
+  const handleFindContentGaps = useCallback(async () => {
+    setContentGapsResult({status: 'loading'})
+
+    if (!agentClient) {
+      setContentGapsResult({status: 'error'})
+      return
+    }
+
+    try {
+      const summaries = await surveyContentTypes(client, schema)
+      const digest = formatContentGapsDigest(summaries)
+
+      type GapsChoice = {gaps: {title: string; reason: string}[]}
+
+      const choice = await promptJson<GapsChoice>(
+        agentClient,
+        (contentGaps?.context ? `About this project: ${contentGaps.context}\n---\n` : '') +
+          'Here is a survey of every content type in this Sanity project, how many documents ' +
+          "each has, and a small sample of real text from each (when available):\n$survey\n---\n" +
+          'Suggest at most 5 concrete content gaps — things that seem missing given what this ' +
+          'project already has (an under-supported claim, a content type with far fewer entries ' +
+          "than a related one, a topic mentioned in samples but with nothing dedicated to it). " +
+          'Each gap: a short, specific title (max ~10 words) and a one-sentence reason grounded ' +
+          'in the actual survey data, not a generic best practice. Return JSON ' +
+          '{"gaps": [{"title": string, "reason": string}]}. If nothing looks like a real gap, ' +
+          'return {"gaps": []}.',
+        {survey: digest || 'This project has no content types with any documents yet.'},
+      )
+
+      setContentGapsResult({status: 'done', items: (choice?.gaps ?? []).slice(0, 5)})
+    } catch (error: unknown) {
+      console.error('[sanity-plugin-structure-inbox] find-content-gaps failed', error)
+      setContentGapsResult({status: 'error'})
+    }
+  }, [agentClient, client, schema, contentGaps])
+
+  const dismissContentGap = useCallback((index: number) => {
+    setContentGapsResult((current) =>
+      current.status === 'done' ? {...current, items: current.items.filter((_, i) => i !== index)} : current,
+    )
+  }, [])
+
   // The actual add (a real, one-shot write) happens here, in the event
   // handler itself — never inside the `setSuggestions` updater below. React
   // invokes a state updater function twice under StrictMode to catch exactly
@@ -814,6 +874,23 @@ export function Inbox({sources, ask = false}: InboxProps) {
           mode="ghost"
           onClick={handleSuggestTodos}
           text={suggestions.status === 'loading' ? t('todoSuggest.loading') : t('todoSuggest.ask')}
+        />
+      )}
+
+      {/* Same tier again — a third AI read across the project's own
+          content, not just the current queue. Only rendered when
+          `contentGaps` is configured: unlike Summarize/Suggest todos, this
+          one's output is a judgment call, not a fact, and it's the
+          heaviest read here (see `StructureInboxConfig.contentGaps`'s own
+          doc comment) — an opt-in, not a default. */}
+      {contentGaps && (
+        <Button
+          disabled={contentGapsResult.status === 'loading'}
+          fontSize={1}
+          icon={SparklesIcon}
+          mode="ghost"
+          onClick={handleFindContentGaps}
+          text={contentGapsResult.status === 'loading' ? t('contentGaps.loading') : t('contentGaps.ask')}
         />
       )}
 
@@ -1183,6 +1260,98 @@ export function Inbox({sources, ask = false}: InboxProps) {
                       </AnimateIn>
                     </Box>
                   )}
+
+                  {/* "Find content gaps"' own result — same dismissible-card
+                      shape as Suggest todos just above (per-item dismiss,
+                      whole-card dismiss once items exist), one tier more
+                      speculative than either: every gap here is an AI's
+                      reading of a content survey, never a fact the way a
+                      broken reference or a failed validation rule is. */}
+                  {contentGaps &&
+                    (contentGapsResult.status === 'done' || contentGapsResult.status === 'error') && (
+                      <Box marginBottom={4}>
+                        <AnimateIn>
+                          <Card
+                            border
+                            padding={4}
+                            radius={2}
+                            tone={contentGapsResult.status === 'error' ? 'critical' : 'primary'}
+                          >
+                            <Stack gap={3}>
+                              {contentGapsResult.status === 'error' && (
+                                <Flex align="flex-start" gap={3} justify="space-between">
+                                  <Text size={1}>{t('contentGaps.error')}</Text>
+                                  <Button
+                                    fontSize={1}
+                                    mode="bleed"
+                                    onClick={() => setContentGapsResult({status: 'idle'})}
+                                    padding={2}
+                                    text={t('contentGaps.dismiss')}
+                                  />
+                                </Flex>
+                              )}
+
+                              {contentGapsResult.status === 'done' && contentGapsResult.items.length === 0 && (
+                                <Flex align="flex-start" gap={3} justify="space-between">
+                                  <Text size={1}>{t('contentGaps.none')}</Text>
+                                  <Button
+                                    fontSize={1}
+                                    mode="bleed"
+                                    onClick={() => setContentGapsResult({status: 'idle'})}
+                                    padding={2}
+                                    text={t('contentGaps.dismiss')}
+                                  />
+                                </Flex>
+                              )}
+
+                              {contentGapsResult.status === 'done' && contentGapsResult.items.length > 0 && (
+                                <Stack gap={4}>
+                                  <Flex align="center" justify="space-between">
+                                    <Text size={1} weight="semibold">
+                                      {t('contentGaps.title')}
+                                    </Text>
+                                    <Button
+                                      fontSize={1}
+                                      mode="bleed"
+                                      onClick={() => setContentGapsResult({status: 'idle'})}
+                                      padding={2}
+                                      text={t('contentGaps.dismissAll')}
+                                    />
+                                  </Flex>
+                                  <Stack gap={5}>
+                                    {contentGapsResult.items.map((gap, index) => (
+                                      // eslint-disable-next-line react/no-array-index-key -- stable per render: an item is only ever dismissed, which removes it from `items` outright rather than reordering around it.
+                                      <Flex align="flex-start" gap={2} key={index}>
+                                        <Text muted size={0}>
+                                          <SparklesIcon />
+                                        </Text>
+                                        <Stack flex={1} gap={3} style={{maxWidth: '640px'}}>
+                                          <Text size={1} weight="semibold">
+                                            {gap.title}
+                                          </Text>
+                                          <Text muted size={1}>
+                                            {gap.reason}
+                                          </Text>
+                                          <Flex gap={2}>
+                                            <Button
+                                              fontSize={0}
+                                              mode="bleed"
+                                              onClick={() => dismissContentGap(index)}
+                                              padding={1}
+                                              text={t('contentGaps.dismiss')}
+                                            />
+                                          </Flex>
+                                        </Stack>
+                                      </Flex>
+                                    ))}
+                                  </Stack>
+                                </Stack>
+                              )}
+                            </Stack>
+                          </Card>
+                        </AnimateIn>
+                      </Box>
+                    )}
 
                   {/* A source's own `action` result (e.g. "Scan for issues")
                       — same dismissible-card shape as Summarize/Suggest

@@ -61,10 +61,36 @@ export interface StructureInboxConfig {
    * @defaultValue false
    */
   ask?: boolean
+
+  /**
+   * Enables "Find content gaps" — a pane-level AI read that surveys every
+   * document type (a sample of real content plus counts, not just schema
+   * shape) and suggests what might be missing, shown as a dismissible card
+   * the same way Summarize's own read is.
+   *
+   * Off by default, unlike every other read in this pane: this is a
+   * judgment call, not a fact — a broken reference or a failed validation
+   * rule is objectively true, "you're missing case studies" is an AI's
+   * opinion, right or wrong. It's also the heaviest read here (every
+   * document type, not 20-30 rows), so it should be a deliberate opt-in,
+   * not a default cost every Studio pays.
+   *
+   * @defaultValue undefined (off)
+   */
+  contentGaps?: {
+    /**
+     * Prose describing the project's own business/positioning — grounds
+     * what "a gap" even means (schema shape alone can't reveal that you
+     * promote a service you have no case studies for). Optional: without
+     * it, the read falls back to inferring context purely from a sample
+     * of existing document text, a weaker but still functional signal.
+     */
+    context?: string
+  }
 }
 
 /** @internal */
 export type ResolvedStructureInboxConfig = Required<
   Pick<StructureInboxConfig, 'toolName' | 'showInList' | 'redirectOnLanding' | 'sources' | 'ask'>
 > &
-  Pick<StructureInboxConfig, 'title'>
+  Pick<StructureInboxConfig, 'title' | 'contentGaps'>

@@ -704,6 +704,43 @@ would flood the inbox with noise nobody's confirmed is actually broken.
 Pass `includeUnverifiable: true` once that Function is deployed, or if the
 noise is acceptable for your project.
 
+## Optional: finding content gaps
+
+```ts
+structureInbox({
+  contentGaps: {
+    context: 'A design agency site — services, case studies, and a blog.',
+  },
+  sources: [
+    /* ... */
+  ],
+})
+```
+
+With `contentGaps` configured, a **Find content gaps** button appears next
+to Summarize. It surveys every real document type in your schema — how many
+documents each has, plus a small sample of real text from each — and asks
+AI what looks missing given what's actually there: an under-supported claim,
+a content type with far fewer entries than a related one, a topic mentioned
+in passing but with nothing dedicated to it. Results show as a dismissible
+card, same as Summarize's own read.
+
+`context` is optional prose describing your own project's business or
+positioning. Without it, the read falls back to inferring context purely
+from the content sample itself — a weaker signal, since a schema's field
+names alone never reveal what a project actually promotes.
+
+**Unlike every other source or read in this pane, this one is a judgment
+call, not a fact.** A broken reference or a failed validation rule is
+objectively true; "you're missing case studies" is AI's opinion, sometimes
+right, sometimes not. It's also the heaviest read here — every document
+type, not 20-30 rows — which is why it's off by default rather than a
+default cost every Studio pays.
+
+This is deliberately a read-only insight, v1: there's no "apply" or "draft
+this for me" yet. Suggesting *how* to close a gap, and drafting real
+content, is real, consequential work this pane doesn't take on today.
+
 ## How it works
 
 Worth knowing, because it explains the one limitation below.

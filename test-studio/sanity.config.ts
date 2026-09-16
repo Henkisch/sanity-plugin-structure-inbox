@@ -62,6 +62,10 @@ export default defineConfig([
         // Off by default (plan 022) — on here so this workspace exercises
         // it too, alongside every other surface it's built to demo.
         ask: true,
+        // Off by default — on here for the same reason `ask` is.
+        contentGaps: {
+          context: 'A blog and events site for a small editorial team, published under posts, authors, and events.',
+        },
         showInList: true,
         sources: [
           // Everyone's open tasks, not just this editor's own — lets the new

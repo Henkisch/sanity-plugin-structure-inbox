@@ -172,6 +172,17 @@ const enUS = {
   'sourceAction.dismiss': 'Dismiss',
   'sourceAction.error': 'Could not complete.',
 
+  // "Find content gaps" — see `StructureInboxConfig.contentGaps`'s own doc
+  // comment for why this is opt-in, unlike every other read in this pane:
+  // its output is a judgment call, not a fact.
+  'contentGaps.ask': 'Find content gaps',
+  'contentGaps.loading': 'Reading your content…',
+  'contentGaps.title': 'Content gaps',
+  'contentGaps.none': 'Nothing looks like a clear gap right now.',
+  'contentGaps.error': 'Could not reach AI.',
+  'contentGaps.dismiss': 'Dismiss',
+  'contentGaps.dismissAll': 'Dismiss all',
+
   'stats.title': 'Overview',
   // AI-suggested personal todos — a distinct read (concrete todos to add,
   // not a paragraph) with its own trigger next to Summarize's, same
