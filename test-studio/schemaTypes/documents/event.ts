@@ -10,5 +10,8 @@ export const event = defineType({
     defineField({name: 'title', type: 'string', validation: (rule) => rule.required()}),
     defineField({name: 'startsAt', type: 'datetime'}),
     defineField({name: 'venue', type: 'string'}),
+    // Exercises the wrapper-object alt-text convention (see `objects/imageWithAlt.ts`) —
+    // `post.ts`'s own `heroImage` already covers the customized-`image` convention.
+    defineField({name: 'coverImage', type: 'imageWithAlt'}),
   ],
 })

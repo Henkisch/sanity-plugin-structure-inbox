@@ -208,7 +208,7 @@ validation.
 ### Asset issues
 
 Neither Sanity's own Structure Tool nor its Media library surfaces asset
-problems in aggregate. `assetIssues` runs three independent checks against
+problems in aggregate. `assetIssues` runs five independent checks against
 your image/file assets:
 
 - **Oversized** — larger than `maxSizeBytes` (default 5 MiB).
@@ -222,16 +222,29 @@ your image/file assets:
   convention — a project using a different name for its own alt-text field
   should pass it explicitly) but leaves it empty on a real document. This one
   is scoped to top-level image fields, not any nested inside an object or array.
+  Two schema conventions are recognized: customizing `image` directly with its
+  own `alt` sub-field (Sanity's own recommended pattern), and a reusable
+  wrapper object type — e.g. `imageWithAlt`, with an `image` sub-field and a
+  sibling `alt` sub-field — used as the field's type instead.
+- **Alt text looks like a filename** — the alt text, once normalized (case,
+  file extension, and `-`/`_`/whitespace runs collapsed), exactly matches the
+  asset's own original filename, the same way normalized — e.g. `IMG_2831.jpg`
+  copy-pasted straight into the alt field.
+- **Generic alt text** — the alt text is nothing but one of a short list of
+  placeholder words (`image`, `photo`, `picture`, `img`, `graphic`,
+  `photograph`).
+- **Alt text too short** — the alt text, once normalized, is empty,
+  whitespace-only, or under 4 characters.
 
 Oversized and unused rows have no click-through: `sanity.imageAsset`/
 `sanity.fileAsset` are real document types, but Structure Tool deliberately
 excludes them from its own default document handling, so there's no safe
-"open" target for one outside the Media browser. A missing-alt-text row is
-on an ordinary document, though, and opens it the normal way.
+"open" target for one outside the Media browser. A missing- or poor-alt-text
+row is on an ordinary document, though, and opens it the normal way.
 
 No `resolve`: fixing any of these means editing the asset or the document
-that references it. No AI: all three are plain, deterministic facts.
-Offers `assign` for all three kinds — an asset has no single natural owner,
+that references it. No AI: all five checks are plain, deterministic facts.
+Offers `assign` for all five kinds — an asset has no single natural owner,
 but "who's fixing this" is still a real, delegable task.
 
 ### Unresolved comments
