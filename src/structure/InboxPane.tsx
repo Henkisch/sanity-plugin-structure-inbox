@@ -11,6 +11,8 @@ interface InboxPaneProps {
   options?: {
     sources?: InboxSource[]
     ask?: boolean
+    summarize?: boolean
+    suggestTodos?: boolean
     contentGaps?: StructureInboxConfig['contentGaps']
     context?: string
   }
@@ -29,6 +31,8 @@ export function InboxPane(props: InboxPaneProps) {
       contentGaps={props.options?.contentGaps}
       context={props.options?.context}
       sources={props.options?.sources ?? []}
+      summarize={props.options?.summarize ?? true}
+      suggestTodos={props.options?.suggestTodos ?? true}
     />
   )
 }

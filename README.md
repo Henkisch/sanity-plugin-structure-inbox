@@ -739,6 +739,8 @@ yourself.
 | `showInList`        | `boolean`       | `false`           | Whether to show an "Inbox" entry at the top of the root list.                     |
 | `redirectOnLanding` | `boolean`       | `true`            | Whether to open the Inbox when an editor lands on the tool with nothing selected. |
 | `ask`               | `boolean`       | `false`           | Lets an editor select rows by asking a plain-language question. See "Asking about all your items" below. |
+| `summarize`         | `boolean`       | `true`            | Set to `false` to remove the "Summarize" AI read entirely — no menu item, no cost. |
+| `suggestTodos`      | `boolean`       | `true`            | Set to `false` to remove the "Suggest todos" AI read entirely — no menu item, no cost. |
 
 ## Getting back to the Inbox
 
@@ -785,6 +787,27 @@ Deliberately not threaded into any per-item read (a row's own **Ask AI**,
 or **Fix with AI**) — those already ground themselves in one concrete
 document, where "what business is this" adds far less than it does for a
 judgment call across the whole project.
+
+**Summarize** and **Suggest todos** are on by default — they read only
+what's already on screen and have been part of this pane's baseline
+experience since it shipped. If your organization wants a config-level
+lever to keep either read's AI-credit cost at zero regardless of what any
+individual editor might click, turn it off:
+
+```ts
+structureInbox({
+  summarize: false,
+  suggestTodos: false,
+  sources: [
+    /* ... */
+  ],
+})
+```
+
+Either flag removes that menu item entirely — no click can reach it, and
+no request is ever sent. `suggestTodos: false` also takes precedence over
+having a `todos` source configured: that source alone is what makes the
+item eligible to render at all, but this flag turns it off regardless.
 
 ## Optional: broken links via `sanity-plugin-link-checker`
 
