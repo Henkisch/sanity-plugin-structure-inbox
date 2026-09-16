@@ -863,6 +863,18 @@ needs Agent Actions available in the Studio — without it, the input still
 renders but does nothing useful, since checking that in advance would
 itself cost a request.
 
+Ask also runs the same automated project survey **Find content gaps**
+(below) is built on — per-type document counts, a small text sample,
+schema `description`s, and the reference graph between types — not just
+the on-screen rows and your own `context` prose. This happens regardless
+of whether `contentGaps` is configured: a question like "things about the
+spring campaign" is explicitly broader than what's currently visible,
+which is exactly where that extra grounding earns its cost. When
+`contentGaps` is also on, the underlying survey is shared and
+short-TTL-cached (5 minutes) between the two reads, so asking a question
+right after finding content gaps (or vice versa) reuses the same read
+rather than surveying your dataset twice.
+
 ## Optional: finding content gaps
 
 ```ts
@@ -877,11 +889,16 @@ structureInbox({
 
 With `contentGaps` configured, a **Find content gaps** button appears next
 to Summarize. It surveys every real document type in your schema — how many
-documents each has, plus a small sample of real text from each — and asks
-AI what looks missing given what's actually there: an under-supported claim,
-a content type with far fewer entries than a related one, a topic mentioned
-in passing but with nothing dedicated to it. Results show as a dismissible
-card, same as Summarize's own read.
+documents each has, a small sample of real text from each, each type's own
+schema `description` (when you've written one), and which other real types
+it references — and asks AI what looks missing given what's actually
+there: an under-supported claim, a content type with far fewer entries
+than a related one, a topic mentioned in passing but with nothing
+dedicated to it. Results show as a dismissible card, same as Summarize's
+own read. This same survey is shared (short-TTL-cached, 5 minutes) with
+**Ask** above — asking a question shortly after finding content gaps, or
+vice versa, reuses the same read rather than surveying your dataset
+twice.
 
 `context` (see [Grounding AI reads in your project](#grounding-ai-reads-in-your-project)
 above) matters most here of every read in this pane — without it, this

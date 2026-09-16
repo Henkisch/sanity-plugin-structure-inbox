@@ -37,7 +37,7 @@ import {SectionErrorBoundary} from '../ui/SectionErrorBoundary'
 import {StatusDot} from '../ui/StatusDot'
 import {AddMenu} from './AddMenu'
 import {type AskState} from './AskInbox'
-import {formatContentGapsDigest, surveyContentTypes} from './contentGapsDigest'
+import {formatContentGapsDigest, surveyContentTypes, type ContentTypeSummary} from './projectDigest'
 import {CreateItemRow} from './CreateItemRow'
 import {ASSIGNEE_UNASSIGNED, matchesInboxFilters} from './inboxFilterSentinels'
 import {InboxSection} from './InboxSection'
@@ -48,6 +48,17 @@ import {MergedList} from './MergedList'
 import {SourceFeed, type SourceReport} from './SourceFeed'
 import {type InboxSource, type InboxView, type SuggestTodosState} from './types'
 import {useElementHeight, useElementWidth} from './useElementHeight'
+
+/**
+ * How long a survey from `getProjectDigest` stays "fresh enough" before the
+ * next read re-runs it — see Plan 042's own "The one real trade-off" note
+ * for why this isn't always-fresh: `surveyContentTypes` is a real dataset
+ * read shared by "Find content gaps" and Ask, and running it independently
+ * for each would mean twice the dataset reads per click for no real
+ * benefit on most projects, whose content doesn't change fast enough for 5
+ * minutes of staleness to matter.
+ */
+const PROJECT_DIGEST_TTL_MS = 5 * 60 * 1000
 
 interface InboxProps {
   sources: InboxSource[]
@@ -606,6 +617,31 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
   // prompt.
   const agentClient = useAgentClient()
 
+  const projectDigestCacheRef = useRef<{at: number; promise: Promise<ContentTypeSummary[]>} | null>(null)
+
+  // Shared between `handleFindContentGaps` and `AskInbox`'s own
+  // `handleSubmit` (passed down as a prop) — the single place either read
+  // gets the same automated project survey, cached for
+  // `PROJECT_DIGEST_TTL_MS` rather than re-fetched on every call. `client`/
+  // `schema` are themselves stable across renders within one mounted
+  // Studio session (see `Inbox.tsx`'s own doc comment at their
+  // declaration), the same assumption every other `useCallback`/`useMemo`
+  // dependency array in this file already makes of them.
+  const getProjectDigest = useCallback((): Promise<ContentTypeSummary[]> => {
+    const cached = projectDigestCacheRef.current
+    if (cached && Date.now() - cached.at < PROJECT_DIGEST_TTL_MS) return cached.promise
+
+    const promise = surveyContentTypes(client, schema).catch((error: unknown) => {
+      // A failed survey should not be remembered as "fresh" — clear the
+      // cache so the next call retries instead of replaying the same
+      // rejection for the rest of the TTL window.
+      projectDigestCacheRef.current = null
+      throw error
+    })
+    projectDigestCacheRef.current = {at: Date.now(), promise}
+    return promise
+  }, [client, schema])
+
   // Owned here, not inside `AskInbox` itself — its answer renders as
   // another dismissible card in `mainColumnResults`, the same shape every
   // other AI read in this pane already uses, instead of squeezed into its
@@ -724,7 +760,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
     }
 
     try {
-      const summaries = await surveyContentTypes(client, schema)
+      const summaries = await getProjectDigest()
       const digest = formatContentGapsDigest(summaries)
 
       type GapsChoice = {gaps: {title: string; reason: string}[]}
@@ -751,7 +787,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
       console.error('[sanity-plugin-structure-inbox] find-content-gaps failed', error)
       if (requestId === findContentGapsRequestRef.current) setContentGapsResult({status: 'error'})
     }
-  }, [agentClient, client, schema, context])
+  }, [agentClient, getProjectDigest, context])
 
   const dismissContentGap = useCallback((index: number) => {
     setContentGapsResult((current) =>
@@ -1757,6 +1793,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
                     context={context}
                     dismissals={dismissals}
                     filterBar={filterBar}
+                    getProjectDigest={getProjectDigest}
                     maxHeight={isStacked ? undefined : sidebarHeight}
                     onAskResultChange={setAskResult}
                     order={mainOrder}

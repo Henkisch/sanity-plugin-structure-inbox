@@ -17,6 +17,7 @@ import {CreateItemRow} from './CreateItemRow'
 import {matchesInboxFilters} from './inboxFilterSentinels'
 import {InboxRow} from './InboxRow'
 import {mergeRows, type MergedRow} from './mergeItems'
+import {type ContentTypeSummary} from './projectDigest'
 import {SelectionActions} from './SelectionActions'
 import {type SourceReport} from './SourceFeed'
 import {type InboxItem, type InboxView} from './types'
@@ -95,6 +96,8 @@ interface MergedListProps {
   ask?: boolean
   /** See `StructureInboxConfig.context`'s own doc comment — passed straight through to `AskInbox`. */
   context?: string
+  /** Passed straight through to `AskInbox` — see that component's own `getProjectDigest` doc comment. */
+  getProjectDigest?: () => Promise<ContentTypeSummary[]>
   /**
    * `AskInbox`'s own answer, owned by `Inbox.tsx` (same reasoning as
    * `actions`/`results` below) so it can render as another dismissible
@@ -174,6 +177,7 @@ export function MergedList(props: MergedListProps) {
     filterBar,
     ask = false,
     context,
+    getProjectDigest,
     askResult = {status: 'idle'},
     onAskResultChange = () => {},
     maxHeight,
@@ -1111,6 +1115,7 @@ export function MergedList(props: MergedListProps) {
               <Box style={{gridArea: 'ask', maxWidth: 480}}>
                 <AskInbox
                   context={context}
+                  getProjectDigest={getProjectDigest}
                   onResultChange={onAskResultChange}
                   onSelect={setSelectedKeys}
                   result={askResult}

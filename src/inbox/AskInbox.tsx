@@ -7,6 +7,7 @@ import {promptJson} from '../ai/promptJson'
 import {useAgentClient} from '../ai/useAgentClient'
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {type MergedRow} from './mergeItems'
+import {formatContentGapsDigest, type ContentTypeSummary} from './projectDigest'
 
 /** @public */
 export type AskState =
@@ -22,6 +23,19 @@ interface AskInboxProps {
   onSelect: (keys: string[]) => void
   /** See `StructureInboxConfig.context`'s own doc comment. */
   context?: string
+  /**
+   * The same automated project survey `Inbox.tsx`'s "Find content gaps"
+   * read uses (per-type document counts, samples, schema descriptions,
+   * reference graph) — see `Inbox.tsx`'s own `getProjectDigest`, a
+   * short-TTL-cached function shared between both reads so asking a
+   * question here never triggers a second independent dataset survey.
+   * Optional: `AskInbox` has no direct `client`/`schema` access of its
+   * own, and a not-yet-loaded or intentionally omitted survey just means
+   * this question gets asked without it, the same as a missing `context`
+   * already does. Never called speculatively — only the first time a
+   * question is actually submitted.
+   */
+  getProjectDigest?: () => Promise<ContentTypeSummary[]>
   /**
    * Owned by `Inbox.tsx`, not this component — its answer renders as
    * another dismissible card in `mainColumnResults`, the same shape
@@ -42,7 +56,7 @@ interface AskInboxProps {
  * the selection so it stays reviewable rather than authoritative.
  */
 export function AskInbox(props: AskInboxProps) {
-  const {rows, onSelect, context, result, onResultChange} = props
+  const {rows, onSelect, context, getProjectDigest, result, onResultChange} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const agentClient = useAgentClient()
   const [question, setQuestion] = useState('')
@@ -56,10 +70,20 @@ export function AskInbox(props: AskInboxProps) {
     onResultChange({status: 'loading'})
 
     try {
+      let projectDigest = ''
+      try {
+        if (getProjectDigest) projectDigest = formatContentGapsDigest(await getProjectDigest())
+      } catch {
+        // Optional enrichment — a failed survey should not fail the whole read.
+      }
+
       const described = describeRows(rows)
       const raw = await promptJson<unknown>(
         agentClient,
         (context ? `About this project: ${context}\n---\n` : '') +
+          (projectDigest
+            ? `Here is a survey of every content type in this Sanity project:\n${projectDigest}\n---\n`
+            : '') +
           'Given this list of inbox items, one per line as JSON:\n$items\n---\n' +
           'A question about them: "' +
           trimmed +
@@ -85,7 +109,7 @@ export function AskInbox(props: AskInboxProps) {
       console.error('[sanity-plugin-structure-inbox] ask-the-inbox failed', error)
       if (requestId === submitRequestRef.current) onResultChange({status: 'error'})
     }
-  }, [question, agentClient, rows, onSelect, context, onResultChange])
+  }, [question, agentClient, rows, onSelect, context, getProjectDigest, onResultChange])
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
