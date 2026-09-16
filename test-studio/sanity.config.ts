@@ -58,6 +58,9 @@ export default defineConfig([
       // `showInList` is off by default; this workspace turns it on so both the
       // visible entry and the invisible resolution get exercised somewhere.
       structureInbox({
+        // Off by default (plan 022) — on here so this workspace exercises
+        // it too, alongside every other surface it's built to demo.
+        ask: true,
         showInList: true,
         sources: [
           // Everyone's open tasks, not just this editor's own — lets the new
