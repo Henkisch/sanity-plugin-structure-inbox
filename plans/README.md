@@ -53,7 +53,7 @@ behaviour here, fix the comment in the same commit.
 | 039 | Allow-list guard for `assetIssues.ts`'s GROQ field-name interpolation | P2 | S | — | TODO |
 | 040 | Make source titles (and openTasks' Overdue/Due) actually translatable | P2 | M | — | TODO |
 | 041 | Add `AGENTS.md` | P2 | S | — | TODO |
-| 042 | Feed Ask (and Find content gaps) the same automated project survey, and make it scale | P2 | M | — | TODO — revised after review, narrowed from all 4 AI reads to 2 (Ask + Find content gaps only), added a bounded-concurrency fetch fix and an "at scale" pass after being asked to picture a 1000s-of-documents project. Not yet executed. |
+| 042 | Feed Ask (and Find content gaps) the same automated project survey, and make it scale | P2 | M | — | APPROVED (worktree `agent-a597b810c7592a2d8`, commits `fd7ebe2` rename + `9024f0a` behavior). One deliberate deviation from the Done-criteria wording, reviewed and agreed correct: `handleFindContentGaps` still fails the whole read on a survey error (unchanged, pre-existing behavior — that read *is* the survey, there's no meaningful degraded mode), only Ask (Step 3, genuinely optional enrichment) gets the soft-fail fallback. Step 1a's real-dataset timing claim correctly reported as unverified (no large dataset available) rather than fabricated. |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale)
