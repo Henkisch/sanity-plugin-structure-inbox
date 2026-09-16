@@ -1342,14 +1342,15 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
        * already draws that boundary, so this header stays edge-to-edge but
        * open beneath it.
        */}
-      {/* `paddingX={4}` always, not the responsive `[3, 3, 4]` this used to
-          be — that made this header's own horizontal inset 12px on mobile
-          while the content below (`paddingX={4}` on the `Box` wrapping
-          `MergedList`, never responsive) stayed at 20px, so the header
-          read as narrower than the card beneath it instead of lining up
-          with it. `paddingY` still scales down on mobile — only the
-          horizontal mismatch was the actual bug. */}
-      <Card paddingX={4} paddingY={[3, 3, 4]}>
+      {/* Responsive on both axes, matching the content `Box` below (also
+          `[3, 3, 4]` now) — the two used to disagree (this header stayed
+          at a fixed 20px while the content dropped to 12px on mobile, or
+          vice versa depending which was "fixed"), reading as misaligned
+          edges. 12px on mobile isn't just cosmetic parity: narrow screens
+          are the ones actually short on width, so the smaller inset is the
+          one that should win everywhere, not 20px stretched down to every
+          breakpoint. */}
+      <Card padding={[3, 3, 4]}>
         <Stack gap={4}>
           <Flex align="center" gap={3}>
             {/* Pulsing amber while something needs a look; a calm, static
@@ -1420,12 +1421,13 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
       ))}
 
       {/* `paddingTop={0}`, not the uniform `padding={4}` this used to be: the
-          header `Card` right above already contributes its own `20px`
-          bottom padding, and the two stacked made the gap down to the list
-          and Overview cards read as twice as far as every other gap in this
-          layout (the inter-column gap, the outer left/right edges) — all of
-          which are this same `20px` unit, once. */}
-      <Box paddingBottom={4} paddingTop={0} paddingX={4}>
+          header `Card` right above already contributes its own bottom
+          padding, and the two stacked made the gap down to the list and
+          Overview cards read as twice as far as every other gap in this
+          layout (the inter-column gap, the outer left/right edges). Same
+          responsive `[3, 3, 4]` horizontal inset as that header `Card`, not
+          a fixed 20px — the two used to disagree at the mobile breakpoint. */}
+      <Box paddingBottom={4} paddingTop={0} paddingX={[3, 3, 4]}>
         <Container width={4}>
           <TabPanel
             aria-labelledby={
