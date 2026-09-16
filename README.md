@@ -49,7 +49,7 @@ extra menu item — because the plugin teaches the root pane to resolve the Inbo
 
 ## Sources
 
-A source is a feed of inbox items. Five ship with the plugin:
+A source is a feed of inbox items. Six ship with the plugin:
 
 | Source                                                       | What it lists                                                 | Whose      |
 | ------------------------------------------------------------ | ------------------------------------------------------------- | ---------- |
@@ -57,6 +57,7 @@ A source is a feed of inbox items. Five ship with the plugin:
 | `unpublishedDrafts({olderThanDays, limit, types, onlyMine})` | Drafts that have sat untouched long enough to look forgotten. | Everyone's |
 | `upcomingReleases({limit})`                                  | Releases that are scheduled or still being filled.            | Everyone's |
 | `needsAttention({limit})`                                    | Releases that should have run and didn't, or are quietly stalling. | Everyone's |
+| `documentValidation({limit, types})`                         | Drafts currently failing their own schema's validation rules. | Everyone's |
 | `todos({title, placement})`                                  | A personal scratch list you type into, right in the pane.     | Yours      |
 
 Sources choose their column with `placement`. `main` is the wide column on the
@@ -160,6 +161,32 @@ An off-track release can appear in **both** columns at once — the aside
 card (it's still a release) and the main list (it's also an obligation).
 That's correct, not duplication: the two columns answer different
 questions.
+
+### Document validation
+
+Every Sanity schema defines `validation` rules, and nothing in Sanity's own
+Structure Tool — or, until now, this plugin — showed which documents
+currently fail them, in aggregate. `documentValidation` runs
+[`validateDocument`](https://www.npmjs.com/package/@sanity/validation) (the
+same engine Sanity's own `sanity documents validate` CLI command calls in
+bulk) against your unpublished drafts, and lists the ones currently failing,
+with which field and why.
+
+Deliberately scoped to **drafts only**: a draft is work someone is actively
+doing right now, the same reasoning `unpublishedDrafts` already uses.
+Published documents can fail validation too — that's a wider net this
+source doesn't cast yet.
+
+Reference-existence checks (a `Rule.custom` that looks up another document,
+say) are pre-batched into one request rather than checked one reference at a
+time — the same thing Sanity's own CLI does, for the same reason: a
+document with several references shouldn't turn one validation pass into a
+dozen round trips. Only `'error'`-level markers become a row; a `'warning'`
+does not, the same "colour sparingly" reasoning `InboxItem.tone` already
+follows elsewhere in this plugin.
+
+No `resolve`: a validation error is fixed by editing the document, not by
+this pane. No AI: a schema's own rules are already fully deterministic.
 
 ### Todos
 

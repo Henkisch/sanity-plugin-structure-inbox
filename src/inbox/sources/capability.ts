@@ -49,6 +49,23 @@ export function optionalHook<T>(name: string, fallback: T): T {
 }
 
 /**
+ * Same reasoning as `optionalHook` above, generalized to a plain (non-hook)
+ * export from an arbitrary namespace-imported module, not only `sanity`
+ * itself. `@sanity/validation`'s `validateDocument` is a `@beta` export of a
+ * different package — the same "reserves the right to rename or remove"
+ * risk `optionalHook` exists for, but not something `optionalHook` itself
+ * can reach, since it is hardcoded to the `sanity` namespace specifically.
+ *
+ * Callers pass their own `import * as ns from '...'` namespace object,
+ * keeping the same failure mode `optionalHook` already accepts: a rename
+ * degrades to `fallback` at call time, never a module-evaluation throw.
+ */
+export function optionalExport<T>(namespace: object, name: string, fallback: T): T {
+  const value = Reflect.get(namespace, name)
+  return typeof value === 'function' ? value : fallback
+}
+
+/**
  * Same reasoning as `optionalHook` above, for a Sanity export that isn't a
  * hook — a React Context object, from `sanity/_singletons` (see the
  * namespace import at the top of this file). Every context there is marked
