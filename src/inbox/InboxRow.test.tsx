@@ -238,5 +238,31 @@ describe('InboxRow', () => {
       expect(await screen.findByText('assess.error')).toBeTruthy()
       expect(screen.queryByText('assess.unavailable')).toBeNull()
     })
+
+    // Plan 044: unlike `handleSuggestTodos`/etc in `Inbox.tsx` (whose trigger
+    // `MenuItem` already has a `disabled={status === 'loading'}` prop from
+    // Plan 032), `handleAssess`'s own trigger here has no such prop at all —
+    // so, before this plan, a second real, separately-timed click on
+    // "assess.ask" while the first request was still in flight called
+    // `onAssess` a second time, spending a second real AI credit for what
+    // reads as one click. Two *separate* `fireEvent.click` calls (not both
+    // batched inside one `act()`, the technique the "keeps the later
+    // request's result" style tests use elsewhere in this codebase) is the
+    // realistic shape of that bug: each click is individually flushed, so
+    // the second one lands only after `assessment.status` has already
+    // committed to `'loading'` from the first.
+    it('calls onAssess only once when its trigger is clicked twice in a row', async () => {
+      const onAssess = vi.fn().mockResolvedValue({message: 'Looks ready to publish.'})
+
+      renderRow(<InboxRow item={item()} onAssess={onAssess} onSelectedChange={vi.fn()} selected={false} />)
+
+      fireEvent.click(screen.getByRole('button', {name: 'row.menu'}))
+      fireEvent.click(screen.getByRole('menuitem', {name: 'assess.ask'}))
+      fireEvent.click(screen.getByRole('button', {name: 'row.menu'}))
+      fireEvent.click(screen.getByRole('menuitem', {hidden: true, name: 'assess.ask'}))
+
+      expect(await screen.findByText('Looks ready to publish.')).toBeTruthy()
+      expect(onAssess).toHaveBeenCalledTimes(1)
+    })
   })
 })

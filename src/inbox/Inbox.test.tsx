@@ -306,6 +306,33 @@ describe('Inbox handleSuggestTodos', () => {
     expect(await screen.findByText('Second suggestion')).toBeTruthy()
     expect(screen.queryByText('First suggestion')).toBeNull()
   })
+
+  // Plan 044: two *separate*, individually-flushed clicks (the realistic
+  // shape of a rapid double-click, unlike the single-`act()` race above) —
+  // `promptJson` still runs only once. Note this exact path was already
+  // covered before this plan by the trigger's own `disabled={suggestions
+  // .status === 'loading'}` (Plan 032): reverting only this plan's new
+  // `if (suggestions.status === 'loading') return` guard, with that
+  // `disabled` wiring left in place, does not make this case fail — the
+  // `disabled` prop alone already blocks a second *sequential* click here.
+  // This case still guards the combined behavior (and is the same
+  // regression test that *does* catch a dropped guard for `AskInbox`'s
+  // Enter-key path and `InboxRow`'s `handleAssess`/`handleProposeFix`,
+  // which have no such pre-existing `disabled` wiring of their own).
+  it('calls promptJson only once for two separate clicks on the same trigger', async () => {
+    let resolvePrompt!: (value: {items: never[]}) => void
+    promptJsonMock.mockImplementation(() => new Promise((resolve) => (resolvePrompt = resolve)))
+
+    renderWithTheme(<Inbox sources={[todosSource()]} />)
+
+    openAiInsightsMenu()
+    const suggestTodosItem = screen.getByRole('menuitem', {name: /todoSuggest\.ask/})
+    fireEvent.click(suggestTodosItem)
+    fireEvent.click(suggestTodosItem)
+
+    expect(promptJsonMock).toHaveBeenCalledTimes(1)
+    resolvePrompt({items: []})
+  })
 })
 
 // Plan 042: `getProjectDigest` (`Inbox.tsx`) is the short-TTL-cached survey

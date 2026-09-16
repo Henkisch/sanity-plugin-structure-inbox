@@ -658,6 +658,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
   const summarizeRequestRef = useRef(0)
 
   const handleSummarize = useCallback(async () => {
+    if (summary.status === 'loading') return
     const requestId = ++summarizeRequestRef.current
     setSummary({status: 'loading'})
     const digest = openRows
@@ -683,7 +684,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
       console.error('[sanity-plugin-structure-inbox] summarize failed', error)
       if (requestId === summarizeRequestRef.current) setSummary({status: 'error'})
     }
-  }, [agentClient, openRows, context])
+  }, [agentClient, openRows, context, summary.status])
 
   const [suggestions, setSuggestions] = useState<SuggestTodosState>({status: 'idle'})
 
@@ -701,6 +702,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
   const suggestTodosRequestRef = useRef(0)
 
   const handleSuggestTodos = useCallback(async () => {
+    if (suggestions.status === 'loading') return
     const requestId = ++suggestTodosRequestRef.current
     setSuggestions({status: 'loading'})
     const digest = openRows
@@ -734,7 +736,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
       console.error('[sanity-plugin-structure-inbox] suggest-todos failed', error)
       if (requestId === suggestTodosRequestRef.current) setSuggestions({status: 'error'})
     }
-  }, [agentClient, openRows, context])
+  }, [agentClient, openRows, context, suggestions.status])
 
   // "Find content gaps" — same "insight, then nothing automatic" shape as
   // Summarize/Suggest todos above, but reading the project's own content
@@ -751,6 +753,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
   const findContentGapsRequestRef = useRef(0)
 
   const handleFindContentGaps = useCallback(async () => {
+    if (contentGapsResult.status === 'loading') return
     const requestId = ++findContentGapsRequestRef.current
     setContentGapsResult({status: 'loading'})
 
@@ -787,7 +790,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
       console.error('[sanity-plugin-structure-inbox] find-content-gaps failed', error)
       if (requestId === findContentGapsRequestRef.current) setContentGapsResult({status: 'error'})
     }
-  }, [agentClient, getProjectDigest, context])
+  }, [agentClient, getProjectDigest, context, contentGapsResult.status])
 
   const dismissContentGap = useCallback((index: number) => {
     setContentGapsResult((current) =>

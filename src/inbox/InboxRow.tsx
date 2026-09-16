@@ -281,8 +281,16 @@ export function InboxRow(props: InboxRowProps) {
   // No event to stop propagating here, unlike the row's other inline handlers
   // — this only ever fires from a `MenuItem` inside a portal-rendered
   // popover, never from anything nested inside the row's own clickable card.
+  // No request-generation ref here (unlike the four `Inbox.tsx`/`AskInbox.tsx`
+  // handlers): a ref read from inside a closure that ends up embedded in
+  // `allMenuActions` below and iterated via `.map()` trips oxlint's
+  // `react(refs)` rule (it can't tell "referenced as a future click handler"
+  // from "read during this render"), and it would be redundant here anyway —
+  // the `status === 'loading'` guard below already guarantees at most one
+  // `onAssess`/`onProposeFix` call is ever in flight at a time for a given
+  // row, so there is no earlier/later response race left to resolve.
   const handleAssess = useCallback(() => {
-    if (!onAssess) return
+    if (!onAssess || assessment.status === 'loading') return
     setAssessment({status: 'loading'})
     onAssess(item)
       .then((assessment) => setAssessment({status: 'done', ...assessment}))
@@ -291,15 +299,15 @@ export function InboxRow(props: InboxRowProps) {
         const message = error instanceof AssessmentUnavailableError ? t('assess.unavailable') : t('assess.error')
         setAssessment({status: 'done', message})
       })
-  }, [onAssess, item, t])
+  }, [onAssess, item, t, assessment.status])
 
   const handleProposeFix = useCallback(() => {
-    if (!onProposeFix) return
+    if (!onProposeFix || fix.status === 'loading') return
     setFix({status: 'loading'})
     onProposeFix(item)
       .then((proposal) => setFix(proposal ? {status: 'proposed', proposal} : {status: 'none'}))
       .catch(() => setFix({status: 'error'}))
-  }, [onProposeFix, item])
+  }, [onProposeFix, item, fix.status])
 
   const handleApplyFix = useCallback(() => {
     setFix((current) => {

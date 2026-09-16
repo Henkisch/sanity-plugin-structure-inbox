@@ -737,6 +737,37 @@ describe('AskInbox integration', () => {
     await vi.waitFor(() => expect(checkboxFor('Draft one').checked).toBe(true))
     expect(resolve).not.toHaveBeenCalled()
   })
+
+  // Plan 044: before this plan, `handleSubmit` had no loading check of its
+  // own at all (only `!trimmed || !agentClient`). The submit *button*
+  // already goes `disabled` once loading (Plan 032), which alone already
+  // stops a second real *click* — but pressing Enter in the input is a
+  // second, independent path into the same `handleSubmit`, gated by nothing
+  // of its own. Two rapid Enter presses (real key-repeat, or an impatient
+  // editor hitting it twice) called `promptJson` a second time, spending a
+  // second real AI credit for one intended question.
+  it('submits a question only once when Enter is pressed twice in a row', async () => {
+    let resolvePrompt!: (value: {keys: string[]; reason: string}) => void
+    promptJsonMock.mockImplementation(
+      () => new Promise((resolve) => (resolvePrompt = resolve)),
+    )
+
+    const reports = {
+      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]}),
+    }
+    renderList({ask: true, reports, order: ['drafts']})
+
+    const input = screen.getByPlaceholderText('ask.placeholder')
+    fireEvent.change(input, {target: {value: 'anything about the launch'}})
+    fireEvent.keyDown(input, {key: 'Enter'})
+    fireEvent.keyDown(input, {key: 'Enter'})
+
+    expect(promptJsonMock).toHaveBeenCalledTimes(1)
+
+    resolvePrompt({keys: ['drafts d1'], reason: 'Matches.'})
+    expect(await screen.findByText('Matches.')).toBeTruthy()
+    expect(promptJsonMock).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('suggested snooze date', () => {

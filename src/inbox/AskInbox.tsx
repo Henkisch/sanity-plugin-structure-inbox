@@ -64,7 +64,7 @@ export function AskInbox(props: AskInboxProps) {
 
   const handleSubmit = useCallback(async () => {
     const trimmed = question.trim()
-    if (!trimmed || !agentClient) return
+    if (!trimmed || !agentClient || result.status === 'loading') return
 
     const requestId = ++submitRequestRef.current
     onResultChange({status: 'loading'})
@@ -109,7 +109,7 @@ export function AskInbox(props: AskInboxProps) {
       console.error('[sanity-plugin-structure-inbox] ask-the-inbox failed', error)
       if (requestId === submitRequestRef.current) onResultChange({status: 'error'})
     }
-  }, [question, agentClient, rows, onSelect, context, getProjectDigest, onResultChange])
+  }, [question, agentClient, rows, onSelect, context, getProjectDigest, onResultChange, result.status])
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
