@@ -6,9 +6,10 @@ import {catchError, map, startWith} from 'rxjs/operators'
 // `useAddonDataset` and `useUserListWithPermissions` stay out of this named
 // import — see `optionalHook` below. `useCurrentUser` is public and stable,
 // so it's imported normally.
-import {type AddonDatasetContextValue, useCurrentUser} from 'sanity'
+import {type AddonDatasetContextValue, useCurrentUser, useTranslation} from 'sanity'
 
 import {useAgentClient} from '../../ai/useAgentClient'
+import {STRUCTURE_INBOX_NAMESPACE} from '../../constants'
 import {type SnoozeState} from '../../store/snoozes'
 import {splitItems} from '../splitItems'
 import {type InboxAssessment, type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
@@ -43,6 +44,7 @@ const useAddonDataset = optionalHook('useAddonDataset', useUnavailableAddonDatas
 export interface OpenTasksOptions {
   /** Cap on rows. Defaults to 10. */
   limit?: number
+  /** Row category label. Defaults to a translated "Task"; a custom value is shown exactly as given. */
   title?: string
   /** Which column to render in. Defaults to `main` — tasks are the work. */
   placement?: InboxSource['placement']
@@ -132,6 +134,20 @@ function isOverdue(dueBy?: string): boolean {
 }
 
 /**
+ * Which of the two `openTasks.*` i18n keys a row's due date subtitle should
+ * use — `undefined` for a row with no due date at all, matching `useItems()`'s
+ * own "no subtitle" case. Pulled out as its own pure function (rather than
+ * inlined in the `.map()` below) so it can be unit-tested directly: this
+ * source's `useItems()`/`useTaskFetch()` have no existing mock harness in
+ * this test suite (unlike `documentValidation.ts`'s or `assetIssues.ts`'s own
+ * pure helpers, which their `*.test.ts` files already exercise this way).
+ */
+export function dueSubtitleKey(dueBy?: string): 'openTasks.overdue' | 'openTasks.due' | undefined {
+  if (!dueBy) return undefined
+  return isOverdue(dueBy) ? 'openTasks.overdue' : 'openTasks.due'
+}
+
+/**
  * Sanity Tasks assigned to this editor and still open.
  *
  * The one source where ticking means something real: a task has a status this
@@ -187,7 +203,7 @@ function isOverdue(dueBy?: string): boolean {
 export function openTasks(options: OpenTasksOptions = {}): InboxSource {
   const {
     limit = 10,
-    title = 'Task',
+    title = 'source.openTasks.defaultTitle',
     placement = 'main',
     onlyMine = true,
     clearedWithinDays = 7,
@@ -204,6 +220,8 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
     ready: boolean,
     userId: string | undefined,
   ): RawTaskResult {
+    const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
+
     const result$ = useMemo(() => {
       if (useAddonDataset === useUnavailableAddonDataset) {
         return of<RawTaskResult>({
@@ -232,24 +250,27 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
         map(({open, cleared}): RawTaskResult => {
           const rows = [...open, ...cleared]
           return {
-            items: rows.map((row): InboxItem => ({
-              id: row._id,
-              title: row.title || row._id,
-              subtitle: row.dueBy ? (isOverdue(row.dueBy) ? 'Overdue' : 'Due') : undefined,
-              timestamp: row.dueBy || row._updatedAt,
-              changedAt: row._updatedAt,
-              tone: isOverdue(row.dueBy) ? 'critical' : 'default',
-              // A task's own title is thin ("Follow up: X") — the document
-              // it targets is the substantial thing to look at, so clicking
-              // the row opens that instead of an editor for the task itself.
-              intent:
-                row.targetId && row.targetType
-                  ? {type: 'edit', params: {id: row.targetId, type: row.targetType}}
-                  : undefined,
-              // Real, Sanity-confirmed evidence, not a dismissal — see `cleared`
-              // on `InboxItem`. This is the one source that can set it at all.
-              cleared: row.status === 'closed',
-            })),
+            items: rows.map((row): InboxItem => {
+              const subtitleKey = dueSubtitleKey(row.dueBy)
+              return {
+                id: row._id,
+                title: row.title || row._id,
+                subtitle: subtitleKey ? t(subtitleKey) : undefined,
+                timestamp: row.dueBy || row._updatedAt,
+                changedAt: row._updatedAt,
+                tone: isOverdue(row.dueBy) ? 'critical' : 'default',
+                // A task's own title is thin ("Follow up: X") — the document
+                // it targets is the substantial thing to look at, so clicking
+                // the row opens that instead of an editor for the task itself.
+                intent:
+                  row.targetId && row.targetType
+                    ? {type: 'edit', params: {id: row.targetId, type: row.targetType}}
+                    : undefined,
+                // Real, Sanity-confirmed evidence, not a dismissal — see `cleared`
+                // on `InboxItem`. This is the one source that can set it at all.
+                cleared: row.status === 'closed',
+              }
+            }),
             // Row-level `assignedTo` from the query, kept alongside `items`
             // rather than folded into them here: resolving it to a
             // label/photo needs `assignable` (and the current user's own
@@ -262,7 +283,7 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
         startWith<RawTaskResult>({items: [], loading: true, rowAssignees: new Map()}),
         catchError((error: Error) => of<RawTaskResult>({items: [], error, rowAssignees: new Map()})),
       )
-    }, [client, ready, userId])
+    }, [client, ready, userId, t])
 
     return useObservable(result$, {items: [], loading: true, rowAssignees: new Map()})
   }

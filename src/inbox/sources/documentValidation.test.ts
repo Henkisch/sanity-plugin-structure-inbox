@@ -1,6 +1,26 @@
 import {describe, expect, it} from 'vitest'
 
-import {collectReferenceIds, formatValidationPath, mapWithConcurrency, summarizeErrors} from './documentValidation'
+import {
+  collectReferenceIds,
+  documentValidation,
+  formatValidationPath,
+  mapWithConcurrency,
+  summarizeErrors,
+} from './documentValidation'
+
+// Plan 040: the factory's own `title` is now a translation key by default —
+// no need to render `useItems()` (or mock its `useClient`/`useSchema`
+// context) to prove this, since `title` flows straight from the option into
+// the returned `InboxSource` with no hooks in between.
+describe('documentValidation title', () => {
+  it('defaults to a translation key, not a bare English string', () => {
+    expect(documentValidation().title).toBe('source.documentValidation.defaultTitle')
+  })
+
+  it('keeps a custom title exactly as given — never treated as a translation key', () => {
+    expect(documentValidation({title: 'My Custom Drafts'}).title).toBe('My Custom Drafts')
+  })
+})
 
 describe('collectReferenceIds', () => {
   it('finds a top-level reference', () => {

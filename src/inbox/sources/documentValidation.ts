@@ -166,6 +166,7 @@ export async function mapWithConcurrency<T, R>(
 export interface DocumentValidationOptions {
   /** Candidate drafts fetched, not rows necessarily shown. Defaults to 20. */
   limit?: number
+  /** Row category label. Defaults to a translated "Needs fixing"; a custom value is shown exactly as given. */
   title?: string
   /** Restrict to these document types. Defaults to every type in the schema. */
   types?: string[]
@@ -277,7 +278,7 @@ function useValidationResults(
  * fully deterministic.
  */
 export function documentValidation(options: DocumentValidationOptions = {}): InboxSource {
-  const {limit = 20, title = 'Needs fixing', types} = options
+  const {limit = 20, title = 'source.documentValidation.defaultTitle', types} = options
 
   return {
     name: 'documentValidation',

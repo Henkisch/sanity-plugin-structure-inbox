@@ -295,14 +295,15 @@ interface BoundedSectionProps {
  */
 export function BoundedSection(props: BoundedSectionProps) {
   const {source, compact, dismissals, snoozes, onCount, view} = props
+  const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
   const renderFallback = useCallback(
     (error: Error): ReactNode => (
-      <SectionCard error={error} title={source.title}>
+      <SectionCard error={error} title={t(source.title)}>
         {null}
       </SectionCard>
     ),
-    [source],
+    [source, t],
   )
 
   return (
@@ -1099,7 +1100,7 @@ export function Inbox({
                   key={report.source.name}
                   onClick={() => toggleType(report.source.name)}
                   pressed={typeFilter.has(report.source.name)}
-                  text={report.source.title}
+                  text={t(report.source.title)}
                 />
               ))}
             </Menu>
@@ -1248,7 +1249,7 @@ export function Inbox({
           icon={AddIcon}
           mode="ghost"
           onClick={() => requestCreate(creators[0].source.name)}
-          text={creators[0].source.name === 'todos' ? t('todos.addButton') : creators[0].source.title}
+          text={creators[0].source.name === 'todos' ? t('todos.addButton') : t(creators[0].source.title)}
           tone="primary"
         />
       )}
@@ -1263,7 +1264,7 @@ export function Inbox({
                   icon={AddIcon}
                   key={report.source.name}
                   onClick={() => requestCreate(report.source.name)}
-                  text={report.source.name === 'todos' ? t('todos.addButton') : report.source.title}
+                  text={report.source.name === 'todos' ? t('todos.addButton') : t(report.source.title)}
                 />
               ))}
             </Menu>

@@ -60,6 +60,7 @@ const useReleases = optionalHook<() => ReleasesState>('useActiveReleases', useUn
 export interface UpcomingReleasesOptions {
   /** Cap on rows. Defaults to 5. */
   limit?: number
+  /** Row category label. Defaults to a translated "Upcoming releases"; a custom value is shown exactly as given. */
   title?: string
   /** Which column to render in. Defaults to `aside` — releases are context. */
   placement?: InboxSource['placement']
@@ -80,7 +81,7 @@ export interface UpcomingReleasesOptions {
  * down with it.
  */
 export function upcomingReleases(options: UpcomingReleasesOptions = {}): InboxSource {
-  const {limit = 5, title = 'Upcoming releases', placement = 'aside'} = options
+  const {limit = 5, title = 'source.upcomingReleases.defaultTitle', placement = 'aside'} = options
 
   return {
     name: 'upcomingReleases',

@@ -28,6 +28,7 @@ export interface UnpublishedDraftsOptions {
   limit?: number
   /** Restrict to these document types. Defaults to every type in the schema. */
   types?: string[]
+  /** Row category label. Defaults to a translated "Draft"; a custom value is shown exactly as given. */
   title?: string
   /** Which column to render in. Defaults to `main` — these are the work. */
   placement?: InboxSource['placement']
@@ -119,7 +120,7 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
     olderThanDays = 7,
     limit = 10,
     types,
-    title = 'Draft',
+    title = 'source.unpublishedDrafts.defaultTitle',
     placement = 'main',
     onlyMine = false,
     ai = true,

@@ -125,7 +125,7 @@ export function InboxSection(props: InboxSectionProps) {
       // information — the same reasoning `describeSource` in `MergedList`
       // now applies per row. A personal source is the one worth calling out.
       note={source.audience === 'mine' ? t('audience.mine') : undefined}
-      title={source.title}
+      title={t(source.title)}
     >
       {view === 'open' && create && (
         <CreateItemRow

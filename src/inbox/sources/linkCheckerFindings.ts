@@ -42,7 +42,8 @@ export interface LinkCheckerFindingsOptions {
    * every finding this source produces regardless of `kind`, so it can't say
    * "Broken link"/"Broken reference" itself (that distinction already lives
    * in each item's own `title`/`subtitle` — see `toItem`). Defaults to
-   * "Link checker" for exactly that reason.
+   * "Link checker" for exactly that reason — translated automatically; a
+   * custom value passed here is shown exactly as given.
    */
   title?: string
   /**
@@ -285,7 +286,7 @@ export function toItems(
 export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): InboxSource {
   const {
     limit = 50,
-    title = 'Link checker',
+    title = 'source.linkCheckerFindings.defaultTitle',
     placement = 'main',
     scanConfig,
     includeUnverifiable = false,
