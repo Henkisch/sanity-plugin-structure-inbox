@@ -740,12 +740,47 @@ describe('AskInbox integration', () => {
 })
 
 describe('suggested snooze date', () => {
-  it('never shows a suggestion once two rows are selected', async () => {
-    // Clicking one row and then another always passes through a transient
-    // one-selected instant — a real in-flight request from that instant is
-    // expected and correctly discarded (see the effect's own cleanup); what
-    // must never happen is a suggestion actually rendering for a two-row
-    // selection.
+  // The core regression this plan (043) exists to fix: `suggestSnooze` bills
+  // a real AI credit per call, so plain row selection — no click, no
+  // consent — must never trigger it on its own any more.
+  it('never calls suggestSnooze just from selecting a single suggestible row', async () => {
+    const suggestSnooze = vi.fn().mockResolvedValue({until: '2026-07-01T00:00:00.000Z'})
+    const reports = {
+      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})], suggestSnooze}),
+    }
+    renderList({reports, order: ['drafts']})
+
+    selectItem('Draft one')
+
+    // Give any accidental request a tick to fire.
+    await new Promise((r) => setTimeout(r, 10))
+    expect(suggestSnooze).not.toHaveBeenCalled()
+  })
+
+  it('shows the "Suggest a time" trigger for a single row from a source that offers it', () => {
+    const suggestSnooze = vi.fn().mockResolvedValue({until: '2026-07-01T00:00:00.000Z'})
+    const reports = {
+      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})], suggestSnooze}),
+    }
+    renderList({reports, order: ['drafts']})
+
+    selectItem('Draft one')
+
+    expect(screen.getByText('snooze.suggest.ask')).toBeTruthy()
+  })
+
+  it('shows no trigger for a source with no suggestSnooze', () => {
+    const reports = {
+      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]}),
+    }
+    renderList({reports, order: ['drafts']})
+
+    selectItem('Draft one')
+
+    expect(screen.queryByText('snooze.suggest.ask')).toBeNull()
+  })
+
+  it('never shows a trigger once two rows are selected', () => {
     const suggestSnooze = vi.fn().mockResolvedValue({until: '2026-07-01T00:00:00.000Z'})
     const reports = {
       drafts: report('drafts', 'Drafts', {
@@ -758,23 +793,10 @@ describe('suggested snooze date', () => {
     selectItem('Draft one')
     selectItem('Draft two')
 
-    // Give any in-flight (and now stale) request a tick to resolve.
-    await new Promise((r) => setTimeout(r, 10))
-    expect(screen.queryByText('action.snooze.suggested')).toBeNull()
+    expect(screen.queryByText('snooze.suggest.ask')).toBeNull()
   })
 
-  it('requests and renders nothing for a source with no suggestSnooze', () => {
-    const reports = {
-      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]}),
-    }
-    renderList({reports, order: ['drafts']})
-
-    selectItem('Draft one')
-
-    expect(screen.queryByText('action.snooze.suggested')).toBeNull()
-  })
-
-  it('renders the suggestion for a single row from a source that offers it', async () => {
+  it('clicking the trigger calls suggestSnooze exactly once and renders the resolved suggestion', async () => {
     const suggestSnooze = vi.fn().mockResolvedValue({until: '2026-07-01T00:00:00.000Z', reason: 'Event soon.'})
     const reports = {
       drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})], suggestSnooze}),
@@ -782,12 +804,16 @@ describe('suggested snooze date', () => {
     renderList({reports, order: ['drafts']})
 
     selectItem('Draft one')
+    expect(suggestSnooze).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('snooze.suggest.ask'))
 
     expect(await screen.findByText('action.snooze.suggested')).toBeTruthy()
+    expect(suggestSnooze).toHaveBeenCalledTimes(1)
     expect(suggestSnooze).toHaveBeenCalledWith(expect.objectContaining({id: 'd1'}))
   })
 
-  it('renders nothing extra, with no error, when the suggestion resolves null', async () => {
+  it('renders the "none" state, not silence, when the suggestion resolves null', async () => {
     const suggestSnooze = vi.fn().mockResolvedValue(null)
     const reports = {
       drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})], suggestSnooze}),
@@ -795,9 +821,25 @@ describe('suggested snooze date', () => {
     renderList({reports, order: ['drafts']})
 
     selectItem('Draft one')
+    fireEvent.click(screen.getByText('snooze.suggest.ask'))
 
-    await vi.waitFor(() => expect(suggestSnooze).toHaveBeenCalled())
+    expect(await screen.findByText('snooze.suggest.none')).toBeTruthy()
     expect(screen.queryByText('action.snooze.suggested')).toBeNull()
+  })
+
+  it('renders a plain error line, with no retry button, when suggestSnooze rejects', async () => {
+    const suggestSnooze = vi.fn().mockRejectedValue(new Error('network down'))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const reports = {
+      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})], suggestSnooze}),
+    }
+    renderList({reports, order: ['drafts']})
+
+    selectItem('Draft one')
+    fireEvent.click(screen.getByText('snooze.suggest.ask'))
+
+    expect(await screen.findByText('assess.error')).toBeTruthy()
+    expect(screen.queryByText('snooze.suggest.ask')).toBeNull()
   })
 
   it('accepting the suggestion snoozes to the exact suggested instant, not a preset', async () => {
@@ -808,6 +850,7 @@ describe('suggested snooze date', () => {
     const {snoozes} = renderList({reports, order: ['drafts']})
 
     selectItem('Draft one')
+    fireEvent.click(screen.getByText('snooze.suggest.ask'))
     fireEvent.click(await screen.findByText('action.snooze.suggested'))
 
     await vi.waitFor(() => expect(snoozes.snooze).toHaveBeenCalledWith('drafts', 'd1', '2026-07-01T00:00:00.000Z'))
@@ -822,6 +865,7 @@ describe('suggested snooze date', () => {
     const {snoozes} = renderList({reports, order: ['drafts']})
 
     selectItem('Draft one')
+    fireEvent.click(screen.getByText('snooze.suggest.ask'))
     await vi.waitFor(() => expect(suggestSnooze).toHaveBeenCalled())
 
     fireEvent.click(screen.getByRole('button', {name: 'action.snooze'}))

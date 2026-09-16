@@ -11,6 +11,20 @@ import {useTranslation} from 'sanity'
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {type InboxView} from './types'
 
+/**
+ * The AI-suggested-snooze read's own state — `MergedList.tsx` owns the
+ * fetch (an explicit click, never automatic — see Plan 043), this file owns
+ * how each state renders. Mirrors the `{status: ...}` shape every other
+ * per-item AI read in this pane already uses (see `AskState` in
+ * `AskInbox.tsx` for the closest analog).
+ */
+export type SnoozeSuggestionState =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'done'; until: string; reason?: string}
+  | {status: 'none'}
+  | {status: 'error'}
+
 interface SelectionActionsProps {
   count: number
   view: InboxView
@@ -46,11 +60,17 @@ interface SelectionActionsProps {
   onSnooze?: () => void
   /**
    * An AI-read alternative to the default, for exactly one selected row —
-   * see `InboxSourceResult.suggestSnooze`'s own doc comment. Rendered as its
-   * own small button next to the plain Snooze icon, never pre-applied: the
-   * editor still has to press it, the same as picking a preset would be.
+   * see `InboxSourceResult.suggestSnooze`'s own doc comment. Idle until
+   * `onSuggestSnooze` is actually clicked (see Plan 043 — this used to fetch
+   * automatically on selection, spending a real AI credit with no click and
+   * no consent; now it only ever fires from an explicit click, the same
+   * "ask, then show" shape `assess`/`fix` already use elsewhere in this
+   * pane). Never pre-applied even once resolved: the editor still has to
+   * press the resulting date button, the same as picking a preset would be.
    */
-  snoozeSuggestion?: {until: string; reason?: string}
+  snoozeSuggestion?: SnoozeSuggestionState
+  /** Fires the AI read itself — the only place `suggestSnooze` is ever called. Absent when the current selection has no such capability. */
+  onSuggestSnooze?: () => void
   onSnoozeUntil?: (until: string) => void
   /** Who `onAssign` can hand the selection to — absent or empty hides the picker. */
   assignableUsers?: {id: string; label: string}[]
@@ -209,6 +229,7 @@ export function SelectionActions(props: SelectionActionsProps) {
     onCancel,
     onSnooze,
     snoozeSuggestion,
+    onSuggestSnooze,
     onSnoozeUntil,
     assignableUsers,
     onAssign,
@@ -258,7 +279,27 @@ export function SelectionActions(props: SelectionActionsProps) {
         <IconAction disabled={busy} icon={ClockIcon} label={t('action.snooze')} onClick={onSnooze} />
       )}
 
-      {snoozeSuggestion && onSnoozeUntil && (
+      {/* Idle: a plain trigger, not an already-resolved answer — clicking it
+          is the only thing that ever spends the AI credit `suggestSnooze`
+          bills (see Plan 043). Only rendered at all when the current
+          selection actually has the capability (`onSuggestSnooze` is only
+          ever passed down from `MergedList.tsx` when it does). */}
+      {onSuggestSnooze && snoozeSuggestion?.status === 'idle' && (
+        <Button
+          disabled={busy}
+          fontSize={0}
+          mode="bleed"
+          onClick={onSuggestSnooze}
+          padding={1}
+          text={t('snooze.suggest.ask')}
+        />
+      )}
+
+      {snoozeSuggestion?.status === 'loading' && (
+        <Button disabled fontSize={0} mode="bleed" padding={1} text={t('snooze.suggest.loading')} />
+      )}
+
+      {snoozeSuggestion?.status === 'done' && onSnoozeUntil && (
         <Tooltip
           content={
             snoozeSuggestion.reason ? (
@@ -282,6 +323,24 @@ export function SelectionActions(props: SelectionActionsProps) {
             })}
           />
         </Tooltip>
+      )}
+
+      {/* The AI genuinely had no date to suggest — a muted note, not
+          silence, so a click that resolved to "nothing to suggest" doesn't
+          read as if the click never registered. */}
+      {snoozeSuggestion?.status === 'none' && (
+        <Text muted size={0}>
+          {t('snooze.suggest.none')}
+        </Text>
+      )}
+
+      {/* Same treatment `assess.error`/`fix.error` already use elsewhere in
+          this pane — a plain error line, no retry button (see Plan 034 for
+          why a fake retry button is worse than none). */}
+      {snoozeSuggestion?.status === 'error' && (
+        <Text muted size={0}>
+          {t('assess.error')}
+        </Text>
       )}
 
       {onDelete && (
