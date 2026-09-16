@@ -1,3 +1,4 @@
+import {useMemo} from 'react'
 import {useRelativeTime} from 'sanity'
 
 /**
@@ -5,6 +6,7 @@ import {useRelativeTime} from 'sanity'
  * localized, and refreshing on its own — rather than a raw date string.
  */
 export function RelativeTime({timestamp}: {timestamp: string}) {
-  const formatted = useRelativeTime(new Date(timestamp), {minimal: true, useTemporalPhrase: true})
+  const date = useMemo(() => new Date(timestamp), [timestamp])
+  const formatted = useRelativeTime(date, {minimal: true, useTemporalPhrase: true})
   return <>{formatted}</>
 }
