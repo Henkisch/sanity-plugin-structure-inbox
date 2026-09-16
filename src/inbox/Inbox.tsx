@@ -507,12 +507,16 @@ export function Inbox({
   // reflecting a smaller tab. The chips themselves stay stable;
   // `matchesInboxFilters` below still only ever filters whatever `view` is
   // actually showing.
+  const rowsByView = useMemo(() => {
+    const [open, cleared, snoozed] = (['open', 'cleared', 'snoozed'] as const).map((v) =>
+      mergeRows(reports, mainOrder, v, dismissals.state),
+    )
+    return {open, cleared, snoozed}
+  }, [reports, mainOrder, dismissals.state])
+
   const allRowsAnyView = useMemo(
-    () =>
-      (['open', 'cleared', 'snoozed'] as const).flatMap((v) =>
-        mergeRows(reports, mainOrder, v, dismissals.state),
-      ),
-    [reports, mainOrder, dismissals.state],
+    () => [...rowsByView.open, ...rowsByView.cleared, ...rowsByView.snoozed],
+    [rowsByView],
   )
 
   // Every assignee present anywhere, not the full project roster — a chip
@@ -607,18 +611,12 @@ export function Inbox({
   // while looking at Done or Snoozed. Kept separate from `allRowsAnyView`
   // above (which covers every tab at once, for the filter bar's own
   // available-assignee/-type lists).
-  const openRows = useMemo(
-    () => mergeRows(reports, mainOrder, 'open', dismissals.state),
-    [reports, mainOrder, dismissals.state],
-  )
+  const openRows = rowsByView.open
 
   // Feeds `InboxStats`' own `nextWake` — the only state in this pane an
   // editor cannot see from wherever they currently are, so the Overview
   // card needs it regardless of which tab is actually open right now.
-  const snoozedRows = useMemo(
-    () => mergeRows(reports, mainOrder, 'snoozed', dismissals.state),
-    [reports, mainOrder, dismissals.state],
-  )
+  const snoozedRows = rowsByView.snoozed
 
   // A pane-level read across everything currently open, not one item —
   // same Agent Actions call `unpublishedDrafts.ts`'s own `assess` makes,
