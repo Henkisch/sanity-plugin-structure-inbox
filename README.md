@@ -729,37 +729,6 @@ structureTool({
 })
 ```
 
-## Team view: who's sitting on what
-
-`structureInboxTeamView()` is a separate, opt-in Studio tool — every
-`'everyone'`-audience source's currently-open items, grouped by assignee
-instead of by tone/timestamp. It's for a lead surveying the whole team,
-not an individual's own queue, which is why it's its own tool rather than
-part of `structureInbox()` itself:
-
-```ts
-import {structureInboxTeamView} from 'sanity-plugin-structure-inbox'
-
-export default defineConfig({
-  plugins: [
-    structureTool(),
-    structureInbox({sources: [...]}),
-    structureInboxTeamView(),
-  ],
-})
-```
-
-Defaults to `[unpublishedDrafts(), openTasks({onlyMine: false})]`; pass
-`sources` to use different ones. Any `audience: 'mine'` source you pass
-(e.g. `todos()`) is silently dropped — a personal scratch list has no
-place in a team-wide view. Read-only: no resolve/assign/snooze here.
-
-Every editor who can open this tool sees the same aggregated view — the
-same `'everyone'`-audience data already readable through the personal
-Inbox pane, just grouped differently. This plugin adds no visibility
-gating of its own; restricting who can open the tool itself is your
-Studio's own access-control setup to make, same as any other tool.
-
 ## Grounding AI reads in your project
 
 ```ts

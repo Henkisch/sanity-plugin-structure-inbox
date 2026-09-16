@@ -4,11 +4,6 @@ export {inboxListItem} from './structure/inboxNode'
 export {useInboxOpenCount} from './studio/inboxCountLayout'
 export type {StructureInboxConfig} from './types'
 
-export {
-  structureInboxTeamView,
-  type StructureInboxTeamViewConfig,
-} from './teamView/structureInboxTeamView'
-
 export type {
   FixProposal,
   InboxAssessment,
