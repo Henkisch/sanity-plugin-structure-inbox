@@ -761,13 +761,6 @@ export function MergedList(props: MergedListProps) {
 
   return (
     <Stack gap={3}>
-      {/* Only in the Open view — asking "what can I ignore" of the Done tab
-          has no meaning, and the Snoozed tab's rows are already deferred.
-          Its only effect is `setSelectedKeys`: see `AskInbox`'s own doc
-          comment for why that is the whole safety argument for this
-          feature. */}
-      {ask && view === 'open' && <AskInbox onSelect={setSelectedKeys} rows={rows} />}
-
       {errors.map((report) => (
         <Card key={report.source.name} padding={3} radius={2} tone="critical">
           <Text size={1}>
@@ -973,6 +966,26 @@ export function MergedList(props: MergedListProps) {
             )}
           </Flex>
         </Card>
+
+        {/* Directly above the row list, not above this whole card's own
+            toolbar — what an editor asks is about these rows specifically,
+            so it belongs right next to them, not floating above unrelated
+            chrome (the actions row, the checkbox/filter row). Only in the
+            Open view — asking "what can I ignore" of the Done tab has no
+            meaning, and the Snoozed tab's rows are already deferred. Its
+            only effect is `setSelectedKeys`: see `AskInbox`'s own doc
+            comment for why that is the whole safety argument for this
+            feature — a selection it makes flips the checkbox row directly
+            above into `SelectionActions`, the same feedback a manual tick
+            already gives. Same `borderBottom`/`tone="transparent"`
+            treatment as the actions/checkbox rows above, so this reads as
+            a third consistent header sub-row, not a visually distinct
+            insert. */}
+        {ask && view === 'open' && (
+          <Card borderBottom paddingX={3} paddingY={3} radius={0} tone="transparent">
+            <AskInbox onSelect={setSelectedKeys} rows={rows} />
+          </Card>
+        )}
 
         {anyLoading && isEmpty ? (
           <Box padding={3}>
