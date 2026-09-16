@@ -720,6 +720,7 @@ yourself.
 | `toolName`          | `string`        | `'structure'`     | Which structure tool to attach to. Set this when the Studio runs more than one.   |
 | `showInList`        | `boolean`       | `false`           | Whether to show an "Inbox" entry at the top of the root list.                     |
 | `redirectOnLanding` | `boolean`       | `true`            | Whether to open the Inbox when an editor lands on the tool with nothing selected. |
+| `ask`               | `boolean`       | `false`           | Lets an editor select rows by asking a plain-language question. See "Asking about all your items" below. |
 
 ## Getting back to the Inbox
 
@@ -824,6 +825,30 @@ answer" without its Document Function deployed; including those by default
 would flood the inbox with noise nobody's confirmed is actually broken.
 Pass `includeUnverifiable: true` once that Function is deployed, or if the
 noise is acceptable for your project.
+
+## Optional: asking about all your items
+
+```ts
+structureInbox({
+  ask: true,
+  sources: [
+    /* ... */
+  ],
+})
+```
+
+With `ask` on, a single-line "Ask about these items…" input appears in the
+Open view's own header. Type a plain-language question ("things about the
+spring campaign") and AI selects which on-screen rows match it — only
+rows already visible after any active filter are candidates. Its only
+effect is a selection: it never resolves, dismisses, or snoozes anything
+on your behalf, and its reason is shown alongside the selection so it
+stays reviewable rather than authoritative.
+
+Off by default: it spends an Agent Actions request per question. It also
+needs Agent Actions available in the Studio — without it, the input still
+renders but does nothing useful, since checking that in advance would
+itself cost a request.
 
 ## Optional: finding content gaps
 
