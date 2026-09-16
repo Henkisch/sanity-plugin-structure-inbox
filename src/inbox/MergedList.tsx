@@ -1079,7 +1079,7 @@ function GroupHeader(props: {label: string; count: number}) {
             already uses (`Inbox.tsx`'s filter `Badge`) — a plain muted
             number here read as part of the label's own sentence, not as a
             count of something. */}
-        <Badge fontSize={0} padding={1} radius={3}>
+        <Badge fontSize={0} padding={1} radius="full">
           {props.count}
         </Badge>
       </Flex>
