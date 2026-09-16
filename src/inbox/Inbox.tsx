@@ -981,6 +981,320 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
     </>
   )
 
+  // Every AI/action result this column can produce — Summarize's,
+  // Suggest todos', Find content gaps', and a source's own `action`'s
+  // (Scan for issues). Handed to `MergedList` (its own `results` prop)
+  // to render directly beneath the toolbar that triggered them, rather
+  // than above this whole card: a click on a button down here used to
+  // produce a card that appeared *above* the toolbar, checkbox row, and
+  // Ask input — visually backwards from where the editor was just
+  // looking. Built here (the state lives in this component) but placed
+  // by `MergedList`, the same split `actions` already uses.
+  const mainColumnResults = (
+    <>
+      {/* Same loading/done/error shape as `InboxRow.tsx`'s own
+          `assessRow` — this is the pane-level version of the same
+          capability, not a different pattern. Dismissible rather than
+          tied to `summary.status` alone: a stale read from before the
+          list changed shouldn't linger silently forever, but the editor
+          decides when they're done with it, not the next render. */}
+      {(summary.status === 'done' || summary.status === 'error') && (
+        <Box marginBottom={4}>
+          <AnimateIn>
+            <Card border padding={4} radius={2} tone={summary.status === 'error' ? 'critical' : 'primary'}>
+              <Stack gap={3}>
+                <Flex align="center" justify="space-between">
+                  <Text size={1} weight="semibold">
+                    {t('summarize.title')}
+                  </Text>
+                  <Button
+                    fontSize={1}
+                    mode="bleed"
+                    onClick={() => setSummary({status: 'idle'})}
+                    padding={2}
+                    text={t('summarize.dismiss')}
+                  />
+                </Flex>
+                {/* Capped, not the column's own full width: body
+                    text wants roughly 60-75 characters per line,
+                    not the same edge-to-edge width a data-dense
+                    row list uses. */}
+                <Box style={{maxWidth: '640px'}}>
+                  <Text size={1}>
+                    {summary.status === 'error' ? t('summarize.error') : summary.message}
+                  </Text>
+                </Box>
+              </Stack>
+            </Card>
+          </AnimateIn>
+        </Box>
+      )}
+
+      {/* The "action" half of `todoSuggest.ask`'s trigger in the
+          toolbar above — same dismissible-card shape Summarize's own
+          result already uses. Not tied to `suggestions.status === 'done'`
+          alone: an error or an empty result both need the same explicit
+          "Dismiss" a done-with-items result gets, rather than silently
+          blocking the trigger from ever showing again (its own header
+          button hides once `suggestions.status === 'done'`, the same gate
+          `summarize.ask` never needed since it can always re-run). */}
+      {addTodo && (suggestions.status === 'done' || suggestions.status === 'error') && (
+        <Box marginBottom={4}>
+          <AnimateIn>
+            <Card
+              border
+              padding={4}
+              radius={2}
+              tone={suggestions.status === 'error' ? 'critical' : 'primary'}
+            >
+              <Stack gap={3}>
+                {suggestions.status === 'error' && (
+                  <Flex align="flex-start" gap={3} justify="space-between">
+                    <Text size={1}>{t('todoSuggest.error')}</Text>
+                    <Button
+                      fontSize={1}
+                      mode="bleed"
+                      onClick={() => setSuggestions({status: 'idle'})}
+                      padding={2}
+                      text={t('todoSuggest.dismiss')}
+                    />
+                  </Flex>
+                )}
+
+                {suggestions.status === 'done' && suggestions.items.length === 0 && (
+                  <Flex align="flex-start" gap={3} justify="space-between">
+                    <Text size={1}>{t('todoSuggest.none')}</Text>
+                    <Button
+                      fontSize={1}
+                      mode="bleed"
+                      onClick={() => setSuggestions({status: 'idle'})}
+                      padding={2}
+                      text={t('todoSuggest.dismiss')}
+                    />
+                  </Flex>
+                )}
+
+                {suggestions.status === 'done' && suggestions.items.length > 0 && (
+                  <Stack gap={4}>
+                    {/* Every other state this card can be in
+                        (error, nothing found) already names
+                        itself in its own sentence, next to a
+                        whole-card `Dismiss` — a bare item list
+                        had neither: no title on its own left
+                        edge, and (until now) no way to close the
+                        card without acting on each item first. */}
+                    <Flex align="center" justify="space-between">
+                      <Text size={1} weight="semibold">
+                        {t('todoSuggest.title')}
+                      </Text>
+                      <Button
+                        fontSize={1}
+                        mode="bleed"
+                        onClick={() => setSuggestions({status: 'idle'})}
+                        padding={2}
+                        text={t('todoSuggest.dismissAll')}
+                      />
+                    </Flex>
+                    <Stack gap={5}>
+                      {suggestions.items.map((suggestion, index) => (
+                      // eslint-disable-next-line react/no-array-index-key -- stable per render: a suggestion is only ever added or dismissed, both of which remove it from `items` outright rather than reordering around it.
+                      <Flex align="flex-start" gap={2} key={index}>
+                        <Text muted size={0}>
+                          <SparklesIcon />
+                        </Text>
+                        <Stack flex={1} gap={3} style={{maxWidth: '640px'}}>
+                          <Text size={1} weight="semibold">
+                            {suggestion.title}
+                          </Text>
+                          <Text muted size={1}>
+                            {suggestion.reason}
+                          </Text>
+                          <Flex gap={2}>
+                            {/* `marginLeft` cancels this button's
+                                own padding — `tone="primary"`
+                                gives it a visible background tint
+                                even at rest (unlike the plain
+                                `Dismiss` next to it), which
+                                otherwise pushes its own text out
+                                of line with the title/description
+                                above. */}
+                            <Button
+                              fontSize={0}
+                              mode="bleed"
+                              onClick={() => handleAddSuggestion(index)}
+                              padding={1}
+                              style={{marginLeft: -4}}
+                              text={t('todoSuggest.add')}
+                              tone="primary"
+                            />
+                            <Button
+                              fontSize={0}
+                              mode="bleed"
+                              onClick={() => handleDismissSuggestion(index)}
+                              padding={1}
+                              text={t('todoSuggest.dismiss')}
+                            />
+                          </Flex>
+                        </Stack>
+                      </Flex>
+                      ))}
+                    </Stack>
+                  </Stack>
+                )}
+              </Stack>
+            </Card>
+          </AnimateIn>
+        </Box>
+      )}
+
+      {/* "Find content gaps"' own result — same dismissible-card
+          shape as Suggest todos just above (per-item dismiss,
+          whole-card dismiss once items exist), one tier more
+          speculative than either: every gap here is an AI's
+          reading of a content survey, never a fact the way a
+          broken reference or a failed validation rule is. */}
+      {contentGaps &&
+        (contentGapsResult.status === 'done' || contentGapsResult.status === 'error') && (
+          <Box marginBottom={4}>
+            <AnimateIn>
+              <Card
+                border
+                padding={4}
+                radius={2}
+                tone={contentGapsResult.status === 'error' ? 'critical' : 'primary'}
+              >
+                <Stack gap={3}>
+                  {contentGapsResult.status === 'error' && (
+                    <Flex align="flex-start" gap={3} justify="space-between">
+                      <Text size={1}>{t('contentGaps.error')}</Text>
+                      <Button
+                        fontSize={1}
+                        mode="bleed"
+                        onClick={() => setContentGapsResult({status: 'idle'})}
+                        padding={2}
+                        text={t('contentGaps.dismiss')}
+                      />
+                    </Flex>
+                  )}
+
+                  {contentGapsResult.status === 'done' && contentGapsResult.items.length === 0 && (
+                    <Flex align="flex-start" gap={3} justify="space-between">
+                      <Text size={1}>{t('contentGaps.none')}</Text>
+                      <Button
+                        fontSize={1}
+                        mode="bleed"
+                        onClick={() => setContentGapsResult({status: 'idle'})}
+                        padding={2}
+                        text={t('contentGaps.dismiss')}
+                      />
+                    </Flex>
+                  )}
+
+                  {contentGapsResult.status === 'done' && contentGapsResult.items.length > 0 && (
+                    <Stack gap={4}>
+                      <Flex align="center" justify="space-between">
+                        <Text size={1} weight="semibold">
+                          {t('contentGaps.title')}
+                        </Text>
+                        <Button
+                          fontSize={1}
+                          mode="bleed"
+                          onClick={() => setContentGapsResult({status: 'idle'})}
+                          padding={2}
+                          text={t('contentGaps.dismissAll')}
+                        />
+                      </Flex>
+                      <Stack gap={5}>
+                        {contentGapsResult.items.map((gap, index) => (
+                          // eslint-disable-next-line react/no-array-index-key -- stable per render: an item is only ever dismissed, which removes it from `items` outright rather than reordering around it.
+                          <Flex align="flex-start" gap={2} key={index}>
+                            <Text muted size={0}>
+                              <SparklesIcon />
+                            </Text>
+                            <Stack flex={1} gap={3} style={{maxWidth: '640px'}}>
+                              <Text size={1} weight="semibold">
+                                {gap.title}
+                              </Text>
+                              <Text muted size={1}>
+                                {gap.reason}
+                              </Text>
+                              <Flex gap={2}>
+                                {/* `marginLeft` cancels this
+                                    button's own padding — same
+                                    fix `todoSuggest`'s per-item
+                                    buttons already needed: a
+                                    lone bleed button here is the
+                                    leftmost thing in its own
+                                    row, so its invisible
+                                    padding otherwise pushes its
+                                    text out of line with the
+                                    title/reason directly above. */}
+                                <Button
+                                  fontSize={0}
+                                  mode="bleed"
+                                  onClick={() => dismissContentGap(index)}
+                                  padding={1}
+                                  style={{marginLeft: -4}}
+                                  text={t('contentGaps.dismiss')}
+                                />
+                              </Flex>
+                            </Stack>
+                          </Flex>
+                        ))}
+                      </Stack>
+                    </Stack>
+                  )}
+                </Stack>
+              </Card>
+            </AnimateIn>
+          </Box>
+        )}
+
+      {/* A source's own `action` result (e.g. "Scan for issues")
+          — same dismissible-card shape as Summarize/Suggest
+          todos above, titled with the action's own label rather
+          than a new i18n key, since that label is already
+          whatever the source itself called this action. */}
+      {actionSources.map((report) => {
+        const {action} = report
+        const result = actionResults[report.source.name]
+        if (!action || !result) return null
+        return (
+          <Box key={report.source.name} marginBottom={4}>
+            <AnimateIn>
+              <Card
+                border
+                padding={4}
+                radius={2}
+                tone={result.status === 'error' ? 'critical' : 'primary'}
+              >
+                <Stack gap={3}>
+                  <Flex align="center" justify="space-between">
+                    <Text size={1} weight="semibold">
+                      {action.label}
+                    </Text>
+                    <Button
+                      fontSize={1}
+                      mode="bleed"
+                      onClick={() => dismissActionResult(report.source.name)}
+                      padding={2}
+                      text={t('sourceAction.dismiss')}
+                    />
+                  </Flex>
+                  <Box style={{maxWidth: '640px'}}>
+                    <Text size={1}>
+                      {result.status === 'error' ? t('sourceAction.error') : result.message}
+                    </Text>
+                  </Box>
+                </Stack>
+              </Card>
+            </AnimateIn>
+          </Box>
+        )
+      })}
+    </>
+  )
+
   if (sources.length === 0) {
     return (
       <Box padding={4}>
@@ -1099,303 +1413,6 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
             <ColumnsBoundary>
               <ResponsiveColumns>
                 <Box>
-                  {/* Same loading/done/error shape as `InboxRow.tsx`'s own
-                      `assessRow` — this is the pane-level version of the
-                      same capability, not a different pattern. Dismissible
-                      rather than tied to `summary.status` alone: a stale
-                      read from before the list changed shouldn't linger
-                      silently forever, but the editor decides when they're
-                      done with it, not the next render. Scoped to this
-                      column specifically, not the whole pane width — it's a
-                      response to a header click, and reads as connected to
-                      the list right below it only once it's exactly as wide
-                      as that list, not stretched across the aside too. */}
-                  {(summary.status === 'done' || summary.status === 'error') && (
-                    <Box marginBottom={4}>
-                      <AnimateIn>
-                        <Card border padding={4} radius={2} tone={summary.status === 'error' ? 'critical' : 'primary'}>
-                          <Stack gap={3}>
-                            <Flex align="center" justify="space-between">
-                              <Text size={1} weight="semibold">
-                                {t('summarize.title')}
-                              </Text>
-                              <Button
-                                fontSize={1}
-                                mode="bleed"
-                                onClick={() => setSummary({status: 'idle'})}
-                                padding={2}
-                                text={t('summarize.dismiss')}
-                              />
-                            </Flex>
-                            {/* Capped, not the column's own full width: body
-                                text wants roughly 60-75 characters per line,
-                                not the same edge-to-edge width a data-dense
-                                row list uses. */}
-                            <Box style={{maxWidth: '640px'}}>
-                              <Text size={1}>
-                                {summary.status === 'error' ? t('summarize.error') : summary.message}
-                              </Text>
-                            </Box>
-                          </Stack>
-                        </Card>
-                      </AnimateIn>
-                    </Box>
-                  )}
-
-                  {/* The "action" half of `todoSuggest.ask`'s trigger in the
-                      header above — same dismissible-card shape Summarize's
-                      own result already uses, same column-scoping reasoning.
-                      Not tied to `suggestions.status === 'done'` alone: an
-                      error or an empty result both need the same explicit
-                      "Dismiss" a done-with-items result gets, rather than
-                      silently blocking the trigger from ever showing again
-                      (its own header button hides once `suggestions.status
-                      === 'done'`, the same gate `summarize.ask` never
-                      needed since it can always re-run). */}
-                  {addTodo && (suggestions.status === 'done' || suggestions.status === 'error') && (
-                    <Box marginBottom={4}>
-                      <AnimateIn>
-                        <Card
-                          border
-                          padding={4}
-                          radius={2}
-                          tone={suggestions.status === 'error' ? 'critical' : 'primary'}
-                        >
-                          <Stack gap={3}>
-                            {suggestions.status === 'error' && (
-                              <Flex align="flex-start" gap={3} justify="space-between">
-                                <Text size={1}>{t('todoSuggest.error')}</Text>
-                                <Button
-                                  fontSize={1}
-                                  mode="bleed"
-                                  onClick={() => setSuggestions({status: 'idle'})}
-                                  padding={2}
-                                  text={t('todoSuggest.dismiss')}
-                                />
-                              </Flex>
-                            )}
-
-                            {suggestions.status === 'done' && suggestions.items.length === 0 && (
-                              <Flex align="flex-start" gap={3} justify="space-between">
-                                <Text size={1}>{t('todoSuggest.none')}</Text>
-                                <Button
-                                  fontSize={1}
-                                  mode="bleed"
-                                  onClick={() => setSuggestions({status: 'idle'})}
-                                  padding={2}
-                                  text={t('todoSuggest.dismiss')}
-                                />
-                              </Flex>
-                            )}
-
-                            {suggestions.status === 'done' && suggestions.items.length > 0 && (
-                              <Stack gap={4}>
-                                {/* Every other state this card can be in
-                                    (error, nothing found) already names
-                                    itself in its own sentence, next to a
-                                    whole-card `Dismiss` — a bare item list
-                                    had neither: no title on its own left
-                                    edge, and (until now) no way to close the
-                                    card without acting on each item first. */}
-                                <Flex align="center" justify="space-between">
-                                  <Text size={1} weight="semibold">
-                                    {t('todoSuggest.title')}
-                                  </Text>
-                                  <Button
-                                    fontSize={1}
-                                    mode="bleed"
-                                    onClick={() => setSuggestions({status: 'idle'})}
-                                    padding={2}
-                                    text={t('todoSuggest.dismissAll')}
-                                  />
-                                </Flex>
-                                <Stack gap={5}>
-                                  {suggestions.items.map((suggestion, index) => (
-                                  // eslint-disable-next-line react/no-array-index-key -- stable per render: a suggestion is only ever added or dismissed, both of which remove it from `items` outright rather than reordering around it.
-                                  <Flex align="flex-start" gap={2} key={index}>
-                                    <Text muted size={0}>
-                                      <SparklesIcon />
-                                    </Text>
-                                    <Stack flex={1} gap={3} style={{maxWidth: '640px'}}>
-                                      <Text size={1} weight="semibold">
-                                        {suggestion.title}
-                                      </Text>
-                                      <Text muted size={1}>
-                                        {suggestion.reason}
-                                      </Text>
-                                      <Flex gap={2}>
-                                        {/* `marginLeft` cancels this button's
-                                            own padding — `tone="primary"`
-                                            gives it a visible background tint
-                                            even at rest (unlike the plain
-                                            `Dismiss` next to it), which
-                                            otherwise pushes its own text out
-                                            of line with the title/description
-                                            above. */}
-                                        <Button
-                                          fontSize={0}
-                                          mode="bleed"
-                                          onClick={() => handleAddSuggestion(index)}
-                                          padding={1}
-                                          style={{marginLeft: -4}}
-                                          text={t('todoSuggest.add')}
-                                          tone="primary"
-                                        />
-                                        <Button
-                                          fontSize={0}
-                                          mode="bleed"
-                                          onClick={() => handleDismissSuggestion(index)}
-                                          padding={1}
-                                          text={t('todoSuggest.dismiss')}
-                                        />
-                                      </Flex>
-                                    </Stack>
-                                  </Flex>
-                                  ))}
-                                </Stack>
-                              </Stack>
-                            )}
-                          </Stack>
-                        </Card>
-                      </AnimateIn>
-                    </Box>
-                  )}
-
-                  {/* "Find content gaps"' own result — same dismissible-card
-                      shape as Suggest todos just above (per-item dismiss,
-                      whole-card dismiss once items exist), one tier more
-                      speculative than either: every gap here is an AI's
-                      reading of a content survey, never a fact the way a
-                      broken reference or a failed validation rule is. */}
-                  {contentGaps &&
-                    (contentGapsResult.status === 'done' || contentGapsResult.status === 'error') && (
-                      <Box marginBottom={4}>
-                        <AnimateIn>
-                          <Card
-                            border
-                            padding={4}
-                            radius={2}
-                            tone={contentGapsResult.status === 'error' ? 'critical' : 'primary'}
-                          >
-                            <Stack gap={3}>
-                              {contentGapsResult.status === 'error' && (
-                                <Flex align="flex-start" gap={3} justify="space-between">
-                                  <Text size={1}>{t('contentGaps.error')}</Text>
-                                  <Button
-                                    fontSize={1}
-                                    mode="bleed"
-                                    onClick={() => setContentGapsResult({status: 'idle'})}
-                                    padding={2}
-                                    text={t('contentGaps.dismiss')}
-                                  />
-                                </Flex>
-                              )}
-
-                              {contentGapsResult.status === 'done' && contentGapsResult.items.length === 0 && (
-                                <Flex align="flex-start" gap={3} justify="space-between">
-                                  <Text size={1}>{t('contentGaps.none')}</Text>
-                                  <Button
-                                    fontSize={1}
-                                    mode="bleed"
-                                    onClick={() => setContentGapsResult({status: 'idle'})}
-                                    padding={2}
-                                    text={t('contentGaps.dismiss')}
-                                  />
-                                </Flex>
-                              )}
-
-                              {contentGapsResult.status === 'done' && contentGapsResult.items.length > 0 && (
-                                <Stack gap={4}>
-                                  <Flex align="center" justify="space-between">
-                                    <Text size={1} weight="semibold">
-                                      {t('contentGaps.title')}
-                                    </Text>
-                                    <Button
-                                      fontSize={1}
-                                      mode="bleed"
-                                      onClick={() => setContentGapsResult({status: 'idle'})}
-                                      padding={2}
-                                      text={t('contentGaps.dismissAll')}
-                                    />
-                                  </Flex>
-                                  <Stack gap={5}>
-                                    {contentGapsResult.items.map((gap, index) => (
-                                      // eslint-disable-next-line react/no-array-index-key -- stable per render: an item is only ever dismissed, which removes it from `items` outright rather than reordering around it.
-                                      <Flex align="flex-start" gap={2} key={index}>
-                                        <Text muted size={0}>
-                                          <SparklesIcon />
-                                        </Text>
-                                        <Stack flex={1} gap={3} style={{maxWidth: '640px'}}>
-                                          <Text size={1} weight="semibold">
-                                            {gap.title}
-                                          </Text>
-                                          <Text muted size={1}>
-                                            {gap.reason}
-                                          </Text>
-                                          <Flex gap={2}>
-                                            <Button
-                                              fontSize={0}
-                                              mode="bleed"
-                                              onClick={() => dismissContentGap(index)}
-                                              padding={1}
-                                              text={t('contentGaps.dismiss')}
-                                            />
-                                          </Flex>
-                                        </Stack>
-                                      </Flex>
-                                    ))}
-                                  </Stack>
-                                </Stack>
-                              )}
-                            </Stack>
-                          </Card>
-                        </AnimateIn>
-                      </Box>
-                    )}
-
-                  {/* A source's own `action` result (e.g. "Scan for issues")
-                      — same dismissible-card shape as Summarize/Suggest
-                      todos above, titled with the action's own label rather
-                      than a new i18n key, since that label is already
-                      whatever the source itself called this action. */}
-                  {actionSources.map((report) => {
-                    const {action} = report
-                    const result = actionResults[report.source.name]
-                    if (!action || !result) return null
-                    return (
-                      <Box key={report.source.name} marginBottom={4}>
-                        <AnimateIn>
-                          <Card
-                            border
-                            padding={4}
-                            radius={2}
-                            tone={result.status === 'error' ? 'critical' : 'primary'}
-                          >
-                            <Stack gap={3}>
-                              <Flex align="center" justify="space-between">
-                                <Text size={1} weight="semibold">
-                                  {action.label}
-                                </Text>
-                                <Button
-                                  fontSize={1}
-                                  mode="bleed"
-                                  onClick={() => dismissActionResult(report.source.name)}
-                                  padding={2}
-                                  text={t('sourceAction.dismiss')}
-                                />
-                              </Flex>
-                              <Box style={{maxWidth: '640px'}}>
-                                <Text size={1}>
-                                  {result.status === 'error' ? t('sourceAction.error') : result.message}
-                                </Text>
-                              </Box>
-                            </Stack>
-                          </Card>
-                        </AnimateIn>
-                      </Box>
-                    )
-                  })}
-
                   <MergedList
                     actions={mainColumnActions}
                     ask={ask}
@@ -1406,6 +1423,7 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
                     maxHeight={sidebarHeight}
                     order={mainOrder}
                     reports={reports}
+                    results={mainColumnResults}
                     snoozes={snoozes}
                     typeFilter={typeFilter}
                     view={view}

@@ -64,6 +64,16 @@ interface MergedListProps {
    */
   actions?: ReactNode
   /**
+   * Whatever `actions` above most recently produced — Summarize's message,
+   * Suggest todos' items, a source's own `action` result, and so on. Built
+   * in `Inbox.tsx` (same reasoning as `actions`), rendered here directly
+   * beneath the toolbar rather than above this whole card: a click on a
+   * button in `actions` used to produce a card that appeared *above* the
+   * toolbar, checkbox row, and Ask input — backwards from where the editor
+   * was just looking.
+   */
+  results?: ReactNode
+  /**
    * Caps the list's own height, in pixels — typically the sidebar's actual
    * rendered height (`Inbox.tsx` measures it live), so this column never
    * grows taller than its neighbour. `undefined` before that measurement
@@ -99,6 +109,7 @@ export function MergedList(props: MergedListProps) {
     ask = false,
     maxHeight,
     actions,
+    results,
   } = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
@@ -815,6 +826,16 @@ export function MergedList(props: MergedListProps) {
             </Flex>
           </Card>
         )}
+        {/* Directly below the toolbar that produced it — see `results`'
+            own doc comment for why. Each individual card (`Inbox.tsx`)
+            already carries its own `marginBottom`/padding; this wrapper
+            only supplies the horizontal inset so a card doesn't sit flush
+            against this outer Card's own rounded border. */}
+        {results && (
+          <Box paddingTop={3} paddingX={3}>
+            {results}
+          </Box>
+        )}
         {/* Matches the header every `aside` source's own card already has
             (`SectionCard`) — the main column merges every source into one
             list, but it's still one section, and it looked like an
@@ -822,14 +843,18 @@ export function MergedList(props: MergedListProps) {
             (measured live: the filter bar's own row rendered at 54px, the
             selection bar's at 50px) keeps this header a fixed height across
             both, so switching between them never shifts the row list
-            beneath it by those few pixels. */}
+            beneath it by those few pixels. No `tone="transparent"` (unlike
+            the actions toolbar above) — this row selects/filters the exact
+            rows below it, tied to the list the same way `results`/Ask are,
+            so it gets the list's own plain background instead of the
+            toolbar's boxed one; only the toolbar is generic enough to
+            earn that distinct "header" treatment. */}
         <Card
           borderBottom
           paddingX={3}
           paddingY={3}
           radius={0}
           style={{alignItems: 'center', display: 'flex', minHeight: 54}}
-          tone="transparent"
         >
           {/* Extra `paddingLeft={1}` beyond the Card's own `padding={3}` —
               matches `InboxRow.tsx`'s own checkbox wrapper exactly (also
