@@ -171,6 +171,13 @@ const enUS = {
   'todoSuggest.add': 'Add',
   'todoSuggest.dismiss': 'Dismiss',
   'stats.load.title': 'Open items by assignee',
+
+  // `needsAttention` — off-track releases promoted into the main column.
+  // See that source's own doc comment for why each condition gets its own
+  // wording rather than one generic "needs attention" label.
+  'needsAttention.overdue': 'Scheduled {{when}} — still not published',
+  'needsAttention.emptyAndImminent': 'Scheduled {{when}} — nothing in it yet',
+  'needsAttention.ageingUndated': 'Still being filled, no date set',
 }
 
 export default enUS

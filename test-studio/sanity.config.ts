@@ -2,6 +2,7 @@ import {visionTool} from '@sanity/vision'
 import {defineConfig} from 'sanity'
 import {linkChecker} from 'sanity-plugin-link-checker'
 import {
+  needsAttention,
   openTasks,
   structureInbox,
   structureInboxTeamView,
@@ -67,6 +68,7 @@ export default defineConfig([
           // Zero days, so a draft made seconds ago shows up — a seven-day
           // default would make this workspace look broken while testing.
           unpublishedDrafts({olderThanDays: 0}),
+          needsAttention(),
           upcomingReleases(),
           todos(),
           linkCheckerFindings(),

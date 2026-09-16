@@ -49,13 +49,14 @@ extra menu item — because the plugin teaches the root pane to resolve the Inbo
 
 ## Sources
 
-A source is a feed of inbox items. Four ship with the plugin:
+A source is a feed of inbox items. Five ship with the plugin:
 
 | Source                                                       | What it lists                                                 | Whose      |
 | ------------------------------------------------------------ | ------------------------------------------------------------- | ---------- |
 | `openTasks({limit, onlyMine})`                               | Sanity Tasks assigned to you and still open.                  | Yours      |
 | `unpublishedDrafts({olderThanDays, limit, types, onlyMine})` | Drafts that have sat untouched long enough to look forgotten. | Everyone's |
 | `upcomingReleases({limit})`                                  | Releases that are scheduled or still being filled.            | Everyone's |
+| `needsAttention({limit})`                                    | Releases that should have run and didn't, or are quietly stalling. | Everyone's |
 | `todos({title, placement})`                                  | A personal scratch list you type into, right in the pane.     | Yours      |
 
 Sources choose their column with `placement`. `main` is the wide column on the
@@ -119,6 +120,39 @@ tolerates it going away, never a static import, so if Sanity removes it that
 source's card shows an error instead of the whole Studio failing to boot. The
 `upcomingReleases` source treats `useActiveReleases`, which is `@internal`,
 the same way.
+
+### Needs attention
+
+`upcomingReleases` is deliberately calm — a release running to plan is
+context, not something to act on, which is why it lives in the aside column.
+`needsAttention` is the other half of the same data: a release that is
+**off track**, promoted into the main column because nothing else in the
+Studio will ever say so on its own. Three conditions, each its own tone:
+
+- **Overdue** (critical) — a scheduled release's intended publish time has
+  passed and it still hasn't run. Scheduling a release does not guarantee it
+  actually publishes itself: the automation can fail, and when it does, the
+  release just sits there, unpublished, with nothing else flagging it.
+- **Empty and imminent** (caution) — scheduled within a few days and still
+  has no documents in it. Still fixable, which is why it's a nudge rather
+  than an alarm. A document count this plugin can't determine (rather than
+  one confirmed at zero) never counts as empty — an unknown is not evidence.
+- **Ageing and undated** (no tone) — no scheduled time at all, and still
+  being filled weeks after it was created. A slow leak, not a fire.
+
+Deliberately a separate source from `upcomingReleases`, not a mode on it: a
+source has exactly one `placement`, so a Studio can take the nag without the
+ambient card, or the card without the nag. It also has no `resolve` —
+running a release is a deliberate act with its own confirmation and belongs
+in the Releases tool, same reasoning `upcomingReleases` already uses — so a
+tick here only ever acknowledges, never touches the release itself. No AI:
+every condition is a date comparison and a document count, both already
+fully certain.
+
+An off-track release can appear in **both** columns at once — the aside
+card (it's still a release) and the main list (it's also an obligation).
+That's correct, not duplication: the two columns answer different
+questions.
 
 ### Todos
 
