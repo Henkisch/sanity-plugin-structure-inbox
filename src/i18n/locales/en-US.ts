@@ -37,6 +37,10 @@ const enUS = {
   'assignee.unassigned': 'Unassigned',
   'assignee.unassign': 'Unassign',
   'assignee.you': '{{name}} (You)',
+  // The "+N" overflow chip's own label, once more people are assignable
+  // than the avatar stack shows at once.
+  'assignee.more_one': '{{count}} more person',
+  'assignee.more_other': '{{count}} more people',
   // Appended to the avatar's own tooltip for a source with `assigneeReadOnly`
   // set — see its own doc comment on `InboxSourceResult`.
   'assignee.readOnly': "assigned via Sanity's own Tasks, not editable here",

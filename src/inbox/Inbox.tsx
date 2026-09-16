@@ -114,6 +114,89 @@ const AnimateIn = styled.div`
   animation: ${fadeSlideIn} 180ms ease-out;
 `
 
+// Leaves exactly one slot for the "+N" overflow chip within the same
+// visual budget `AvatarStack`'s own `maxLength={8}` used to claim.
+const AVATAR_VISIBLE_LIMIT = 7
+
+interface AssigneeOverflowMenuProps {
+  overflowAssignees: {id: string; label: string; imageUrl?: string}[]
+  assigneeFilter: ReadonlySet<string>
+  toggleAssignee: (id: string) => void
+  currentUser: ReturnType<typeof useCurrentUser>
+  t: ReturnType<typeof useTranslation>['t']
+}
+
+/**
+ * The Jira-style "+N" chip at the end of the assignee avatar stack —
+ * everyone `AVATAR_VISIBLE_LIMIT` didn't fit, opening a checkbox menu for
+ * exactly the hidden people, rather than truncating them out of reach
+ * entirely (see `visibleAssignees`' own doc comment in `Inbox`). Its own
+ * component, not inlined into `Inbox` itself: confirmed live that
+ * inlining this JSX (even just the plain derived `visibleAssignees`/
+ * `overflowAssignees` values it needs, before any JSX at all) made React
+ * Compiler bail out of memoizing several unrelated `useCallback`s
+ * elsewhere in that component — wrapping those two values in their own
+ * `useMemo` (see `Inbox`) was the actual fix; this extraction just keeps
+ * the resulting code out of `Inbox`'s own already-long render body.
+ */
+function AssigneeOverflowMenu(props: AssigneeOverflowMenuProps) {
+  const {overflowAssignees, assigneeFilter, toggleAssignee, currentUser, t} = props
+
+  return (
+    <MenuButton
+      button={
+        <button
+          aria-label={t('assignee.more', {count: overflowAssignees.length})}
+          style={{
+            alignItems: 'center',
+            background: 'var(--card-border-color)',
+            border: '2px solid var(--card-bg-color)',
+            borderRadius: '50%',
+            color: 'inherit',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            font: 'inherit',
+            fontSize: '0.75em',
+            fontWeight: 600,
+            height: '1.625em',
+            justifyContent: 'center',
+            marginLeft: '-4px',
+            padding: 0,
+            position: 'relative',
+            verticalAlign: 'middle',
+            width: '1.625em',
+            // Lowest of the whole stack: it's the last circle, same
+            // overlap direction as every avatar before it.
+            zIndex: -1,
+          }}
+          type="button"
+        >
+          +{overflowAssignees.length}
+        </button>
+      }
+      id="structure-inbox-assignee-overflow-menu"
+      menu={
+        <Menu>
+          {overflowAssignees.map((person) => (
+            <MenuItem
+              icon={assigneeFilter.has(person.id) ? CheckmarkIcon : undefined}
+              key={person.id}
+              onClick={() => toggleAssignee(person.id)}
+              pressed={assigneeFilter.has(person.id)}
+              text={
+                currentUser && person.id === currentUser.id
+                  ? t('assignee.you', {name: person.label})
+                  : person.label
+              }
+            />
+          ))}
+        </Menu>
+      }
+      popover={{placement: 'bottom-end', portal: true}}
+    />
+  )
+}
+
 const OPEN_TAB_ID = 'structure-inbox-open'
 const CLEARED_TAB_ID = 'structure-inbox-cleared'
 const SNOOZED_TAB_ID = 'structure-inbox-snoozed'
@@ -392,6 +475,27 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
   // avatar already on that one row, restated as a chip.
   const showAssigneeFilter = availableAssignees.length + (hasUnassignedRow ? 1 : 0) > 1
 
+  // `AvatarStack`'s own `maxLength` truncates visually but has no click
+  // handler of its own for whatever it hides — every avatar here is our
+  // own plain `<button>`, not something that component's overflow counter
+  // can open a picker for, so a team with more people than fit would have
+  // some genuinely unreachable through this filter (confirmed: there's no
+  // prop for it). Slicing ourselves and giving the overflow its own menu
+  // (`AssigneeOverflowMenu`) means every assignee stays togglable
+  // regardless of headcount. Both wrapped in their own `useMemo`, not
+  // plain derived consts — confirmed live that a plain
+  // `availableAssignees.slice(...)` here, even before any JSX used it,
+  // made React Compiler bail out of memoizing several unrelated
+  // `useCallback`s elsewhere in this component.
+  const visibleAssignees = useMemo(
+    () => availableAssignees.slice(0, AVATAR_VISIBLE_LIMIT),
+    [availableAssignees],
+  )
+  const overflowAssignees = useMemo(
+    () => availableAssignees.slice(AVATAR_VISIBLE_LIMIT),
+    [availableAssignees],
+  )
+
   // Every source contributing a row anywhere, in the configured order — same
   // reasoning as `availableAssignees`.
   const availableTypes = useMemo(() => {
@@ -654,7 +758,7 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
         // already-active one clears back to "no filter" instead of a
         // separate "Everyone" control, the same toggle-off behaviour every
         // other filter in this bar already uses.
-        <AvatarStack maxLength={8} size={1}>
+        <AvatarStack size={1}>
           {/* Each avatar wrapped in a plain, unstyled `<button>` rather than
               styled directly — putting the ring and the `as="button"` tag
               swap on `Avatar`/`UnassignedAvatar` themselves fought their own
@@ -667,7 +771,7 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
               one tucked behind the one before it. Plain DOM order alone
               left the browser to decide, which put the later one on top
               instead. */}
-          {availableAssignees.map((person, index) => (
+          {visibleAssignees.map((person, index) => (
             <button
               aria-label={person.label}
               aria-pressed={assigneeFilter.has(person.id)}
@@ -723,7 +827,7 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
                 // baseline, so it holds regardless of which one an avatar
                 // happens to render as.
                 verticalAlign: 'middle',
-                zIndex: availableAssignees.length - index,
+                zIndex: visibleAssignees.length - index,
               }}
               type="button"
             >
@@ -754,7 +858,7 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
                 font: 'inherit',
                 // See the matching comment above: widens the built-in
                 // overlap enough for the ring to read as a visible cutout.
-                marginLeft: availableAssignees.length > 0 ? '-4px' : undefined,
+                marginLeft: visibleAssignees.length > 0 ? '-4px' : undefined,
                 padding: 0,
                 position: 'relative',
                 verticalAlign: 'middle',
@@ -764,6 +868,15 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
             >
               <UnassignedAvatar size={1} />
             </button>
+          )}
+          {overflowAssignees.length > 0 && (
+            <AssigneeOverflowMenu
+              assigneeFilter={assigneeFilter}
+              currentUser={currentUser}
+              overflowAssignees={overflowAssignees}
+              t={t}
+              toggleAssignee={toggleAssignee}
+            />
           )}
         </AvatarStack>
       )}
