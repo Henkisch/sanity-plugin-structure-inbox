@@ -64,6 +64,10 @@ interface InboxProps {
   sources: InboxSource[]
   /** See `StructureInboxConfig.ask`'s own doc comment. */
   ask?: boolean
+  /** See `StructureInboxConfig.summarize`'s own doc comment. */
+  summarize?: boolean
+  /** See `StructureInboxConfig.suggestTodos`'s own doc comment. */
+  suggestTodos?: boolean
   /** See `StructureInboxConfig.contentGaps`'s own doc comment. */
   contentGaps?: StructureInboxConfig['contentGaps']
   /** See `StructureInboxConfig.context`'s own doc comment. */
@@ -350,7 +354,14 @@ export function BoundedSourceFeed(props: BoundedSourceFeedProps) {
   )
 }
 
-export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) {
+export function Inbox({
+  sources,
+  ask = false,
+  summarize = true,
+  suggestTodos = true,
+  contentGaps,
+  context,
+}: InboxProps) {
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const client = useClient({apiVersion: API_VERSION})
   const schema = useSchema()
@@ -658,6 +669,12 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
   const summarizeRequestRef = useRef(0)
 
   const handleSummarize = useCallback(async () => {
+    // Belt-and-suspenders against a direct call some other code path might
+    // make: the menu item below is already gated on `summarize`, but this
+    // guards the handler itself, the same way `agentClient`'s own absence is
+    // checked defensively inside the handler rather than only at the render
+    // call site.
+    if (!summarize) return
     const requestId = ++summarizeRequestRef.current
     setSummary({status: 'loading'})
     const digest = openRows
@@ -683,7 +700,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
       console.error('[sanity-plugin-structure-inbox] summarize failed', error)
       if (requestId === summarizeRequestRef.current) setSummary({status: 'error'})
     }
-  }, [agentClient, openRows, context])
+  }, [agentClient, openRows, context, summarize])
 
   const [suggestions, setSuggestions] = useState<SuggestTodosState>({status: 'idle'})
 
@@ -701,6 +718,12 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
   const suggestTodosRequestRef = useRef(0)
 
   const handleSuggestTodos = useCallback(async () => {
+    // Belt-and-suspenders against a direct call some other code path might
+    // make: the menu item below is already gated on `suggestTodos`, but this
+    // guards the handler itself, the same way `agentClient`'s own absence is
+    // checked defensively inside the handler rather than only at the render
+    // call site.
+    if (!suggestTodos) return
     const requestId = ++suggestTodosRequestRef.current
     setSuggestions({status: 'loading'})
     const digest = openRows
@@ -734,7 +757,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
       console.error('[sanity-plugin-structure-inbox] suggest-todos failed', error)
       if (requestId === suggestTodosRequestRef.current) setSuggestions({status: 'error'})
     }
-  }, [agentClient, openRows, context])
+  }, [agentClient, openRows, context, suggestTodos])
 
   // "Find content gaps" — same "insight, then nothing automatic" shape as
   // Summarize/Suggest todos above, but reading the project's own content
@@ -1098,17 +1121,19 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
         id="structure-inbox-ai-insights-menu"
         menu={
           <Menu>
-            <MenuItem
-              disabled={summary.status === 'loading'}
-              onClick={handleSummarize}
-              text={
-                <InsightMenuItemLabel
-                  hint={t('summarize.menuHint')}
-                  label={summary.status === 'loading' ? t('summarize.loading') : t('summarize.ask')}
-                />
-              }
-            />
-            {addTodo && (
+            {summarize && (
+              <MenuItem
+                disabled={summary.status === 'loading'}
+                onClick={handleSummarize}
+                text={
+                  <InsightMenuItemLabel
+                    hint={t('summarize.menuHint')}
+                    label={summary.status === 'loading' ? t('summarize.loading') : t('summarize.ask')}
+                  />
+                }
+              />
+            )}
+            {suggestTodos && addTodo && (
               <MenuItem
                 disabled={suggestions.status === 'loading'}
                 onClick={handleSuggestTodos}

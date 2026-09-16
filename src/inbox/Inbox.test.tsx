@@ -308,6 +308,41 @@ describe('Inbox handleSuggestTodos', () => {
   })
 })
 
+// Plan 045: `summarize`/`suggestTodos` are the config-level opt-outs for
+// these two pane-wide AI reads — both default to `true` (today's existing,
+// unconditional behaviour), so the regression case is that omitting them
+// entirely changes nothing.
+describe('Inbox summarize/suggestTodos opt-out', () => {
+  it('shows both Summarize and Suggest todos by default, with neither prop passed', () => {
+    renderWithTheme(<Inbox sources={[todosSource()]} />)
+
+    openAiInsightsMenu()
+
+    expect(screen.getByRole('menuitem', {name: /summarize\.ask/})).toBeTruthy()
+    expect(screen.getByRole('menuitem', {name: /todoSuggest\.ask/})).toBeTruthy()
+  })
+
+  it('hides the Summarize menu item entirely when summarize={false}', () => {
+    renderWithTheme(<Inbox sources={[todosSource()]} summarize={false} />)
+
+    openAiInsightsMenu()
+
+    expect(screen.queryByRole('menuitem', {name: /summarize\.ask/})).toBeNull()
+    // Suggest todos is unaffected — the two flags are independent.
+    expect(screen.getByRole('menuitem', {name: /todoSuggest\.ask/})).toBeTruthy()
+  })
+
+  it('hides the Suggest todos menu item entirely when suggestTodos={false}, even with a todos source configured', () => {
+    renderWithTheme(<Inbox sources={[todosSource()]} suggestTodos={false} />)
+
+    openAiInsightsMenu()
+
+    expect(screen.queryByRole('menuitem', {name: /todoSuggest\.ask/})).toBeNull()
+    // Summarize is unaffected — the two flags are independent.
+    expect(screen.getByRole('menuitem', {name: /summarize\.ask/})).toBeTruthy()
+  })
+})
+
 // Plan 042: `getProjectDigest` (`Inbox.tsx`) is the short-TTL-cached survey
 // shared between "Find content gaps" and Ask — these cases prove the cache
 // itself, not `surveyContentTypes`'s own per-type behaviour (already

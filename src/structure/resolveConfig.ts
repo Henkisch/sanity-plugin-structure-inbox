@@ -14,6 +14,8 @@ export function resolveConfig(config: StructureInboxConfig = {}): ResolvedStruct
     redirectOnLanding: config.redirectOnLanding ?? true,
     sources: config.sources ?? [],
     ask: config.ask ?? false,
+    summarize: config.summarize ?? true,
+    suggestTodos: config.suggestTodos ?? true,
     title: config.title,
     contentGaps: config.contentGaps,
     context: config.context,

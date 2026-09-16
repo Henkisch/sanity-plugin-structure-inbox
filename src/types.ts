@@ -65,6 +65,29 @@ export interface StructureInboxConfig {
   ask?: boolean
 
   /**
+   * Set to `false` to remove the "Summarize" pane-wide AI read entirely —
+   * no menu item, no cost, ever. On by default, unlike `ask`/`contentGaps`:
+   * this reads only what's already on screen (no extra dataset survey) and
+   * has been part of this pane's own baseline experience since it shipped.
+   * Turn it off if your organization wants a real, config-level lever to
+   * keep this specific read's AI-credit cost at zero regardless of what
+   * any individual editor might click.
+   *
+   * @defaultValue true
+   */
+  summarize?: boolean
+
+  /**
+   * Set to `false` to remove the "Suggest todos" pane-wide AI read
+   * entirely — same reasoning as `summarize` above. Already conditional on
+   * a `todos` source being configured at all; this is an *additional* gate,
+   * for turning it off even when `todos` is present.
+   *
+   * @defaultValue true
+   */
+  suggestTodos?: boolean
+
+  /**
    * Enables "Find content gaps" — a pane-level AI read that surveys every
    * document type (a sample of real content plus counts, not just schema
    * shape) and suggests what might be missing, shown as a dismissible card
@@ -104,6 +127,9 @@ export interface StructureInboxConfig {
 
 /** @internal */
 export type ResolvedStructureInboxConfig = Required<
-  Pick<StructureInboxConfig, 'toolName' | 'showInList' | 'redirectOnLanding' | 'sources' | 'ask'>
+  Pick<
+    StructureInboxConfig,
+    'toolName' | 'showInList' | 'redirectOnLanding' | 'sources' | 'ask' | 'summarize' | 'suggestTodos'
+  >
 > &
   Pick<StructureInboxConfig, 'title' | 'contentGaps' | 'context'>

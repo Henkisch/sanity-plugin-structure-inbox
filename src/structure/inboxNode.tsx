@@ -44,6 +44,8 @@ export function inboxComponent(
     .options({
       sources: config.sources,
       ask: config.ask,
+      summarize: config.summarize,
+      suggestTodos: config.suggestTodos,
       contentGaps: config.contentGaps,
       context: config.context,
     })
