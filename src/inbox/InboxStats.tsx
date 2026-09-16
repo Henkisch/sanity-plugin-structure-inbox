@@ -226,22 +226,38 @@ export function InboxStats(props: InboxStatsProps) {
                   singled out on its own line. */}
               {unassignedCount > 0 && (
                 <Flex align="center" gap={2} justify="space-between">
-                  <Flex align="center" gap={2}>
+                  {/* `minWidth: 0` on this flex item (so it can actually
+                      shrink below its own content width — a flex item's
+                      default `min-width: auto` otherwise refuses to),
+                      `overflow: hidden` + `textOverflow="ellipsis"` on
+                      the label itself (Sanity UI's own `Text` sets
+                      `white-space: nowrap` by default but not
+                      `overflow: hidden` — without it, a long label
+                      doesn't truncate, it just overflows past the
+                      card's own edge and pushes the count completely
+                      out of view). Confirmed live with a long
+                      synthetic display name — needed all three
+                      together; any one alone still overflowed. */}
+                  <Flex align="center" gap={2} style={{minWidth: 0}}>
                     <UnassignedAvatar size={0} />
-                    <Text size={1}>{t('assignee.unassigned')}</Text>
+                    <Text size={1} style={{overflow: 'hidden'}} textOverflow="ellipsis">
+                      {t('assignee.unassigned')}
+                    </Text>
                   </Flex>
-                  <Text muted size={1}>
+                  <Text muted size={1} style={{flexShrink: 0}}>
                     {unassignedCount}
                   </Text>
                 </Flex>
               )}
               {assigneeLoad.map((person) => (
                 <Flex align="center" gap={2} justify="space-between" key={person.id}>
-                  <Flex align="center" gap={2}>
+                  <Flex align="center" gap={2} style={{minWidth: 0}}>
                     <Avatar initials={initials(person.label)} size={0} src={person.imageUrl} />
-                    <Text size={1}>{person.label}</Text>
+                    <Text size={1} style={{overflow: 'hidden'}} textOverflow="ellipsis">
+                      {person.label}
+                    </Text>
                   </Flex>
-                  <Text muted size={1}>
+                  <Text muted size={1} style={{flexShrink: 0}}>
                     {person.count}
                   </Text>
                 </Flex>
