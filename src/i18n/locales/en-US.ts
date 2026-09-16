@@ -5,6 +5,11 @@
 const enUS = {
   'inbox.title': 'Inbox',
 
+  // Leads the headline when the current viewer is known — always the
+  // logged-in editor's own first name, never `headlineSubject`'s (that
+  // one can name a different teammate the assignee filter picked out).
+  'inbox.greeting': 'Hey {{name}}, ',
+
   // Which "who" the headline names depends on the assignee filter: nobody
   // selected reads as the whole team's queue, exactly one selected can name
   // that person (or "you" when it's the viewer themself), and anything else

@@ -41,7 +41,12 @@ export function inboxComponent(
   return S.component(InboxPane)
     .id(INBOX_PANE_ID)
     .canHandleIntent(() => false)
-    .options({sources: config.sources, ask: config.ask, contentGaps: config.contentGaps})
+    .options({
+      sources: config.sources,
+      ask: config.ask,
+      contentGaps: config.contentGaps,
+      context: config.context,
+    })
 }
 
 /**

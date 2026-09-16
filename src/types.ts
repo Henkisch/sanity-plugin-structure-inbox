@@ -75,24 +75,35 @@ export interface StructureInboxConfig {
    * rule is objectively true, "you're missing case studies" is an AI's
    * opinion, right or wrong. It's also the heaviest read here (every
    * document type, not 20-30 rows), so it should be a deliberate opt-in,
-   * not a default cost every Studio pays.
+   * not a default cost every Studio pays. Still a marker object, not a
+   * boolean — leaves room for its own options later without a breaking
+   * change, the same reasoning every other object-shaped option here uses.
    *
    * @defaultValue undefined (off)
    */
-  contentGaps?: {
-    /**
-     * Prose describing the project's own business/positioning — grounds
-     * what "a gap" even means (schema shape alone can't reveal that you
-     * promote a service you have no case studies for). Optional: without
-     * it, the read falls back to inferring context purely from a sample
-     * of existing document text, a weaker but still functional signal.
-     */
-    context?: string
-  }
+  contentGaps?: Record<string, never>
+
+  /**
+   * Prose describing this project's own business/positioning — grounds
+   * every AI read in this pane (Summarize, Suggest todos, Ask, Find
+   * content gaps) in what the project actually *is*, not just what's in
+   * front of it right now. Schema shape and row titles alone can't reveal
+   * that a project promotes a service it has no case studies for, or what
+   * "worth starting first" even means for this particular business.
+   *
+   * Optional: every read still functions without it, just with a weaker,
+   * more generic signal — `contentGaps` in particular falls back to
+   * inferring context purely from a sample of existing document text.
+   * Deliberately not threaded into any per-document read (`assess`,
+   * `proposeFix`, `suggestSnooze`) — those already ground themselves in
+   * one concrete document, where this adds far less than it does for a
+   * judgment call across the whole project.
+   */
+  context?: string
 }
 
 /** @internal */
 export type ResolvedStructureInboxConfig = Required<
   Pick<StructureInboxConfig, 'toolName' | 'showInList' | 'redirectOnLanding' | 'sources' | 'ask'>
 > &
-  Pick<StructureInboxConfig, 'title' | 'contentGaps'>
+  Pick<StructureInboxConfig, 'title' | 'contentGaps' | 'context'>

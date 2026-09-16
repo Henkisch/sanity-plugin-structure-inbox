@@ -63,9 +63,12 @@ export default defineConfig([
         // it too, alongside every other surface it's built to demo.
         ask: true,
         // Off by default — on here for the same reason `ask` is.
-        contentGaps: {
-          context: 'A blog and events site for a small editorial team, published under posts, authors, and events.',
-        },
+        contentGaps: {},
+        // Grounds every AI read (Summarize, Suggest todos, Ask, Find
+        // content gaps) in what this project actually is, not just what's
+        // in front of it.
+        context:
+          'A blog and events site for a small editorial team, published under posts, authors, and events.',
         showInList: true,
         sources: [
           // Everyone's open tasks, not just this editor's own — lets the new

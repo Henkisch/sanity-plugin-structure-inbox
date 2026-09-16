@@ -92,6 +92,8 @@ interface MergedListProps {
   filterBar?: ReactNode
   /** See `StructureInboxConfig.ask`'s own doc comment. Only ever shown in the Open view. */
   ask?: boolean
+  /** See `StructureInboxConfig.context`'s own doc comment — passed straight through to `AskInbox`. */
+  context?: string
   /**
    * Summarize / Suggest todos / a source's own `action` (Scan for issues) /
    * Add — every control that only ever affects this column, never the aside
@@ -147,6 +149,7 @@ export function MergedList(props: MergedListProps) {
     typeFilter,
     filterBar,
     ask = false,
+    context,
     maxHeight,
     actions,
     results,
@@ -1013,7 +1016,7 @@ export function MergedList(props: MergedListProps) {
                 empty box, not an intentional width. */}
             {ask && view === 'open' && (
               <Box style={{gridArea: 'ask', maxWidth: 480}}>
-                <AskInbox onSelect={setSelectedKeys} rows={rows} />
+                <AskInbox context={context} onSelect={setSelectedKeys} rows={rows} />
               </Box>
             )}
 

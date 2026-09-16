@@ -16,5 +16,6 @@ export function resolveConfig(config: StructureInboxConfig = {}): ResolvedStruct
     ask: config.ask ?? false,
     title: config.title,
     contentGaps: config.contentGaps,
+    context: config.context,
   }
 }

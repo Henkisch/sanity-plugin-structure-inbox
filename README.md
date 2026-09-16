@@ -646,6 +646,31 @@ Inbox pane, just grouped differently. This plugin adds no visibility
 gating of its own; restricting who can open the tool itself is your
 Studio's own access-control setup to make, same as any other tool.
 
+## Grounding AI reads in your project
+
+```ts
+structureInbox({
+  context: 'A design agency site — services, case studies, and a blog.',
+  sources: [
+    /* ... */
+  ],
+})
+```
+
+Every AI read this pane offers (Summarize, Suggest todos, Ask, Find
+content gaps) already reasons about what's in front of it right now — the
+open rows, or a content survey — but none of them know what the project
+actually *is*. `context` is optional prose describing your own project's
+business or positioning, prepended to every one of those reads. Without
+it, each still works, just with a weaker, more generic signal (Find
+content gaps in particular falls back to inferring context purely from a
+sample of existing document text).
+
+Deliberately not threaded into any per-item read (a row's own **Ask AI**,
+or **Fix with AI**) — those already ground themselves in one concrete
+document, where "what business is this" adds far less than it does for a
+judgment call across the whole project.
+
 ## Optional: broken links via `sanity-plugin-link-checker`
 
 [`sanity-plugin-link-checker`](https://www.sanity.io/plugins/sanity-plugin-link-checker)
@@ -708,9 +733,8 @@ noise is acceptable for your project.
 
 ```ts
 structureInbox({
-  contentGaps: {
-    context: 'A design agency site — services, case studies, and a blog.',
-  },
+  contentGaps: {},
+  context: 'A design agency site — services, case studies, and a blog.',
   sources: [
     /* ... */
   ],
@@ -725,10 +749,11 @@ a content type with far fewer entries than a related one, a topic mentioned
 in passing but with nothing dedicated to it. Results show as a dismissible
 card, same as Summarize's own read.
 
-`context` is optional prose describing your own project's business or
-positioning. Without it, the read falls back to inferring context purely
-from the content sample itself — a weaker signal, since a schema's field
-names alone never reveal what a project actually promotes.
+`context` (see [Grounding AI reads in your project](#grounding-ai-reads-in-your-project)
+above) matters most here of every read in this pane — without it, this
+falls back to inferring context purely from the content sample itself, a
+weaker signal since a schema's field names alone never reveal what a
+project actually promotes.
 
 **Unlike every other source or read in this pane, this one is a judgment
 call, not a fact.** A broken reference or a failed validation rule is

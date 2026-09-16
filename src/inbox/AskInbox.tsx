@@ -13,6 +13,8 @@ interface AskInboxProps {
   /** Only rows currently on screen (already view- and filter-scoped) — the only candidates a question can select from. */
   rows: readonly MergedRow[]
   onSelect: (keys: string[]) => void
+  /** See `StructureInboxConfig.context`'s own doc comment. */
+  context?: string
 }
 
 type AskState =
@@ -30,7 +32,7 @@ type AskState =
  * the selection so it stays reviewable rather than authoritative.
  */
 export function AskInbox(props: AskInboxProps) {
-  const {rows, onSelect} = props
+  const {rows, onSelect, context} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const agentClient = useAgentClient()
   const [question, setQuestion] = useState('')
@@ -46,7 +48,8 @@ export function AskInbox(props: AskInboxProps) {
       const described = describeRows(rows)
       const raw = await promptJson<unknown>(
         agentClient,
-        'Given this list of inbox items, one per line as JSON:\n$items\n---\n' +
+        (context ? `About this project: ${context}\n---\n` : '') +
+          'Given this list of inbox items, one per line as JSON:\n$items\n---\n' +
           'A question about them: "' +
           trimmed +
           '"\n' +
@@ -69,7 +72,7 @@ export function AskInbox(props: AskInboxProps) {
       console.error('[sanity-plugin-structure-inbox] ask-the-inbox failed', error)
       setState({status: 'error'})
     }
-  }, [question, agentClient, rows, onSelect])
+  }, [question, agentClient, rows, onSelect, context])
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {

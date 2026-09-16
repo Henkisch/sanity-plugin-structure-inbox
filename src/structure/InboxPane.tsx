@@ -12,6 +12,7 @@ interface InboxPaneProps {
     sources?: InboxSource[]
     ask?: boolean
     contentGaps?: StructureInboxConfig['contentGaps']
+    context?: string
   }
 }
 
@@ -26,6 +27,7 @@ export function InboxPane(props: InboxPaneProps) {
     <Inbox
       ask={props.options?.ask ?? false}
       contentGaps={props.options?.contentGaps}
+      context={props.options?.context}
       sources={props.options?.sources ?? []}
     />
   )

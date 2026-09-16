@@ -54,6 +54,8 @@ interface InboxProps {
   ask?: boolean
   /** See `StructureInboxConfig.contentGaps`'s own doc comment. */
   contentGaps?: StructureInboxConfig['contentGaps']
+  /** See `StructureInboxConfig.context`'s own doc comment. */
+  context?: string
 }
 
 /**
@@ -300,7 +302,7 @@ export function BoundedSourceFeed(props: BoundedSourceFeedProps) {
   )
 }
 
-export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
+export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) {
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const client = useClient({apiVersion: API_VERSION})
   const schema = useSchema()
@@ -571,6 +573,7 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
     try {
       const message = await agentClient.agent.action.prompt({
         instruction:
+          (context ? `About this project: ${context}\n---\n` : '') +
           'Given this list of open inbox items, one per line:\n$items\n---\n' +
           'In two or three short sentences, say what looks most worth starting with first and why.',
         instructionParams: {items: digest || 'Nothing is open right now.'},
@@ -580,7 +583,7 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
       console.error('[sanity-plugin-structure-inbox] summarize failed', error)
       setSummary({status: 'error'})
     }
-  }, [agentClient, openRows])
+  }, [agentClient, openRows, context])
 
   const [suggestions, setSuggestions] = useState<SuggestTodosState>({status: 'idle'})
 
@@ -612,7 +615,8 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
 
       const choice = await promptJson<SuggestionChoice>(
         agentClient,
-        'Given this list of open inbox items, one per line:\n$items\n---\n' +
+        (context ? `About this project: ${context}\n---\n` : '') +
+          'Given this list of open inbox items, one per line:\n$items\n---\n' +
           'Suggest at most 3 concrete personal todos an editor could add to make progress on ' +
           'these — each a short, specific, imperative title (max ~8 words) plus a one-sentence ' +
           'reason. Return JSON {"items": [{"title": string, "reason": string}]}. If nothing open ' +
@@ -625,7 +629,7 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
       console.error('[sanity-plugin-structure-inbox] suggest-todos failed', error)
       setSuggestions({status: 'error'})
     }
-  }, [agentClient, openRows])
+  }, [agentClient, openRows, context])
 
   // "Find content gaps" — same "insight, then nothing automatic" shape as
   // Summarize/Suggest todos above, but reading the project's own content
@@ -655,7 +659,7 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
 
       const choice = await promptJson<GapsChoice>(
         agentClient,
-        (contentGaps?.context ? `About this project: ${contentGaps.context}\n---\n` : '') +
+        (context ? `About this project: ${context}\n---\n` : '') +
           'Here is a survey of every content type in this Sanity project, how many documents ' +
           "each has, and a small sample of real text from each (when available):\n$survey\n---\n" +
           'Suggest at most 5 concrete content gaps — things that seem missing given what this ' +
@@ -673,7 +677,7 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
       console.error('[sanity-plugin-structure-inbox] find-content-gaps failed', error)
       setContentGapsResult({status: 'error'})
     }
-  }, [agentClient, client, schema, contentGaps])
+  }, [agentClient, client, schema, context])
 
   const dismissContentGap = useCallback((index: number) => {
     setContentGapsResult((current) =>
@@ -1471,6 +1475,13 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
                 which contradicts "nothing waiting on you". */}
             <StatusDot tone={openCount > 0 ? 'attention' : 'clear'} />
             <Heading size={1}>
+              {/* First name of the actual viewer, not `headlineSubject`'s
+                  own name — that one names whoever the assignee filter
+                  currently picks out (could be a teammate), while this
+                  greeting is always about the person looking at the
+                  screen. `.name` is a full name (`CurrentUser`'s own
+                  shape); only the first word reads as a greeting. */}
+              {currentUser && t('inbox.greeting', {name: currentUser.name.split(' ')[0]})}
               {openCount === 0
                 ? t(`inbox.allClear.${headlineSubject.kind}`, headlineSubject)
                 : t(`inbox.waiting.${headlineSubject.kind}`, {count: openCount, ...headlineSubject})}
@@ -1556,6 +1567,7 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
                     ask={ask}
                     assessments={assessments}
                     assigneeFilter={assigneeFilter}
+                    context={context}
                     dismissals={dismissals}
                     filterBar={filterBar}
                     maxHeight={sidebarHeight}
