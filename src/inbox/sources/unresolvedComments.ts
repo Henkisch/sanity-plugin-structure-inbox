@@ -30,6 +30,7 @@ const useAddonDataset = optionalHook('useAddonDataset', useUnavailableAddonDatas
 export interface UnresolvedCommentsOptions {
   /** Cap on rows. Defaults to 20. */
   limit?: number
+  /** Row category label. Defaults to a translated "Unresolved comment"; a custom value is shown exactly as given. */
   title?: string
   /**
    * Only threads mentioning the current editor, mirroring `openTasks`'s
@@ -157,7 +158,7 @@ const QUERY = `*[
  * comment already says what it means.
  */
 export function unresolvedComments(options: UnresolvedCommentsOptions = {}): InboxSource {
-  const {limit = 20, title = 'Unresolved comment', onlyMine = true} = options
+  const {limit = 20, title = 'source.unresolvedComments.defaultTitle', onlyMine = true} = options
 
   return {
     name: 'unresolvedComments',

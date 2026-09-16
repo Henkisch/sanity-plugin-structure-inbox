@@ -55,6 +55,18 @@ const enUS = {
   'source.loading': 'Loading…',
   'source.error.title': 'This section could not load',
 
+  // Default titles for the built-in sources — only ever used when an
+  // integrator has not passed their own `title` option. See Plan 040.
+  'source.assetIssues.defaultTitle': 'Asset issues',
+  'source.linkCheckerFindings.defaultTitle': 'Link checker',
+  'source.needsAttention.defaultTitle': 'Needs attention',
+  'source.documentValidation.defaultTitle': 'Needs fixing',
+  'source.openTasks.defaultTitle': 'Task',
+  'source.todos.defaultTitle': 'Todo',
+  'source.unpublishedDrafts.defaultTitle': 'Draft',
+  'source.upcomingReleases.defaultTitle': 'Upcoming releases',
+  'source.unresolvedComments.defaultTitle': 'Unresolved comment',
+
   'item.open': 'Open',
 
   'selection.select': 'Select',
@@ -255,6 +267,10 @@ const enUS = {
   'needsAttention.overdue': 'Scheduled {{when}} — still not published',
   'needsAttention.emptyAndImminent': 'Scheduled {{when}} — nothing in it yet',
   'needsAttention.ageingUndated': 'Still being filled, no date set',
+
+  // `openTasks` — a row's own due-date subtitle.
+  'openTasks.overdue': 'Overdue',
+  'openTasks.due': 'Due',
 }
 
 export default enUS

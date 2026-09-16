@@ -9,6 +9,7 @@ import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types
 import {useAssignableUsers} from './capability'
 
 export interface TodosOptions {
+  /** Row category label. Defaults to a translated "Todo"; a custom value is shown exactly as given. */
   title?: string
   /** Which column to render in. Defaults to `main` — a todo is work. */
   placement?: InboxSource['placement']
@@ -64,7 +65,7 @@ function isOverdue(dueBy?: string): boolean {
  * past — rather than inventing a second convention for the same idea.
  */
 export function todos(options: TodosOptions = {}): InboxSource {
-  const {title = 'Todo', placement = 'main'} = options
+  const {title = 'source.todos.defaultTitle', placement = 'main'} = options
 
   return {
     name: 'todos',

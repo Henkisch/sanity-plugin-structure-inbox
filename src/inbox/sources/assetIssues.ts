@@ -170,6 +170,7 @@ export function classifyAltText(altText: string, assetFilename?: string): AltTex
 export interface AssetIssuesOptions {
   /** Cap on rows per check (oversized, unused, missing alt text — each capped independently). Defaults to 20. */
   limit?: number
+  /** Row category label. Defaults to a translated "Asset issues"; a custom value is shown exactly as given. */
   title?: string
   /** An asset over this size counts as oversized. Defaults to 5 MiB. */
   maxSizeBytes?: number
@@ -235,7 +236,12 @@ interface AssetIssuesFetch {
  * those do get the normal `'edit'` intent.
  */
 export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
-  const {limit = 20, title = 'Asset issues', maxSizeBytes = 5 * 1024 * 1024, altFieldName = 'alt'} = options
+  const {
+    limit = 20,
+    title = 'source.assetIssues.defaultTitle',
+    maxSizeBytes = 5 * 1024 * 1024,
+    altFieldName = 'alt',
+  } = options
 
   if (!SIMPLE_FIELD_PATH.test(altFieldName)) {
     throw new Error(

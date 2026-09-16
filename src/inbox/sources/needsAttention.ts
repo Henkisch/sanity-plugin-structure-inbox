@@ -48,6 +48,7 @@ const useReleases = optionalHook<() => ReleasesState>('useActiveReleases', useUn
 export interface NeedsAttentionOptions {
   /** Cap on rows. Defaults to 10. */
   limit?: number
+  /** Row category label. Defaults to a translated "Needs attention"; a custom value is shown exactly as given. */
   title?: string
 }
 
@@ -123,7 +124,7 @@ function useDocumentCounts(client: SanityClient, releaseIds: readonly string[]):
  * source came from first considered — only releases.
  */
 export function needsAttention(options: NeedsAttentionOptions = {}): InboxSource {
-  const {limit = 10, title = 'Needs attention'} = options
+  const {limit = 10, title = 'source.needsAttention.defaultTitle'} = options
 
   return {
     name: 'needsAttention',

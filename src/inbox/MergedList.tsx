@@ -684,7 +684,7 @@ export function MergedList(props: MergedListProps) {
       if (!report) return undefined
       // An item's own `category` (when a source's items aren't all the same
       // kind — see its own doc comment) wins over the source's static title.
-      const category = item.category ?? report.source.title
+      const category = item.category ?? t(report.source.title)
       // The avatar chip already shows a face, but not a name at this size —
       // naming the assignee here is the only place on the row that actually
       // spells it out.
@@ -924,7 +924,7 @@ export function MergedList(props: MergedListProps) {
       {errors.map((report) => (
         <Card key={report.source.name} padding={3} radius={2} tone="critical">
           <Text size={1}>
-            {report.source.title}: {report.error?.message ?? t('source.error.title')}
+            {t(report.source.title)}: {report.error?.message ?? t('source.error.title')}
           </Text>
         </Card>
       ))}
