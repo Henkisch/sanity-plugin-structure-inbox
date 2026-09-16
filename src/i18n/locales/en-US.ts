@@ -171,6 +171,14 @@ const enUS = {
   'todoSuggest.add': 'Add',
   'todoSuggest.dismiss': 'Dismiss',
   'stats.load.title': 'Open items by assignee',
+  // The three lines `InboxStats.tsx` shows only above `STATS_MIN_ROWS` (or
+  // when something wakes soon) — each says something the visible list
+  // itself cannot, unlike the now-removed age/assignee breakdowns.
+  'stats.oldestOpen': 'Oldest open item',
+  'stats.days_one': '{{count}} day',
+  'stats.days_other': '{{count}} days',
+  'stats.nextWake': 'Next wakes',
+  'stats.overdue': 'Overdue',
 
   // `needsAttention` — off-track releases promoted into the main column.
   // See that source's own doc comment for why each condition gets its own

@@ -382,6 +382,14 @@ export function Inbox({sources, ask = false}: InboxProps) {
     [reports, mainOrder, dismissals.state],
   )
 
+  // Feeds `InboxStats`' own `nextWake` — the only state in this pane an
+  // editor cannot see from wherever they currently are, so the Overview
+  // card needs it regardless of which tab is actually open right now.
+  const snoozedRows = useMemo(
+    () => mergeRows(reports, mainOrder, 'snoozed', dismissals.state),
+    [reports, mainOrder, dismissals.state],
+  )
+
   // A pane-level read across everything currently open, not one item —
   // same Agent Actions call `unpublishedDrafts.ts`'s own `assess` makes,
   // same "informational only, never automatic" shape: only ever runs on a
@@ -978,10 +986,13 @@ export function Inbox({sources, ask = false}: InboxProps) {
                   <Stack gap={3}>
                     <InboxStats
                       assignableRows={assignableRows}
+                      now={now}
                       onAddSuggestion={handleAddSuggestion}
                       onDismissSuggestion={handleDismissSuggestion}
                       onSuggestTodos={addTodo ? handleSuggestTodos : undefined}
                       openRows={openRows}
+                      snoozed={snoozes.state.snoozed}
+                      snoozedRows={snoozedRows}
                       suggestions={suggestions}
                     />
 

@@ -69,6 +69,13 @@ context earns no space when there's nothing in it. `upcomingReleases` defaults
 to `aside`, and only the main column counts toward the headline — "three
 releases are scheduled" is not three things asking for your attention.
 
+The same column also holds a persistent Overview card — oldest open item,
+when the next snoozed item wakes, how many items are overdue, open items by
+assignee — but only once the open list is long enough that a breakdown of
+it says something the list itself cannot; below around a dozen open items
+it's a mirror, not a summary, so it stays out of the way (except when
+something is about to wake, which is worth saying regardless of list size).
+
 Main-column rows are sorted the way an editor actually triages an inbox, not
 by which source they came from: the most urgent `tone` first, then the
 longest-waiting `timestamp` first within a tone. Two rows tied on both keep
