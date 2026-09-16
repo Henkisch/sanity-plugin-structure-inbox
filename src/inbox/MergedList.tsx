@@ -1,5 +1,5 @@
 import {ChevronDownIcon} from '@sanity/icons/ChevronDown'
-import {Box, Button, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
+import {Badge, Box, Button, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
 import {Menu, MenuButton, MenuDivider, MenuItem} from '@sanity/ui/menu'
 import {Tooltip} from '@sanity/ui/tooltip'
 import {type ReactNode, useCallback, useEffect, useMemo, useState} from 'react'
@@ -1075,9 +1075,13 @@ function GroupHeader(props: {label: string; count: number}) {
         <Text muted size={0} weight="semibold">
           {props.label}
         </Text>
-        <Text muted size={0}>
+        {/* Same rounded-pill treatment the type-filter's own active count
+            already uses (`Inbox.tsx`'s filter `Badge`) — a plain muted
+            number here read as part of the label's own sentence, not as a
+            count of something. */}
+        <Badge fontSize={0} padding={1} radius={3}>
           {props.count}
-        </Text>
+        </Badge>
       </Flex>
     </Box>
   )
