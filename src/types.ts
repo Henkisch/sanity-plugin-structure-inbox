@@ -19,7 +19,9 @@ export interface StructureInboxConfig {
   sources?: InboxSource[]
 
   /**
-   * Title shown on the Inbox pane and on its item in the root list.
+   * Title for the "Inbox" entry in the root list, when {@link inboxListItem}
+   * (or `showInList`) puts one there. The pane itself has no title bar of
+   * its own to show this on — see `inboxComponent`'s own doc comment.
    * Defaults to the localized `inbox.title`.
    */
   title?: string

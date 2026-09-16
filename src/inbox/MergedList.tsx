@@ -858,11 +858,20 @@ export function MergedList(props: MergedListProps) {
             header. Its own row, above the checkbox/filter row below: that
             row's `minHeight` is already tuned against the filter bar and
             selection bar it swaps between, and squeezing a variable-width
-            button cluster into the same row would have broken that. */}
+            button cluster into the same row would have broken that.
+            `inbox.title` on the left fills what used to be dead space —
+            `Inbox.tsx`'s own component pane deliberately has no title bar
+            of its own any more (see `inboxComponent`'s doc comment), so
+            this is now the one place in the pane that actually names it. */}
         {actions && (
           <Card borderBottom paddingX={3} paddingY={3} radius={0} tone="transparent">
-            <Flex gap={2} justify="flex-end" wrap="wrap">
-              {actions}
+            <Flex align="center" gap={2} justify="space-between" wrap="wrap">
+              <Text muted size={1} weight="semibold">
+                {t('inbox.title')}
+              </Text>
+              <Flex gap={2} wrap="wrap">
+                {actions}
+              </Flex>
             </Flex>
           </Card>
         )}

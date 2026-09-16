@@ -6,7 +6,7 @@ import {type ResolvedStructureInboxConfig, type StructureInboxConfig} from '../t
 import {InboxPane} from './InboxPane'
 import {resolveConfig} from './resolveConfig'
 
-/** Applies the title the same way to the pane and to its list item. */
+/** Applies the title the same way to the pane's own list item. */
 function withTitle<
   T extends {title(t: string): T; i18n(i18n: {title: {key: string; ns: string}}): T},
 >(builder: T, config: ResolvedStructureInboxConfig): T {
@@ -26,13 +26,20 @@ function withTitle<
  * race. Leaving it unset happens to behave the same today; saying it outright
  * means a future default cannot change the answer.
  *
+ * Deliberately has no `.title()` of its own, unlike `inboxListItem` below —
+ * a component pane with no title renders with no breadcrumb bar above it
+ * at all (confirmed live), rather than falling back to its id or anything
+ * else. That bar only ever repeated what the pane's own headline
+ * (`Inbox.tsx`) already says, and it cost real vertical space doing it.
+ *
  * @internal
  */
 export function inboxComponent(
   S: StructureBuilder,
   config: ResolvedStructureInboxConfig,
 ): ComponentBuilder {
-  return withTitle(S.component(InboxPane).id(INBOX_PANE_ID), config)
+  return S.component(InboxPane)
+    .id(INBOX_PANE_ID)
     .canHandleIntent(() => false)
     .options({sources: config.sources, ask: config.ask, contentGaps: config.contentGaps})
 }
