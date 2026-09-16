@@ -11,29 +11,13 @@ import {defer, from, of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
 // `useUserListWithPermissions` stays out of this named import — see
 // `optionalHook` in `capability.ts`.
-import {
-  useClient,
-  useCurrentUser,
-  useSchema,
-  type UserListWithPermissionsHookValue,
-  type UserListWithPermissionsOptions,
-} from 'sanity'
+import {useClient, useCurrentUser, useSchema} from 'sanity'
 
 import {API_VERSION} from '../../constants'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
-import {optionalExport, optionalHook} from './capability'
+import {optionalExport, useAssignableUsers} from './capability'
 import {liveQuery$} from './liveQuery'
-
-/** Stands in for `useUserListWithPermissions` when Sanity does not export it. */
-function useUnavailableUserList(): UserListWithPermissionsHookValue {
-  return {data: null, error: null, loading: false}
-}
-
-// Resolved once at module scope — see `openTasks.ts` for why.
-const useAssignableUsers = optionalHook<
-  (opts: UserListWithPermissionsOptions) => UserListWithPermissionsHookValue
->('useUserListWithPermissions', useUnavailableUserList)
 
 /**
  * `validateDocument`'s own real shape, confirmed live against this repo's

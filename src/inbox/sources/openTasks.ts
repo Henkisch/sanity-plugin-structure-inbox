@@ -6,18 +6,13 @@ import {catchError, map, startWith} from 'rxjs/operators'
 // `useAddonDataset` and `useUserListWithPermissions` stay out of this named
 // import — see `optionalHook` below. `useCurrentUser` is public and stable,
 // so it's imported normally.
-import {
-  type AddonDatasetContextValue,
-  useCurrentUser,
-  type UserListWithPermissionsHookValue,
-  type UserListWithPermissionsOptions,
-} from 'sanity'
+import {type AddonDatasetContextValue, useCurrentUser} from 'sanity'
 
 import {useAgentClient} from '../../ai/useAgentClient'
 import {type SnoozeState} from '../../store/snoozes'
 import {splitItems} from '../splitItems'
 import {type InboxAssessment, type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
-import {optionalHook, useSafely} from './capability'
+import {optionalHook, useAssignableUsers, useSafely} from './capability'
 import {liveQuery$} from './liveQuery'
 import {useOpenTaskDetail} from './openTaskDetail'
 
@@ -37,11 +32,6 @@ function useUnavailableAddonDataset(): AddonDatasetContextValue {
   }
 }
 
-/** Stands in for `useUserListWithPermissions` when Sanity does not export it — see `unpublishedDrafts.ts`. */
-function useUnavailableUserList(): UserListWithPermissionsHookValue {
-  return {data: null, error: null, loading: false}
-}
-
 // Resolved once at module scope, not inside the component: `useAddonDataset`
 // is either present for the whole life of the process or absent for the whole
 // life of it. `useAddonDataset` below therefore names exactly one function —
@@ -49,9 +39,6 @@ function useUnavailableUserList(): UserListWithPermissionsHookValue {
 // can call it unconditionally on every render, which is what the rules of
 // hooks require.
 const useAddonDataset = optionalHook('useAddonDataset', useUnavailableAddonDataset)
-const useAssignableUsers = optionalHook<
-  (opts: UserListWithPermissionsOptions) => UserListWithPermissionsHookValue
->('useUserListWithPermissions', useUnavailableUserList)
 
 export interface OpenTasksOptions {
   /** Cap on rows. Defaults to 10. */

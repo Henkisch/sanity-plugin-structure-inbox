@@ -2,25 +2,11 @@ import {CheckmarkCircleIcon} from '@sanity/icons/CheckmarkCircle'
 import {useMemo} from 'react'
 // `useUserListWithPermissions` stays out of this named import — see
 // `optionalHook` in `capability.ts`.
-import {
-  useCurrentUser,
-  type UserListWithPermissionsHookValue,
-  type UserListWithPermissionsOptions,
-} from 'sanity'
+import {useCurrentUser} from 'sanity'
 
 import {useTodos} from '../../store/useTodos'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
-import {optionalHook} from './capability'
-
-/** Stands in for `useUserListWithPermissions` when Sanity does not export it. */
-function useUnavailableUserList(): UserListWithPermissionsHookValue {
-  return {data: null, error: null, loading: false}
-}
-
-// Resolved once at module scope — see `openTasks.ts` for why.
-const useAssignableUsers = optionalHook<
-  (opts: UserListWithPermissionsOptions) => UserListWithPermissionsHookValue
->('useUserListWithPermissions', useUnavailableUserList)
+import {useAssignableUsers} from './capability'
 
 export interface TodosOptions {
   title?: string
