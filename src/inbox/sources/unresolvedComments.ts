@@ -135,7 +135,7 @@ const QUERY = `*[
  * comment already says what it means.
  */
 export function unresolvedComments(options: UnresolvedCommentsOptions = {}): InboxSource {
-  const {limit = 20, title = 'Unresolved comments', onlyMine = true} = options
+  const {limit = 20, title = 'Unresolved comment', onlyMine = true} = options
 
   return {
     name: 'unresolvedComments',
@@ -181,7 +181,20 @@ export function unresolvedComments(options: UnresolvedCommentsOptions = {}): Inb
               subtitle: `${row.target.documentType} · ${row.target.path?.field ?? 'document'}`,
               timestamp: row._createdAt,
               tone: 'default',
-              intent: {type: 'edit', params: {id: row.target.document._ref, type: row.target.documentType}},
+              // `inspect`/`comment` match the deep link Sanity's own comment
+              // notification emails already use (confirmed by reading a real
+              // comment document's own `context.notification.url`) — opens
+              // the document with the Comments panel already open, scrolled
+              // to this exact thread, not just the document on its own.
+              intent: {
+                type: 'edit',
+                params: {
+                  id: row.target.document._ref,
+                  type: row.target.documentType,
+                  inspect: 'sanity/comments',
+                  comment: row._id,
+                },
+              },
             }),
           )
       }, [rows, currentUser?.id])
