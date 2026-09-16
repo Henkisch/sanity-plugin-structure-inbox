@@ -4,6 +4,13 @@ import * as sanity from 'sanity'
 // React Context (`TasksNavigationContext` among them) — same reasoning as
 // the namespace import above, for `optionalContext` further down.
 import * as sanitySingletons from 'sanity/_singletons'
+// These two are Sanity's own exported *types*, not the `@beta` value export
+// itself — safe to import by name directly (see `optionalHook`'s own doc
+// comment on why only value exports need the namespace-import treatment).
+import {
+  type UserListWithPermissionsHookValue,
+  type UserListWithPermissionsOptions,
+} from 'sanity'
 
 /**
  * Looks up a Sanity export that this plugin cannot rely on existing.
@@ -47,6 +54,22 @@ export function optionalHook<T>(name: string, fallback: T): T {
   const value = Reflect.get(sanity, name)
   return typeof value === 'function' ? value : fallback
 }
+
+/** Stands in for `useUserListWithPermissions` when Sanity does not export it. */
+function useUnavailableUserList(): UserListWithPermissionsHookValue {
+  return {data: null, error: null, loading: false}
+}
+
+/**
+ * Resolved once at module scope, shared by every assignable source —
+ * `useUserListWithPermissions` is `@beta` in Sanity's own typings, reached
+ * only through `optionalHook` for the reason this file's own top comment
+ * explains. Previously redeclared identically in 9 separate source files;
+ * consolidated here so a rename only needs one edit.
+ */
+export const useAssignableUsers = optionalHook<
+  (opts: UserListWithPermissionsOptions) => UserListWithPermissionsHookValue
+>('useUserListWithPermissions', useUnavailableUserList)
 
 /**
  * Same reasoning as `optionalHook` above, generalized to a plain (non-hook)

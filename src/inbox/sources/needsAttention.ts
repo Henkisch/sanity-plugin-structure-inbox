@@ -9,30 +9,14 @@ import {map} from 'rxjs/operators'
 import type {useActiveReleases as UseActiveReleasesType} from 'sanity'
 // `useUserListWithPermissions` stays out of this named import — see
 // `optionalHook` below, same reasoning `openTasks.ts` already gives.
-import {
-  useClient,
-  useCurrentUser,
-  useTranslation,
-  type UserListWithPermissionsHookValue,
-  type UserListWithPermissionsOptions,
-} from 'sanity'
+import {useClient, useCurrentUser, useTranslation} from 'sanity'
 
 import {API_VERSION, STRUCTURE_INBOX_NAMESPACE} from '../../constants'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
-import {optionalHook} from './capability'
+import {optionalHook, useAssignableUsers} from './capability'
 import {liveQuery$} from './liveQuery'
 import {classifyRelease, toneForAttention} from './releaseAttention'
-
-/** Stands in for `useUserListWithPermissions` when Sanity does not export it. */
-function useUnavailableUserList(): UserListWithPermissionsHookValue {
-  return {data: null, error: null, loading: false}
-}
-
-// Resolved once at module scope — see `openTasks.ts` for why.
-const useAssignableUsers = optionalHook<
-  (opts: UserListWithPermissionsOptions) => UserListWithPermissionsHookValue
->('useUserListWithPermissions', useUnavailableUserList)
 
 const RELEASE_INTENT = 'release'
 

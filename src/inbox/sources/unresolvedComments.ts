@@ -5,28 +5,12 @@ import {defer, from, of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
 // `useAddonDataset`/`useUserListWithPermissions` stay out of this named
 // import — see `optionalHook` in `capability.ts`.
-import {
-  type AddonDatasetContextValue,
-  useClient,
-  useCurrentUser,
-  type UserListWithPermissionsHookValue,
-  type UserListWithPermissionsOptions,
-} from 'sanity'
+import {type AddonDatasetContextValue, useClient, useCurrentUser} from 'sanity'
 
 import {API_VERSION} from '../../constants'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
-import {optionalHook} from './capability'
-
-/** Stands in for `useUserListWithPermissions` when Sanity does not export it. */
-function useUnavailableUserList(): UserListWithPermissionsHookValue {
-  return {data: null, error: null, loading: false}
-}
-
-// Resolved once at module scope — see `openTasks.ts` for why.
-const useAssignableUsers = optionalHook<
-  (opts: UserListWithPermissionsOptions) => UserListWithPermissionsHookValue
->('useUserListWithPermissions', useUnavailableUserList)
+import {optionalHook, useAssignableUsers} from './capability'
 
 /** Stands in for `useAddonDataset` when Sanity does not export it — see `openTasks.ts`. */
 function useUnavailableAddonDataset(): AddonDatasetContextValue {

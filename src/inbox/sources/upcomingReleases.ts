@@ -2,12 +2,7 @@ import {CalendarIcon} from '@sanity/icons/Calendar'
 import {useMemo} from 'react'
 // `useUserListWithPermissions` stays out of this named import — see
 // `optionalHook` in `capability.ts`. `useActiveReleases` is type-only (below).
-import {
-  useClient,
-  useCurrentUser,
-  type UserListWithPermissionsHookValue,
-  type UserListWithPermissionsOptions,
-} from 'sanity'
+import {useClient, useCurrentUser} from 'sanity'
 // Type-only: erased at compile time, so this never touches the runtime
 // module-evaluation path `optionalHook` exists to protect against. It only
 // borrows `useActiveReleases`'s shape (`ReleasesState`) for the call sites
@@ -17,17 +12,7 @@ import type {useActiveReleases as UseActiveReleasesType} from 'sanity'
 import {API_VERSION} from '../../constants'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
-import {optionalHook} from './capability'
-
-/** Stands in for `useUserListWithPermissions` when Sanity does not export it. */
-function useUnavailableUserList(): UserListWithPermissionsHookValue {
-  return {data: null, error: null, loading: false}
-}
-
-// Resolved once at module scope — see `openTasks.ts` for why.
-const useAssignableUsers = optionalHook<
-  (opts: UserListWithPermissionsOptions) => UserListWithPermissionsHookValue
->('useUserListWithPermissions', useUnavailableUserList)
+import {optionalHook, useAssignableUsers} from './capability'
 
 // `getReleaseIdFromReleaseDocumentId` strips the `_.releases.` prefix a
 // release's own document id carries — the Releases tool's `release` intent

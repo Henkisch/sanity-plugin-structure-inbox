@@ -6,14 +6,7 @@ import {from, of} from 'rxjs'
 import {catchError, map, startWith, switchMap} from 'rxjs/operators'
 // `useUserListWithPermissions` stays out of this named import — see
 // `optionalHook` in `capability.ts`.
-import {
-  useClient,
-  useCurrentLocale,
-  useCurrentUser,
-  useSchema,
-  type UserListWithPermissionsHookValue,
-  type UserListWithPermissionsOptions,
-} from 'sanity'
+import {useClient, useCurrentLocale, useCurrentUser, useSchema} from 'sanity'
 
 import {AssessmentUnavailableError, parseAssessment} from '../../ai/assessment'
 import {promptJson} from '../../ai/promptJson'
@@ -25,18 +18,8 @@ import {splitItems} from '../splitItems'
 import {type InboxAssessment, type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
 import {fetchDocumentAuthors, filterAuthoredBy} from './authoredBy'
-import {optionalHook} from './capability'
+import {useAssignableUsers} from './capability'
 import {liveQuery$} from './liveQuery'
-
-/** Stands in for `useUserListWithPermissions` when Sanity does not export it. */
-function useUnavailableUserList(): UserListWithPermissionsHookValue {
-  return {data: null, error: null, loading: false}
-}
-
-// Resolved once at module scope — see `openTasks.ts` for why.
-const useAssignableUsers = optionalHook<
-  (opts: UserListWithPermissionsOptions) => UserListWithPermissionsHookValue
->('useUserListWithPermissions', useUnavailableUserList)
 
 export interface UnpublishedDraftsOptions {
   /** Only list drafts untouched for at least this long. Defaults to 7 days. */
