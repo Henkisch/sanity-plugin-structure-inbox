@@ -286,6 +286,38 @@ useItems() {
 }
 ```
 
+#### Handing your todos to someone else
+
+`todos` also offers `transfer`, not `assign` — select rows, then pick a name
+from the **Hand off to…** picker, and they move out of your own list and
+into theirs. Real scenario this exists for: leaving the team (parental leave,
+changing roles) and wanting to hand off your own open todos before you go,
+rather than leaving them to just sit there or get deleted.
+
+This is a different verb from `assign` on purpose: every other assignable
+source labels a shared document everyone already reads (see "Assigning an
+item to someone else" above) — a todo has no shared document, only the
+acting editor's own private list, so there is nothing for a label to attach
+to. `transfer` moves the item's actual home instead: it reads the
+recipient's own todos document, inserts the item there (keeping its
+original id, so it survives the same conflict-resolution `mergeTodos`
+already gives any other edit), writes that first, and only then removes it
+from the sender's list — so a failed write never loses the todo outright.
+
+A source opts in the same shape `assign` uses:
+
+```ts
+useItems() {
+  return {
+    items,
+    transfer: {
+      users: assignableUsers,
+      toUser: (item, userId) => handOffMyOwnItem(item.id, userId),
+    },
+  }
+}
+```
+
 ### Live updates
 
 `openTasks` and `unpublishedDrafts` re-run their query whenever a matching
@@ -355,8 +387,9 @@ whether the underlying thing has one. `unpublishedDrafts`, `documentValidation`,
 structural reason: `openTasks` already has a native, real assignee field of
 its own (shown, but read-only, so there's no second competing path to the
 same fact), and `todos` lives in the acting editor's own private list with
-no shared copy anywhere to label — handing one off needs a different verb
-entirely, not `assign`.
+no shared copy anywhere to label — see [Handing your todos to someone
+else](#handing-your-todos-to-someone-else) for the different verb that
+fits that case instead.
 
 This is **not** a Sanity Task: an earlier version created a real `tasks.task`
 document per assignment, which surfaced as a second, separately-titled

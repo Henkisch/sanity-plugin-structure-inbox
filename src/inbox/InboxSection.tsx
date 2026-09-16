@@ -177,6 +177,7 @@ export function InboxSection(props: InboxSectionProps) {
                 item={item}
                 key={item.id}
                 onEdit={update ? () => setEditingId(item.id) : undefined}
+                reassignVerb={assign ? t('action.assign') : undefined}
                 onReassign={
                   assign
                     ? (targetItem, userId) => {

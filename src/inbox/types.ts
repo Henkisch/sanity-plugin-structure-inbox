@@ -332,6 +332,27 @@ export interface InboxSourceResult {
     ) => Promise<{userId: string; reason: 'lastEditor' | 'mentioned'} | null>
   }
   /**
+   * Hands an item to someone else outright — moves it out of the acting
+   * editor's own list and into theirs, rather than labeling a shared thing
+   * (see `assign`). Real scenario this exists for: an editor leaving the
+   * team (parental leave, changing roles) wants to hand off their own
+   * personal todos before they go, not just tell someone else about them.
+   *
+   * Only meaningful for a source whose items live in the acting editor's
+   * own private, per-editor storage, with nowhere shared to label instead
+   * — `todos` is the one built-in example. Every other built-in source
+   * offers `assign` instead, which is the right verb once a shared copy
+   * of the item exists for a label to attach to.
+   *
+   * `users`/`toUser` mirror `assign`'s own shape for the same reason: the
+   * source knows which dataset (and which permission) makes someone a
+   * sensible recipient, not the generic selection bar.
+   */
+  transfer?: {
+    users: {id: string; label: string}[]
+    toUser: (item: InboxItem, userId: string) => Promise<void>
+  }
+  /**
    * True for a source whose items have a real, native assignee — just not
    * one this plugin should offer to change. `openTasks` is the one built-in
    * example: a `tasks.task` already has exactly one real assignee field,

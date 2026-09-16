@@ -514,9 +514,9 @@ export function MergedList(props: MergedListProps) {
 
         setSelectedKeys([])
 
-        // Assigning creates a new Task rather than changing the row that was
-        // selected, so nothing in the list itself said the click landed —
-        // this is the only confirmation there is.
+        // Assigning writes a bookkeeping record rather than changing the
+        // row that was selected, so nothing in the list itself said the
+        // click landed — this is the only confirmation there is.
         if (assignedCount > 0) {
           showUndoToast({title: t('undo.assigned', {count: assignedCount, name: assignee})})
         }
@@ -525,6 +525,53 @@ export function MergedList(props: MergedListProps) {
       }
     },
     [assignableSource, selected, showUndoToast, t],
+  )
+
+  // Same one-source-only gate as `assignableSource` above — a selection
+  // only ever offers one of `assign`/`transfer`, never both (see
+  // `InboxSourceResult.transfer`'s own doc comment), so this and
+  // `assignableSource` are never both defined at once in practice.
+  const transferableSource =
+    selected.length > 0 && selected.every((row) => row.sourceName === selected[0].sourceName)
+      ? reports[selected[0].sourceName]?.transfer
+      : undefined
+
+  const confirmTransfer = useCallback(
+    async (userId: string) => {
+      if (!transferableSource) return
+      const targets = [...selected]
+      const recipient = transferableSource.users.find((user) => user.id === userId)?.label ?? userId
+
+      setBusy(true)
+      try {
+        const results = await Promise.allSettled(
+          targets.map((row) => transferableSource.toUser(row.item, userId)),
+        )
+
+        let transferredCount = 0
+        results.forEach((result) => {
+          if (result.status === 'rejected') {
+            console.error('[sanity-plugin-structure-inbox] could not transfer item', result.reason)
+          } else {
+            transferredCount += 1
+          }
+        })
+
+        setSelectedKeys([])
+
+        // Unlike assign, a transferred item actually leaves this editor's
+        // own list — the row itself vanishing is confirmation enough for
+        // that half, but not for *where* it went, so this still says who.
+        if (transferredCount > 0) {
+          showUndoToast({
+            title: t('undo.transferred', {count: transferredCount, name: recipient}),
+          })
+        }
+      } finally {
+        setBusy(false)
+      }
+    },
+    [transferableSource, selected, showUndoToast, t],
   )
 
   // A suggestion only ever makes sense for exactly one selected row (see
@@ -777,10 +824,17 @@ export function MergedList(props: MergedListProps) {
           return assessment
         }
       : undefined
+    // A row's own avatar reuses one picker for whichever of `assign`/
+    // `transfer` its source actually offers — never both (see
+    // `InboxSourceResult.transfer`'s own doc comment) — so this falls back
+    // to `transfer` only when there's no `assign` to prefer instead.
+    const assign = report?.assign
+    const transfer = report?.transfer
     return (
       <InboxRow
         assigneeReadOnly={report?.assigneeReadOnly}
-        assignableUsers={report?.assign?.users}
+        assignableUsers={assign?.users ?? transfer?.users}
+        reassignVerb={assign ? t('action.assign') : transfer ? t('action.transfer') : undefined}
         done={view === 'cleared'}
         initialAssessment={initialAssessment}
         item={row.item}
@@ -797,10 +851,8 @@ export function MergedList(props: MergedListProps) {
               : undefined
         }
         onReassign={
-          report?.assign
+          assign
             ? (item, userId) => {
-                const assign = report.assign
-                if (!assign) return
                 const assignee = assign.users.find((u) => u.id === userId)?.label ?? userId
                 assign
                   .toUser(item, userId)
@@ -813,12 +865,26 @@ export function MergedList(props: MergedListProps) {
                     console.error('[sanity-plugin-structure-inbox] could not assign item', error)
                   })
               }
-            : undefined
+            : transfer
+              ? (item, userId) => {
+                  const recipient = transfer.users.find((u) => u.id === userId)?.label ?? userId
+                  transfer
+                    .toUser(item, userId)
+                    .then(() =>
+                      showUndoToast({
+                        title: t('undo.transferred', {count: 1, name: recipient}),
+                      }),
+                    )
+                    .catch((error: unknown) => {
+                      console.error('[sanity-plugin-structure-inbox] could not transfer item', error)
+                    })
+                }
+              : undefined
         }
         onUnassign={
-          report?.assign?.unassign
+          assign?.unassign
             ? (item) => {
-                const unassign = report.assign?.unassign
+                const unassign = assign.unassign
                 if (!unassign) return
                 unassign(item)
                   .then(() => showUndoToast({title: t('undo.unassigned')}))
@@ -1065,7 +1131,9 @@ export function MergedList(props: MergedListProps) {
                   onDelete={deletableTargets.length > 0 ? confirmDelete : undefined}
                   onSnooze={view === 'open' ? confirmSnooze : undefined}
                   onSnoozeUntil={view === 'open' ? confirmSnoozeUntil : undefined}
+                  onTransfer={view === 'open' && transferableSource ? confirmTransfer : undefined}
                   snoozeSuggestion={view === 'open' ? (snoozeSuggestion ?? undefined) : undefined}
+                  transferableUsers={view === 'open' ? transferableSource?.users : undefined}
                   resolvableCount={
                     selected.filter((row) => Boolean(reports[row.sourceName]?.resolve)).length
                   }

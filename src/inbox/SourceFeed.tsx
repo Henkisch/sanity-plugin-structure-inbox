@@ -48,6 +48,7 @@ export function SourceFeed(props: SourceFeedProps) {
     openDetail,
     action,
     acknowledgable,
+    transfer,
   } = source.useItems()
 
   const {open, cleared, snoozed} = useMemo(
@@ -96,6 +97,7 @@ export function SourceFeed(props: SourceFeedProps) {
     openDetail,
     action,
     acknowledgable,
+    transfer,
   })
   useEffect(() => {
     capabilities.current = {
@@ -112,6 +114,7 @@ export function SourceFeed(props: SourceFeedProps) {
       openDetail,
       action,
       acknowledgable,
+      transfer,
     }
   })
 
@@ -128,6 +131,7 @@ export function SourceFeed(props: SourceFeedProps) {
   const isAssigneeReadOnly = Boolean(assigneeReadOnly)
   const hasSuggestSnooze = Boolean(suggestSnooze)
   const isAcknowledgable = acknowledgable !== false
+  const transferUserCount = transfer?.users.length ?? -1
 
   useEffect(() => {
     onReport(source.name, {source, loading, error, open, cleared, snoozed, ...capabilities.current})
@@ -152,6 +156,7 @@ export function SourceFeed(props: SourceFeedProps) {
     isAssigneeReadOnly,
     hasSuggestSnooze,
     isAcknowledgable,
+    transferUserCount,
   ])
 
   return null

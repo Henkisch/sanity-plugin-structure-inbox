@@ -120,6 +120,26 @@ export function withoutTodo(state: TodosState, id: string): TodosState {
 }
 
 /**
+ * Inserts an existing `TodoItem` as-is — unlike `withTodo`, which always
+ * mints a fresh `id`/`createdAt` for a brand-new one. Used only when an item
+ * is *moving* between two editors' own lists (`useTodos.ts`'s `transferTo`):
+ * the item already has a real identity from the sender's list, and keeping
+ * it (rather than treating the move as "create a new todo") is what lets
+ * `mergeTodos` resolve a conflict on the receiving side the same way it
+ * would for any other edit, and lets the sender's own now-removed copy and
+ * the recipient's new one be recognised as the same todo if anything ever
+ * needs to reconcile the two. A todo already present with this `id` in
+ * `state` is replaced rather than duplicated, the same "no double entry"
+ * guarantee `mergeTodos` gives.
+ */
+export function withTransferredTodo(state: TodosState, item: TodoItem): TodosState {
+  return {
+    version: TODOS_VERSION,
+    items: [...state.items.filter((existing) => existing.id !== item.id), item],
+  }
+}
+
+/**
  * Unions two todo lists by id. An id present on both sides keeps whichever
  * copy's `updatedAt` is later — the same id can now genuinely differ, since
  * `withUpdatedTodo` can touch either side between a load starting and it

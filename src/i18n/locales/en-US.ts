@@ -80,6 +80,8 @@ const enUS = {
   'undo.assigned_one': '{{count}} assigned to {{name}}',
   'undo.assigned_other': '{{count}} assigned to {{name}}',
   'undo.unassigned': 'Unassigned',
+  'undo.transferred_one': '{{count}} handed off to {{name}}',
+  'undo.transferred_other': '{{count}} handed off to {{name}}',
   'undo.done': 'Undone',
 
   'action.markDone': 'Mark as done',
@@ -99,6 +101,7 @@ const enUS = {
   'action.assign.suggested': 'Suggest {{name}}',
   'action.assign.reason.lastEditor': 'edited this most recently',
   'action.assign.reason.mentioned': 'was mentioned in this thread',
+  'action.transfer': 'Hand off to…',
   'action.delete': 'Delete',
 
   // The main column's own creator control (today, only `todos`) — a plain

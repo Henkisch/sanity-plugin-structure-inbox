@@ -10,6 +10,7 @@ import {
   type TodosState,
   withoutTodo,
   withTodo,
+  withTransferredTodo,
   withUpdatedTodo,
 } from './todos'
 
@@ -29,6 +30,15 @@ export interface Todos {
   remove: (id: string) => void
   /** Edits a todo in place — see `withUpdatedTodo`. */
   update: (id: string, input: TodoInput) => void
+  /**
+   * Moves a todo out of this editor's own list and into `toUserId`'s —
+   * see `withTransferredTodo`'s own doc comment for why the item keeps its
+   * identity rather than becoming a new one. Writes the recipient's
+   * document *before* clearing this editor's own copy, so a failed write
+   * never loses the todo outright — worst case it briefly exists on both
+   * lists, never on neither.
+   */
+  transferTo: (id: string, toUserId: string) => Promise<void>
 }
 
 /**
@@ -114,5 +124,33 @@ export function useTodos(): Todos {
     setState((current) => withUpdatedTodo(current, id, input))
   }, [])
 
-  return useMemo(() => ({state, add, remove, update}), [state, add, remove, update])
+  const transferTo = useCallback(
+    async (id: string, toUserId: string) => {
+      const item = state.items.find((todo) => todo.id === id)
+      if (!item) return
+
+      const toDocumentId = todosDocumentId(toUserId)
+      const raw = await client.fetch<string | null>(`*[_id == $id][0].${TODOS_FIELD}`, {
+        id: toDocumentId,
+      })
+      const targetState = parseTodos(typeof raw === 'string' ? JSON.parse(raw) : null)
+      const value = JSON.stringify(withTransferredTodo(targetState, item))
+
+      await client
+        .transaction()
+        .createIfNotExists({_id: toDocumentId, _type: TODOS_TYPE, [TODOS_FIELD]: value})
+        .patch(toDocumentId, (patch) => patch.set({[TODOS_FIELD]: value}))
+        .commit({visibility: 'async'})
+
+      dirtyRef.current = true
+      hasLocalEditRef.current = true
+      setState((current) => withoutTodo(current, id))
+    },
+    [client, state],
+  )
+
+  return useMemo(
+    () => ({state, add, remove, update, transferTo}),
+    [state, add, remove, update, transferTo],
+  )
 }

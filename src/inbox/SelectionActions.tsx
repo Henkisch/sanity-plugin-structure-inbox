@@ -63,6 +63,16 @@ interface SelectionActionsProps {
    */
   assigneeSuggestion?: {userId: string; reason: 'lastEditor' | 'mentioned'}
   /**
+   * Who `onTransfer` can hand the selection to — absent or empty hides the
+   * picker. Distinct from `assignableUsers`/`onAssign`: a source offers one
+   * or the other, never both (see `InboxSourceResult.transfer`'s own doc
+   * comment on why they're different verbs), so only one of the two
+   * pickers ever actually renders for a given selection.
+   */
+  transferableUsers?: {id: string; label: string}[]
+  /** Offers the "Hand off to…" picker. Only meaningful in the open view, same reasoning as `onAssign`. */
+  onTransfer?: (userId: string) => void
+  /**
    * Offers "Delete" — for real removal (`todos`, say), not a soft dismiss.
    * Used to live as a plain text link under a lone selected row
    * (`InboxRow.tsx`'s own `removeRow`), which read as a stray control rather
@@ -163,6 +173,8 @@ export function SelectionActions(props: SelectionActionsProps) {
     assignableUsers,
     onAssign,
     assigneeSuggestion,
+    transferableUsers,
+    onTransfer,
     onDelete,
   } = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
@@ -190,6 +202,11 @@ export function SelectionActions(props: SelectionActionsProps) {
   const handleAssignChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const value = event.currentTarget.value
     if (value) onAssign?.(value)
+  }
+
+  const handleTransferChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const value = event.currentTarget.value
+    if (value) onTransfer?.(value)
   }
 
   const suggestedUser = assigneeSuggestion
@@ -277,6 +294,21 @@ export function SelectionActions(props: SelectionActionsProps) {
               {t('action.assign')}
             </option>
             {assignableUsers.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.label}
+              </option>
+            ))}
+          </Select>
+        </Box>
+      )}
+
+      {onTransfer && transferableUsers && transferableUsers.length > 0 && (
+        <Box>
+          <Select fontSize={1} onChange={handleTransferChange} value="">
+            <option disabled value="">
+              {t('action.transfer')}
+            </option>
+            {transferableUsers.map((user) => (
               <option key={user.id} value={user.id}>
                 {user.label}
               </option>

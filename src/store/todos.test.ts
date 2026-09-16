@@ -1,6 +1,13 @@
 import {describe, expect, it} from 'vitest'
 
-import {EMPTY_TODOS, mergeTodos, parseTodos, withoutTodo, withTodo} from './todos'
+import {
+  EMPTY_TODOS,
+  mergeTodos,
+  parseTodos,
+  withoutTodo,
+  withTodo,
+  withTransferredTodo,
+} from './todos'
 
 describe('parseTodos', () => {
   it('reads back what it wrote', () => {
@@ -104,6 +111,34 @@ describe('withoutTodo', () => {
     const state = withTodo(EMPTY_TODOS, {title: 'Only one'})
 
     expect(withoutTodo(state, 'not-an-id')).toEqual(state)
+  })
+})
+
+describe('withTransferredTodo', () => {
+  it('inserts the exact item, keeping its own id/createdAt', () => {
+    const item = {id: 'todo-1', title: 'Follow up with legal', createdAt: '2026-01-01T00:00:00.000Z'}
+    const result = withTransferredTodo(EMPTY_TODOS, item)
+
+    expect(result.items).toEqual([item])
+  })
+
+  it('leaves other todos in the target list alone', () => {
+    const existing = withTodo(EMPTY_TODOS, {title: 'Already theirs'})
+    const item = {id: 'todo-1', title: 'Handed off', createdAt: '2026-01-01T00:00:00.000Z'}
+
+    const result = withTransferredTodo(existing, item)
+
+    expect(result.items.map((todo) => todo.title)).toEqual(['Already theirs', 'Handed off'])
+  })
+
+  it('replaces rather than duplicates when the id is already present', () => {
+    const item = {id: 'todo-1', title: 'Original', createdAt: '2026-01-01T00:00:00.000Z'}
+    const state = withTransferredTodo(EMPTY_TODOS, item)
+
+    const updated = {...item, title: 'Updated'}
+    const result = withTransferredTodo(state, updated)
+
+    expect(result.items).toEqual([updated])
   })
 })
 

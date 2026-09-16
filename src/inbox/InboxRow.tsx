@@ -84,12 +84,21 @@ interface InboxRowProps {
   /**
    * Reassigns this one item directly, without a bulk selection — clicking
    * the assignee avatar opens a small picker in place of it. Both this and
-   * `assignableUsers` come from the row's own source's `assign`, so they're
-   * either both present or both absent.
+   * `assignableUsers` come from whichever of the row's own source's
+   * `assign`/`transfer` it actually offers (`MergedList.tsx` picks one), so
+   * they're either both present or both absent.
    */
   onReassign?: (item: InboxItem, userId: string) => void
-  /** Who `onReassign` can hand this item to — see `InboxSourceResult.assign`. */
+  /** Who `onReassign` can hand this item to — see `InboxSourceResult.assign`/`transfer`. */
   assignableUsers?: {id: string; label: string}[]
+  /**
+   * The picker's own header, naming the actual verb about to happen
+   * ("Assign to…"/"Hand off to…") — without it, a bare list of names gives
+   * no hint of what clicking one does until after the fact. Required
+   * whenever `onReassign` is, for the same reason `assign`/`transfer`'s own
+   * bulk-selection pickers already show this as their placeholder option.
+   */
+  reassignVerb?: string
   /**
    * Clears this item's assignee — offered in the same picker as `onReassign`,
    * only once there's actually an assignee to clear. Absent for a source
@@ -218,6 +227,7 @@ export function InboxRow(props: InboxRowProps) {
     onEdit,
     onReassign,
     assignableUsers,
+    reassignVerb,
     onUnassign,
     assigneeReadOnly = false,
     sourceLabel,
@@ -520,6 +530,12 @@ export function InboxRow(props: InboxRowProps) {
             id={`${labelId}-assignee`}
             menu={
               <Menu>
+                {reassignVerb && (
+                  <>
+                    <MenuItem disabled text={reassignVerb} />
+                    <MenuDivider />
+                  </>
+                )}
                 {assignableUsers?.map((user) => (
                   <MenuItem
                     key={user.id}
@@ -612,7 +628,12 @@ export function InboxRow(props: InboxRowProps) {
     // minimum than the row actually has room for, so `textOverflow`
     // "ellipsis" below never got a chance to kick in — the row just forced
     // the whole card wider, past its own container, instead of truncating.
-    <Stack flex={1} gap={compact ? 3 : 2} style={{minWidth: 0}}>
+    // Same `gap` regardless of `compact`: an earlier, undocumented `3` for
+    // compact rows (vs. `2` for main ones) put visibly *more* space between
+    // an aside row's title and subtitle than a main row's, backwards from
+    // what "compact" should mean — confirmed live via a side-by-side
+    // screenshot, no rationale on record for the difference.
+    <Stack flex={1} gap={2} style={{minWidth: 0}}>
       <Flex align="center" gap={2} style={{minWidth: 0}}>
         <Text
           id={labelId}

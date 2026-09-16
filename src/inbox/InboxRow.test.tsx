@@ -116,6 +116,23 @@ describe('InboxRow', () => {
     expect(navigateIntent).not.toHaveBeenCalled()
   })
 
+  it('names the actual verb at the top of the picker, when the source provides one', () => {
+    renderRow(
+      <InboxRow
+        assignableUsers={[{id: 'user-1', label: 'Ada'}]}
+        item={item({assignee: {id: 'henrik', label: 'Henrik Larsson'}})}
+        onReassign={vi.fn()}
+        onSelectedChange={vi.fn()}
+        reassignVerb="Hand off to…"
+        selected={false}
+      />,
+    )
+
+    fireEvent.click(screen.getByTitle('Henrik Larsson'))
+
+    expect(screen.getByText('Hand off to…')).toBeTruthy()
+  })
+
   it('offers unassign only once there is an assignee, and only when the source supports it', () => {
     const onUnassign = vi.fn()
 

@@ -495,10 +495,13 @@ describe('MergedList', () => {
 
     selectItem('Draft one')
     selectItem('Draft two')
-    expect(screen.getByText('action.assign')).toBeTruthy()
+    // The bulk selection bar's own picker, not a row's — each selected
+    // row's own avatar popover also renders this same text (see
+    // `InboxRow.tsx`'s `reassignVerb`), so `role: 'option'` disambiguates.
+    expect(screen.getByRole('option', {name: 'action.assign'})).toBeTruthy()
 
     selectItem('Task one')
-    expect(screen.queryByText('action.assign')).toBeNull()
+    expect(screen.queryByRole('option', {name: 'action.assign'})).toBeNull()
   })
 
   it('does not render its own "add new" trigger — that now lives in Inbox.tsx\'s tab row', () => {
