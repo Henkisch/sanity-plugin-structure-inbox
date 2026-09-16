@@ -89,7 +89,14 @@ const enUS = {
   'action.assign.reason.lastEditor': 'edited this most recently',
   'action.delete': 'Delete',
 
+  // The main column's own creator control (today, only `todos`) — a plain
+  // button when there's exactly one, this menu label only when there's
+  // more than one to choose between.
   'inbox.addMenu': 'Add',
+  // The pane-wide, source-agnostic "any document type" menu, back beside
+  // the tabs — distinct from `inbox.addMenu` above, which is scoped to a
+  // source that keeps its own items.
+  'inbox.addContent': 'Add content',
 
   // The Team/Private split within a tab's own row list — see
   // `InboxSource.visibility`'s own doc comment for what decides which a row

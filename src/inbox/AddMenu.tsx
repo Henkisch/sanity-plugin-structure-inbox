@@ -1,7 +1,7 @@
 import {AddIcon} from '@sanity/icons/Add'
 import {isDocumentSchemaType} from '@sanity/types'
 import {Button} from '@sanity/ui'
-import {Menu, MenuButton, MenuDivider, MenuItem} from '@sanity/ui/menu'
+import {Menu, MenuButton, MenuItem} from '@sanity/ui/menu'
 import {useMemo} from 'react'
 import {useSchema, useTranslation} from 'sanity'
 import {useRouter} from 'sanity/router'
@@ -18,37 +18,32 @@ import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
  * nobody ever "adds" by hand. Best-effort prefix match, not an exhaustive
  * enumeration: a real, named document type a developer defines is vanishingly
  * unlikely to start with any of these.
+ *
+ * Exported: `contentGapsDigest.ts` reuses this same "real project content
+ * type" filter for its own schema-wide survey, rather than redefining it.
  */
-const HIDDEN_TYPE_PREFIXES = ['sanity.', 'system.', 'media.']
+export const HIDDEN_TYPE_PREFIXES = ['sanity.', 'system.', 'media.']
 
-function isHiddenType(name: string): boolean {
+export function isHiddenType(name: string): boolean {
   return HIDDEN_TYPE_PREFIXES.some((prefix) => name.startsWith(prefix))
 }
 
-interface AddMenuProps {
-  /**
-   * One entry per source that keeps its own items (today, only `todos`) —
-   * clicking it opens that source's own `CreateItemRow` dialog, mounted
-   * elsewhere with a hidden trigger; see `Inbox.tsx`.
-   */
-  creators: {key: string; label: string; onClick: () => void}[]
-}
-
 /**
- * One combined "+ Add" entry point, replacing what used to be two separate
- * buttons ("Add content" and "Add todo") sitting side by side on the tab row.
- * Two buttons plus the tabs themselves was too much to take in on a first
- * glance, especially at phone width, where it wrapped to a crowded second
- * line of its own — one small trigger with the same two choices one tap
- * further in reads as far less going on, without losing either action.
+ * "Add content" — any document type this project has, via Studio's own
+ * create flow. Used to also offer per-source creators (`todos`, say) behind
+ * this same trigger, merged in to keep two buttons from crowding the tab row
+ * (see git history) — split back out once the toolbar itself moved off that
+ * row: a creator source now gets its own control right in the main column's
+ * toolbar (`Inbox.tsx`'s `mainColumnActions`), next to Suggest todos, since
+ * it only ever affects the editor's own queue. This stays the global,
+ * source-agnostic one, back in its original spot beside the tabs.
  *
  * Still deliberately does not reimplement document creation: picking a type
  * here only calls `navigateIntent('create', {type})`, the same router intent
  * `InboxRow.tsx` already uses for `'edit'` — Sanity's own create flow takes
  * over from there exactly as it would from the built-in "+" menu.
  */
-export function AddMenu(props: AddMenuProps) {
-  const {creators} = props
+export function AddMenu() {
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const schema = useSchema()
   const {navigateIntent} = useRouter()
@@ -63,28 +58,23 @@ export function AddMenu(props: AddMenuProps) {
       .sort((a, b) => a.title.localeCompare(b.title))
   }, [schema])
 
-  if (documentTypes.length === 0 && creators.length === 0) return null
+  if (documentTypes.length === 0) return null
 
   return (
     <MenuButton
-      // `ghost` (a real border), not `bleed` (no border) like it used to
-      // be — next to `Summarize`/`Scan for issues`'s own `ghost` buttons, a
-      // borderless "+ Add" actually read as the *lightest*-weight of the
-      // three, not the primary action it is: it's the one control here that
-      // creates something new, not just reads an AI insight. `tone="primary"`
-      // on top of that matching border is what actually nudges it up —
-      // deliberately not `mode="default"` (a filled button), which would
-      // read as dominant rather than "slightly more" next to two ghosts.
       button={
-        <Button fontSize={1} icon={AddIcon} mode="ghost" padding={2} text={t('inbox.addMenu')} tone="primary" />
+        <Button
+          fontSize={1}
+          icon={AddIcon}
+          mode="ghost"
+          padding={2}
+          text={t('inbox.addContent')}
+          tone="primary"
+        />
       }
       id="structure-inbox-add-menu"
       menu={
         <Menu>
-          {creators.map((creator) => (
-            <MenuItem icon={AddIcon} key={creator.key} onClick={creator.onClick} text={creator.label} />
-          ))}
-          {creators.length > 0 && documentTypes.length > 0 && <MenuDivider />}
           {documentTypes.map((type) => (
             <MenuItem
               icon={AddIcon}

@@ -1,3 +1,4 @@
+import {AddIcon} from '@sanity/icons/Add'
 import {CheckmarkIcon} from '@sanity/icons/Checkmark'
 import {FilterIcon} from '@sanity/icons/Filter'
 import {SparklesIcon} from '@sanity/icons/Sparkles'
@@ -816,8 +817,8 @@ export function Inbox({sources, ask = false}: InboxProps) {
         />
       )}
 
-      {/* Ahead of `AddMenu`, not after: `AddMenu` stays the right-most,
-          primary action a returning editor already knows, and a
+      {/* Ahead of the creators control, not after: that one stays the
+          right-most, primary action a returning editor already knows, and a
           source-level action is the newer, less frequent one. Ghost mode
           for the same reason — until there's a real signal to weigh one
           action over the other, neither should read as more important than
@@ -851,22 +852,47 @@ export function Inbox({sources, ask = false}: InboxProps) {
           </Tooltip>
         )
       })}
-      <AddMenu
-        creators={creators.map((report) => ({
-          key: report.source.name,
-          label:
-            report.source.name === 'todos'
-              ? t('todos.addButton')
-              : `${t('inbox.addMenu')} ${report.source.title}`,
-          onClick: () => requestCreate(report.source.name),
-        }))}
-      />
-      {/* Hidden-trigger dialogs only — `AddMenu` above is the only visible
-          entry point now; each one still needs to be mounted somewhere to
-          have a dialog `requestCreate` can pop open. Mounted regardless of
-          tab for the same reason `AddMenu` itself now is — adding a new item
-          always adds it as open, whichever tab that dialog happened to be
-          triggered from. */}
+      {/* A creator source (today, only `todos`) — distinct from `AddMenu`
+          (the pane-wide "Add content", back beside the tabs): this only
+          ever adds to the editor's own queue, so it lives here, next to
+          Suggest todos, not with the source-agnostic global one. Exactly
+          one creator (today's only real case) gets a plain button with
+          that source's own label rather than a one-item menu, which would
+          just be an extra click to reach the only option in it. */}
+      {creators.length === 1 && (
+        <Button
+          fontSize={1}
+          icon={AddIcon}
+          mode="ghost"
+          onClick={() => requestCreate(creators[0].source.name)}
+          text={creators[0].source.name === 'todos' ? t('todos.addButton') : creators[0].source.title}
+          tone="primary"
+        />
+      )}
+      {creators.length > 1 && (
+        <MenuButton
+          button={<Button fontSize={1} icon={AddIcon} mode="ghost" text={t('inbox.addMenu')} tone="primary" />}
+          id="structure-inbox-add-creator-menu"
+          menu={
+            <Menu>
+              {creators.map((report) => (
+                <MenuItem
+                  icon={AddIcon}
+                  key={report.source.name}
+                  onClick={() => requestCreate(report.source.name)}
+                  text={report.source.name === 'todos' ? t('todos.addButton') : report.source.title}
+                />
+              ))}
+            </Menu>
+          }
+          popover={{placement: 'bottom-end', portal: true}}
+        />
+      )}
+      {/* Hidden-trigger dialogs only — the control above is the only
+          visible entry point; each one still needs to be mounted somewhere
+          to have a dialog `requestCreate` can pop open. Mounted regardless
+          of tab — adding a new item always adds it as open, whichever tab
+          that dialog happened to be triggered from. */}
       {creators.map((report) => (
         <CreateItemRow
           hideTrigger
@@ -923,35 +949,49 @@ export function Inbox({sources, ask = false}: InboxProps) {
             </Heading>
           </Flex>
 
-          <TabList gap={1}>
-            <Tab
-              aria-controls={PANEL_ID}
-              fontSize={1}
-              id={OPEN_TAB_ID}
-              label={t('tab.open')}
-              onClick={showOpen}
-              selected={view === 'open'}
-            />
-            {/* Open, Snoozed, Cleared — the actual lifecycle order (active,
-                deferred, resolved), not the arbitrary order this used to
-                be in. */}
-            <Tab
-              aria-controls={PANEL_ID}
-              fontSize={1}
-              id={SNOOZED_TAB_ID}
-              label={t('tab.snoozed')}
-              onClick={showSnoozed}
-              selected={view === 'snoozed'}
-            />
-            <Tab
-              aria-controls={PANEL_ID}
-              fontSize={1}
-              id={CLEARED_TAB_ID}
-              label={t('tab.cleared')}
-              onClick={showCleared}
-              selected={view === 'cleared'}
-            />
-          </TabList>
+          {/* Tabs left, "Add content" flush right — same row, `wrap="wrap"`
+              so a narrow phone drops it to a line of its own rather than
+              squeezing both onto one. Every other pane-wide action
+              (Summarize, Suggest todos, Scan, Add todo) lives one level
+              down instead, in the main column's own toolbar — see
+              `MergedList`'s `actions` doc comment for why. This one stays
+              here because it's genuinely global (any document type, not
+              scoped to the main column's own rows), the same reason it
+              used to sit here before this session's toolbar move, and
+              because a bare tab row otherwise reads as though something's
+              missing beside it. */}
+          <Flex align="center" gap={3} justify="space-between" wrap="wrap">
+            <TabList gap={1}>
+              <Tab
+                aria-controls={PANEL_ID}
+                fontSize={1}
+                id={OPEN_TAB_ID}
+                label={t('tab.open')}
+                onClick={showOpen}
+                selected={view === 'open'}
+              />
+              {/* Open, Snoozed, Cleared — the actual lifecycle order (active,
+                  deferred, resolved), not the arbitrary order this used to
+                  be in. */}
+              <Tab
+                aria-controls={PANEL_ID}
+                fontSize={1}
+                id={SNOOZED_TAB_ID}
+                label={t('tab.snoozed')}
+                onClick={showSnoozed}
+                selected={view === 'snoozed'}
+              />
+              <Tab
+                aria-controls={PANEL_ID}
+                fontSize={1}
+                id={CLEARED_TAB_ID}
+                label={t('tab.cleared')}
+                onClick={showCleared}
+                selected={view === 'cleared'}
+              />
+            </TabList>
+            <AddMenu />
+          </Flex>
         </Stack>
       </Card>
 

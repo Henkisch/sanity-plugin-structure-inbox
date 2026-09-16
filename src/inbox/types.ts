@@ -379,9 +379,11 @@ export interface InboxSourceResult {
    *
    * An `aside` source renders this as a small button in its own header
    * (`InboxSection.tsx`). A `main` source has no header of its own — every
-   * `main` source's items merge into one list (`MergedList`) — so `Inbox.tsx`
-   * instead renders it as its own button next to `AddMenu`, on the pane's
-   * shared tab row.
+   * `main` source's items merge into one list (`MergedList`) — so this
+   * renders inside that merged list's own header instead (`Inbox.tsx`
+   * builds it, `MergedList`'s `actions` prop renders it), alongside
+   * Summarize/Suggest todos/Add todo — every other control scoped to just
+   * that column.
    *
    * Optional: most sources have nothing like this — their items already
    * come from something else that keeps itself up to date (a live query),
