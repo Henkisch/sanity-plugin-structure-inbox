@@ -17,6 +17,7 @@ import {activeToolLayoutProbe} from './plugins/activeToolLayoutProbe'
 import {clusterSpike} from './plugins/clusterSpike'
 import {navBadgeSpike} from './plugins/navBadgeSpike'
 import {navbarBadgeSpike} from './plugins/navbarBadgeSpike'
+import {proposalsSpike} from './plugins/proposalsSpike'
 import {schemaTypes} from './schemaTypes'
 
 const projectId = process.env.SANITY_STUDIO_PROJECT_ID!
@@ -190,6 +191,18 @@ export default defineConfig([
     projectId,
     dataset,
     plugins: [structureTool({structure}), clusterSpike()],
+    schema: {types: schemaTypes},
+  },
+  {
+    // Plan 026 spike: agent-authored proposals as an inbox source. See
+    // `plans/mellow-weaving-cascade.md`'s "Findings — plan 026",
+    // `./functions/altTextProposals/index.ts`, and `./plugins/proposalsSpike.tsx`.
+    name: 'proposalsSpike',
+    title: 'Proposals spike',
+    basePath: '/proposals-spike',
+    projectId,
+    dataset,
+    plugins: [structureTool({structure}), structureInbox({sources: [proposalsSpike()]})],
     schema: {types: schemaTypes},
   },
 ])

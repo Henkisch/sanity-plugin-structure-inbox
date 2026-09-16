@@ -17,5 +17,9 @@
     "sanity-plugin-link-checker": "^0.3.3",
     "sanity-plugin-structure-inbox": "file:..",
     "styled-components": "^6.5.3"
+  },
+  "devDependencies": {
+    "@sanity/blueprints": "0.24.0",
+    "@sanity/functions": "1.7.3"
   }
 }
