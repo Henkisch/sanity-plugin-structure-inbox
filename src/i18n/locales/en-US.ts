@@ -96,6 +96,14 @@ const enUS = {
 
   'action.snooze': 'Snooze',
   'action.snooze.suggested': 'Until {{date}}',
+  // The click-triggered read itself — see Plan 043: this used to fetch
+  // automatically the instant a single row was selected, spending a real AI
+  // credit with no click and no consent. Now it only fires from this
+  // explicit trigger, the same "ask, then show" shape as `assess.ask`/
+  // `fix.ask` below.
+  'snooze.suggest.ask': 'Suggest a time',
+  'snooze.suggest.loading': 'Suggesting…',
+  'snooze.suggest.none': 'AI had no time to suggest.',
 
   'action.assign': 'Assign to…',
   'action.assign.suggested': 'Suggest {{name}}',

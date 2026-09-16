@@ -594,12 +594,17 @@ acknowledgment follows, and for the same reason: a snooze says "not now, I've
 seen this version", not "hide it no matter what happens to it".
 
 `unpublishedDrafts` also offers `suggestSnooze`: with exactly one row
-selected, Sanity's Agent Actions reads the document for anything with a real
-date — an event, a launch, a deadline — and if it finds one, a second small
-button appears next to the plain Snooze icon, showing that date, with the
-reason as its tooltip. It is only ever a suggestion: nothing is snoozed until
-the editor clicks it, the same click a preset would need. No date-related
-content means no button, rather than a guessed one.
+selected, a small **Suggest a time** trigger appears next to the plain Snooze
+icon. Clicking it — and only clicking it — sends the document to Sanity's
+Agent Actions, which reads it for anything with a real date: an event, a
+launch, a deadline. If it finds one, the trigger is replaced by a button
+showing that date, with the reason as its tooltip; nothing is snoozed until
+the editor clicks *that* button too, the same click a preset would need. No
+date-related content means a plain "nothing to suggest" note instead, rather
+than a guessed date. This is deliberately click-triggered, not automatic on
+selection: every AI read in this pane spends a real, billed Agent Actions
+credit per call, so none of them — this one included — ever fires just from
+selecting a row.
 
 A source opts in by returning `suggestSnooze` from `useItems`:
 

@@ -2,7 +2,7 @@ import {ChevronDownIcon} from '@sanity/icons/ChevronDown'
 import {Box, Button, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
 import {Menu, MenuButton, MenuDivider, MenuItem} from '@sanity/ui/menu'
 import {Tooltip} from '@sanity/ui/tooltip'
-import {type ReactNode, useCallback, useEffect, useMemo, useState} from 'react'
+import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {useTranslation} from 'sanity'
 import {styled} from 'styled-components'
 
@@ -18,7 +18,7 @@ import {matchesInboxFilters} from './inboxFilterSentinels'
 import {InboxRow} from './InboxRow'
 import {mergeRows, type MergedRow} from './mergeItems'
 import {type ContentTypeSummary} from './projectDigest'
-import {SelectionActions} from './SelectionActions'
+import {SelectionActions, type SnoozeSuggestionState} from './SelectionActions'
 import {type SourceReport} from './SourceFeed'
 import {type InboxItem, type InboxView} from './types'
 import {EXIT_ANIMATION_MS, useUndoToast} from './useUndoToast'
@@ -589,36 +589,45 @@ export function MergedList(props: MergedListProps) {
     ? reports[singleSelectedRow.sourceName]?.suggestSnooze
     : undefined
 
-  const [snoozeSuggestion, setSnoozeSuggestion] = useState<{until: string; reason?: string} | null>(null)
+  const [snoozeSuggestion, setSnoozeSuggestion] = useState<SnoozeSuggestionState>({status: 'idle'})
+  const snoozeSuggestionRequestRef = useRef(0)
 
+  // Reset to idle whenever the single-selected row changes, so a stale
+  // suggestion from a previous row never lingers under a new one — same
+  // reasoning the old effect's own `cancelled` flag already had, just
+  // without firing a request to go with it. Nothing here spends a credit —
+  // that only ever happens from `handleSuggestSnooze`, below, on an explicit
+  // click.
   useEffect(() => {
-    if (!singleSelectedRow || !suggestSnoozeForRow) {
-      setSnoozeSuggestion(null)
-      return undefined
-    }
+    setSnoozeSuggestion({status: 'idle'})
+  }, [singleSelectedRow?.key])
 
-    let cancelled = false
-    setSnoozeSuggestion(null)
+  // The one place `suggestSnooze` is ever actually called — an explicit
+  // click (`SelectionActions`' own "Suggest a time" trigger), never a
+  // selection change. `suggestSnooze` bills a real AI credit per call (see
+  // this plan's own doc comment), so unlike every other derived value in
+  // this file, this must never fire on its own.
+  const handleSuggestSnooze = useCallback(() => {
+    if (!suggestSnoozeForRow || !singleSelectedRow) return
+    const requestId = ++snoozeSuggestionRequestRef.current
+    setSnoozeSuggestion({status: 'loading'})
 
     suggestSnoozeForRow(singleSelectedRow.item)
       .then((result) => {
-        if (!cancelled) setSnoozeSuggestion(result)
+        if (requestId !== snoozeSuggestionRequestRef.current) return undefined
+        setSnoozeSuggestion(result ? {status: 'done', ...result} : {status: 'none'})
         return undefined
       })
       .catch((error: unknown) => {
-        if (!cancelled) {
-          console.error('[sanity-plugin-structure-inbox] suggest-snooze failed', error)
-        }
+        console.error('[sanity-plugin-structure-inbox] suggest-snooze failed', error)
+        if (requestId === snoozeSuggestionRequestRef.current) setSnoozeSuggestion({status: 'error'})
       })
+  }, [suggestSnoozeForRow, singleSelectedRow])
 
-    return () => {
-      cancelled = true
-    }
-    // Keyed on the row's own key, not the row object itself — a fresh report
-    // re-render can hand back a same-shaped-but-new row object for the exact
-    // same selection, which would otherwise re-ask on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above; `singleSelectedRow`/`suggestSnoozeForRow` are intentionally read fresh from the closure, not tracked.
-  }, [singleSelectedRow?.key])
+  // The trigger and its resolved state are only ever meaningful together —
+  // gates both props passed to `SelectionActions` below so a two-row
+  // selection (where `suggestSnoozeForRow` is undefined) shows neither.
+  const canSuggestSnooze = view === 'open' && Boolean(suggestSnoozeForRow)
 
   // Same gate as the snooze suggestion above (exactly one selected row, Open
   // view only) — `assignableSource` already requires every selected row to
@@ -1137,8 +1146,9 @@ export function MergedList(props: MergedListProps) {
                   onDelete={deletableTargets.length > 0 ? confirmDelete : undefined}
                   onSnooze={view === 'open' ? confirmSnooze : undefined}
                   onSnoozeUntil={view === 'open' ? confirmSnoozeUntil : undefined}
+                  onSuggestSnooze={canSuggestSnooze ? handleSuggestSnooze : undefined}
                   onTransfer={view === 'open' && transferableSource ? confirmTransfer : undefined}
-                  snoozeSuggestion={view === 'open' ? (snoozeSuggestion ?? undefined) : undefined}
+                  snoozeSuggestion={canSuggestSnooze ? snoozeSuggestion : undefined}
                   transferableUsers={view === 'open' ? transferableSource?.users : undefined}
                   resolvableCount={
                     selected.filter((row) => Boolean(reports[row.sourceName]?.resolve)).length
