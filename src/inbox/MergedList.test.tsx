@@ -475,7 +475,8 @@ describe('MergedList', () => {
     renderList({reports, order: ['drafts']})
 
     selectItem('Draft one')
-    fireEvent.change(screen.getByDisplayValue('action.assign'), {target: {value: 'user-1'}})
+    fireEvent.click(screen.getByRole('button', {name: 'action.assign'}))
+    fireEvent.click(screen.getByRole('menuitem', {name: 'Ada'}))
 
     await vi.waitFor(() => expect(toUser).toHaveBeenCalledTimes(1))
     expect(await screen.findByText('undo.assigned')).toBeTruthy()
@@ -495,13 +496,14 @@ describe('MergedList', () => {
 
     selectItem('Draft one')
     selectItem('Draft two')
-    // The bulk selection bar's own picker, not a row's — each selected
-    // row's own avatar popover also renders this same text (see
-    // `InboxRow.tsx`'s `reassignVerb`), so `role: 'option'` disambiguates.
-    expect(screen.getByRole('option', {name: 'action.assign'})).toBeTruthy()
+    // The bulk selection bar's own picker button, not a row's — each
+    // selected row's own avatar popover also renders this same text (see
+    // `InboxRow.tsx`'s `reassignVerb`), so `role: 'button'` disambiguates
+    // (a row's own trigger is the avatar itself, with no visible text).
+    expect(screen.getByRole('button', {name: 'action.assign'})).toBeTruthy()
 
     selectItem('Task one')
-    expect(screen.queryByRole('option', {name: 'action.assign'})).toBeNull()
+    expect(screen.queryByRole('button', {name: 'action.assign'})).toBeNull()
   })
 
   it('does not render its own "add new" trigger — that now lives in Inbox.tsx\'s tab row', () => {
@@ -914,7 +916,8 @@ describe('suggested assignee', () => {
     await vi.waitFor(() => expect(suggestAssignee).toHaveBeenCalled())
     expect(screen.queryByText('action.assign.suggested')).toBeNull()
 
-    fireEvent.change(screen.getByDisplayValue('action.assign'), {target: {value: 'user-1'}})
+    fireEvent.click(screen.getByRole('button', {name: 'action.assign'}))
+    fireEvent.click(screen.getByRole('menuitem', {name: 'Ada'}))
     await vi.waitFor(() => expect(toUser).toHaveBeenCalledTimes(1))
   })
 
@@ -933,7 +936,8 @@ describe('suggested assignee', () => {
     selectItem('Draft one')
     await vi.waitFor(() => expect(suggestAssignee).toHaveBeenCalled())
 
-    fireEvent.change(screen.getByDisplayValue('action.assign'), {target: {value: 'user-1'}})
+    fireEvent.click(screen.getByRole('button', {name: 'action.assign'}))
+    fireEvent.click(screen.getByRole('menuitem', {name: 'Ada'}))
     await vi.waitFor(() => expect(toUser).toHaveBeenCalledTimes(1))
   })
 })

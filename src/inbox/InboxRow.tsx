@@ -532,7 +532,16 @@ export function InboxRow(props: InboxRowProps) {
               <Menu>
                 {reassignVerb && (
                   <>
-                    <MenuItem disabled text={reassignVerb} />
+                    {/* A plain label, not a `disabled` `MenuItem`: disabled
+                        styling reads as "unavailable," which is the wrong
+                        message for a header that's just naming what the
+                        list below it does — confirmed live too dim to
+                        read at a glance. */}
+                    <Box paddingBottom={1} paddingTop={2} paddingX={3}>
+                      <Text size={1} weight="semibold">
+                        {reassignVerb}
+                      </Text>
+                    </Box>
                     <MenuDivider />
                   </>
                 )}

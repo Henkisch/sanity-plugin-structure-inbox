@@ -1,9 +1,11 @@
 import {CheckmarkIcon} from '@sanity/icons/Checkmark'
+import {ChevronDownIcon} from '@sanity/icons/ChevronDown'
 import {ClockIcon} from '@sanity/icons/Clock'
 import {TrashIcon} from '@sanity/icons/Trash'
-import {Box, Button, Flex, Select, Text} from '@sanity/ui'
+import {Box, Button, Flex, Text} from '@sanity/ui'
+import {Menu, MenuButton, MenuItem} from '@sanity/ui/menu'
 import {Tooltip} from '@sanity/ui/tooltip'
-import {type ChangeEvent, type ComponentType} from 'react'
+import {type ComponentType} from 'react'
 import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
@@ -122,6 +124,44 @@ function IconAction(props: {
 }
 
 /**
+ * The "Assign to…"/"Hand off to…" picker — a `MenuButton`, not a native
+ * `<select>`. An earlier version of this used `<select>`, the same reason
+ * `InboxRow.tsx`'s own per-row picker did before it — a native picker
+ * rendered as an ugly, disconnected system dropdown on mobile Safari, and
+ * (unlike a floating popover) took its full intrinsic width in the layout
+ * regardless of how little room the row actually had — the likely reason
+ * the Ask input next to it could shrink to invisible at some in-between
+ * widths, since the header's own `ask` grid column is the only flexible
+ * one sharing space with this picker's fixed-width `<select>`.
+ * `MenuButton` is the same floating popover both
+ * `InboxRow.tsx`'s per-row picker and Studio's own assignee pickers use —
+ * one consistent pattern everywhere a name gets picked in this plugin,
+ * not two.
+ */
+function ReassignMenu(props: {
+  disabled: boolean
+  onPick: (userId: string) => void
+  users: {id: string; label: string}[]
+  verb: string
+}) {
+  const {disabled, onPick, users, verb} = props
+  return (
+    <MenuButton
+      button={<Button disabled={disabled} fontSize={1} iconRight={ChevronDownIcon} mode="ghost" text={verb} />}
+      id={`reassign-menu-${verb}`}
+      menu={
+        <Menu>
+          {users.map((user) => (
+            <MenuItem key={user.id} onClick={() => onPick(user.id)} text={user.label} />
+          ))}
+        </Menu>
+      }
+      popover={{placement: 'bottom-end', portal: true}}
+    />
+  )
+}
+
+/**
  * The controls that replace the header's own filter bar once rows are
  * selected — same slot, `MergedList.tsx`'s header `Flex`, opposite the
  * select-all checkbox. Renders no card or border of its own: it lives inside
@@ -195,19 +235,6 @@ export function SelectionActions(props: SelectionActionsProps) {
         : resolvableCount === 0
           ? t('action.clear')
           : t('action.markDone')
-
-  // Pinned to the placeholder rather than tracking the choice: the picker's
-  // job is to fire an action, not to remember one — leaving a choice showing
-  // as "selected" after acting on it would misstate what just happened.
-  const handleAssignChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const value = event.currentTarget.value
-    if (value) onAssign?.(value)
-  }
-
-  const handleTransferChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const value = event.currentTarget.value
-    if (value) onTransfer?.(value)
-  }
 
   const suggestedUser = assigneeSuggestion
     ? assignableUsers?.find((user) => user.id === assigneeSuggestion.userId)
@@ -288,33 +315,21 @@ export function SelectionActions(props: SelectionActionsProps) {
       )}
 
       {onAssign && assignableUsers && assignableUsers.length > 0 && (
-        <Box>
-          <Select fontSize={1} onChange={handleAssignChange} value="">
-            <option disabled value="">
-              {t('action.assign')}
-            </option>
-            {assignableUsers.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.label}
-              </option>
-            ))}
-          </Select>
-        </Box>
+        <ReassignMenu
+          disabled={busy}
+          onPick={onAssign}
+          users={assignableUsers}
+          verb={t('action.assign')}
+        />
       )}
 
       {onTransfer && transferableUsers && transferableUsers.length > 0 && (
-        <Box>
-          <Select fontSize={1} onChange={handleTransferChange} value="">
-            <option disabled value="">
-              {t('action.transfer')}
-            </option>
-            {transferableUsers.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.label}
-              </option>
-            ))}
-          </Select>
-        </Box>
+        <ReassignMenu
+          disabled={busy}
+          onPick={onTransfer}
+          users={transferableUsers}
+          verb={t('action.transfer')}
+        />
       )}
 
       {showConfirm && (

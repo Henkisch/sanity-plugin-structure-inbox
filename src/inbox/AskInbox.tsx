@@ -93,7 +93,18 @@ export function AskInbox(props: AskInboxProps) {
   return (
     <Box>
       <Flex align="center" gap={2}>
-        <Box flex={1}>
+        {/* `minWidth`, not just `flex={1}`: this box's own grid column
+            (`HeaderGrid`'s `ask` area, in `MergedList.tsx`) is a bare `1fr`
+            track sharing the row with the selection bar's own `auto`-sized
+            content — a `flex={1}` child with no floor happily shrinks all
+            the way to near-zero once that bar gets busy (Suggest + Assign,
+            say), rather than wrapping or reserving anything usable.
+            Confirmed live: this input rendered at 56px, its placeholder
+            fully hidden, at a container width where the selection bar's
+            own content was just wide enough to squeeze it. A floor here
+            means the *worst* case is a tight-but-legible input, never an
+            invisible one. */}
+        <Box flex={1} style={{minWidth: 140}}>
           <TextInput
             disabled={result.status === 'loading'}
             fontSize={1}
