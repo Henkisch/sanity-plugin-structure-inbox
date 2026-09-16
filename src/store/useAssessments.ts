@@ -95,8 +95,6 @@ export function useAssessments(): Assessments {
   useEffect(() => {
     if (!dirtyRef.current || !documentId || !loadedRef.current) return
 
-    dirtyRef.current = false
-
     const value = JSON.stringify(state)
 
     client
@@ -104,7 +102,14 @@ export function useAssessments(): Assessments {
       .createIfNotExists({_id: documentId, _type: ASSESSMENTS_TYPE, [ASSESSMENTS_FIELD]: value})
       .patch(documentId, (patch) => patch.set({[ASSESSMENTS_FIELD]: value}))
       .commit({visibility: 'async'})
+      .then(() => {
+        dirtyRef.current = false
+        return undefined
+      })
       .catch((error: unknown) => {
+        // Left dirty on purpose: the write never actually landed, so the next
+        // time this effect runs for any reason, it retries this same value
+        // instead of silently treating a failed write as done.
         console.error('[sanity-plugin-structure-inbox] could not save assessments', error)
       })
   }, [client, documentId, state])
