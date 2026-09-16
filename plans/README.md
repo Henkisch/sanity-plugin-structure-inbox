@@ -53,6 +53,7 @@ behaviour here, fix the comment in the same commit.
 | 039 | Allow-list guard for `assetIssues.ts`'s GROQ field-name interpolation | P2 | S | — | TODO |
 | 040 | Make source titles (and openTasks' Overdue/Due) actually translatable | P2 | M | — | TODO |
 | 041 | Add `AGENTS.md` | P2 | S | — | TODO |
+| 042 | Feed every AI read the same automated project survey, not just content gaps | P2 | L | — | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale)
