@@ -139,6 +139,7 @@ const enUS = {
   'ask.nothingMatched': 'Nothing here matches that.',
   'ask.unparseable': 'AI answered, but not in a way I could use.',
   'ask.error': 'Could not reach AI.',
+  'ask.dismiss': 'Dismiss',
 
   // The "action" half of "insight, then action" — assess only ever reads;
   // this proposes a real change, so it needs its own Apply/Dismiss rather

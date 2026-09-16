@@ -1,3 +1,4 @@
+import {SparklesIcon} from '@sanity/icons/Sparkles'
 import {Box, Button, Flex, Text, TextInput} from '@sanity/ui'
 import {useCallback, useState} from 'react'
 import {useTranslation} from 'sanity'
@@ -99,28 +100,64 @@ export function AskInbox(props: AskInboxProps) {
         />
       </Flex>
 
+      {/* Every other read in this pane (Summarize, Suggest todos, Find
+          content gaps, Scan for issues) is dismissible — this one wasn't,
+          so its answer just sat there until a new question replaced it or
+          the editor left the tab. Same plain-text "Dismiss" the rest use. */}
       {state.status === 'done' && (
-        <Box paddingTop={2}>
-          <Text muted size={1}>
-            {state.matched ? state.reason : state.reason || t('ask.nothingMatched')}
-          </Text>
-        </Box>
+        <Flex align="flex-start" gap={3} justify="space-between" paddingTop={2}>
+          <Flex align="center" gap={2}>
+            {/* Marks this line as AI-sourced at a glance — same treatment
+                `InboxRow.tsx`'s own `assessRow` already gives a per-item
+                AI read. */}
+            <Text muted size={0}>
+              <SparklesIcon />
+            </Text>
+            <Text muted size={1}>
+              {state.matched ? state.reason : state.reason || t('ask.nothingMatched')}
+            </Text>
+          </Flex>
+          <Button
+            fontSize={1}
+            mode="bleed"
+            onClick={() => setState({status: 'idle'})}
+            padding={2}
+            style={{marginRight: -8, marginTop: -6}}
+            text={t('ask.dismiss')}
+          />
+        </Flex>
       )}
 
       {state.status === 'unparseable' && (
-        <Box paddingTop={2}>
+        <Flex align="flex-start" gap={3} justify="space-between" paddingTop={2}>
           <Text muted size={1}>
             {t('ask.unparseable')}
           </Text>
-        </Box>
+          <Button
+            fontSize={1}
+            mode="bleed"
+            onClick={() => setState({status: 'idle'})}
+            padding={2}
+            style={{marginRight: -8, marginTop: -6}}
+            text={t('ask.dismiss')}
+          />
+        </Flex>
       )}
 
       {state.status === 'error' && (
-        <Box paddingTop={2}>
+        <Flex align="flex-start" gap={3} justify="space-between" paddingTop={2}>
           <Text muted size={1}>
             {t('ask.error')}
           </Text>
-        </Box>
+          <Button
+            fontSize={1}
+            mode="bleed"
+            onClick={() => setState({status: 'idle'})}
+            padding={2}
+            style={{marginRight: -8, marginTop: -6}}
+            text={t('ask.dismiss')}
+          />
+        </Flex>
       )}
     </Box>
   )
