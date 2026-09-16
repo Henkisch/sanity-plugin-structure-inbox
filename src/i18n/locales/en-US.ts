@@ -158,6 +158,13 @@ const enUS = {
   // happened; this closes it, same as dismissing any other read-only card.
   'summarize.dismiss': 'Dismiss',
 
+  // A `main` source's own `action` result (e.g. "Scan for issues") — see
+  // `InboxSource.action`'s own doc comment. No dedicated title key: the
+  // card titles itself with the action's own `label`, since that's already
+  // whatever the source itself calls this action.
+  'sourceAction.dismiss': 'Dismiss',
+  'sourceAction.error': 'Could not complete.',
+
   'stats.title': 'Overview',
   // AI-suggested personal todos — a distinct read (concrete todos to add,
   // not a paragraph) with its own trigger next to Summarize's, same

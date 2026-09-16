@@ -53,6 +53,17 @@ interface MergedListProps {
   /** See `StructureInboxConfig.ask`'s own doc comment. Only ever shown in the Open view. */
   ask?: boolean
   /**
+   * Summarize / Suggest todos / a source's own `action` (Scan for issues) /
+   * Add — every control that only ever affects this column, never the aside
+   * beside it. Built in `Inbox.tsx` (the state they drive lives there), but
+   * rendered inside this column's own header card rather than the pane-wide
+   * header above both columns — that header spans the aside column too, so
+   * a main-only control sitting in it read as scoped to the whole pane, and
+   * left the aside column's own first card visually stranded just beneath
+   * a row of buttons that had nothing to do with it.
+   */
+  actions?: ReactNode
+  /**
    * Caps the list's own height, in pixels — typically the sidebar's actual
    * rendered height (`Inbox.tsx` measures it live), so this column never
    * grows taller than its neighbour. `undefined` before that measurement
@@ -87,6 +98,7 @@ export function MergedList(props: MergedListProps) {
     filterBar,
     ask = false,
     maxHeight,
+    actions,
   } = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
@@ -797,6 +809,19 @@ export function MergedList(props: MergedListProps) {
           ))}
 
       <Card border overflow="hidden" radius={3} shadow={0}>
+        {/* This column's own toolbar — see `actions`' own doc comment for
+            why these live here now rather than in `Inbox.tsx`'s pane-wide
+            header. Its own row, above the checkbox/filter row below: that
+            row's `minHeight` is already tuned against the filter bar and
+            selection bar it swaps between, and squeezing a variable-width
+            button cluster into the same row would have broken that. */}
+        {actions && (
+          <Card borderBottom paddingX={3} paddingY={3} radius={0} tone="transparent">
+            <Flex gap={2} justify="flex-end" wrap="wrap">
+              {actions}
+            </Flex>
+          </Card>
+        )}
         {/* Matches the header every `aside` source's own card already has
             (`SectionCard`) — the main column merges every source into one
             list, but it's still one section, and it looked like an

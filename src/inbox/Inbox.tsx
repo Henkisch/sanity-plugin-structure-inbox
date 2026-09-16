@@ -286,28 +286,51 @@ export function Inbox({sources, ask = false}: InboxProps) {
   }, [])
 
   // A source-level action unrelated to any one item — "Scan for issues",
-  // say — rendered as its own button next to `AddMenu` rather than
-  // in a per-source header: `main` sources have no header of their own
-  // (see `InboxSource.action`'s own doc comment), and this is currently the
-  // only place in the pane that isn't tied to one specific source's items.
+  // say — rendered as its own button in this column's own header (see
+  // `MergedList`'s own `actions` doc comment) rather than in a per-source
+  // header: every `main` source's items merge into one list, so there is no
+  // single source's own header to put this in.
   const actionSources = useMemo(
     () => mainOrder.map((name) => reports[name]).filter((report): report is SourceReport => Boolean(report?.action)),
     [mainOrder, reports],
   )
   const [runningActions, setRunningActions] = useState<Record<string, boolean>>({})
+  // The one-line result `action.run()` resolves with, if any — rendered as
+  // its own dismissible card, same shape (and same reasoning) as
+  // Summarize's/Suggest todos' own result below: a scan that ran silently
+  // gave no sign it had done anything beyond the button's own pending
+  // state. Keyed by source name since more than one `main` source could in
+  // principle offer an `action`.
+  const [actionResults, setActionResults] = useState<
+    Record<string, {status: 'done'; message: string} | {status: 'error'}>
+  >({})
+  const dismissActionResult = useCallback((sourceName: string) => {
+    setActionResults((current) => {
+      const next = {...current}
+      delete next[sourceName]
+      return next
+    })
+  }, [])
   const runSourceAction = useCallback((report: SourceReport) => {
     const {action} = report
     if (!action) return
-    setRunningActions((current) => ({...current, [report.source.name]: true}))
+    const {name} = report.source
+    setRunningActions((current) => ({...current, [name]: true}))
+    dismissActionResult(name)
     action
       .run()
+      .then((message) => {
+        if (message) setActionResults((current) => ({...current, [name]: {status: 'done', message}}))
+        return undefined
+      })
       .catch((error: unknown) => {
         console.error('[sanity-plugin-structure-inbox] source action failed', error)
+        setActionResults((current) => ({...current, [name]: {status: 'error'}}))
       })
       .finally(() => {
-        setRunningActions((current) => ({...current, [report.source.name]: false}))
+        setRunningActions((current) => ({...current, [name]: false}))
       })
-  }, [])
+  }, [dismissActionResult])
 
   // Every main-source row across *all three* tabs, not just whichever one is
   // currently selected — used only to decide which filter chips exist, never
@@ -746,6 +769,115 @@ export function Inbox({sources, ask = false}: InboxProps) {
     </Flex>
   )
 
+  // Every control that only ever affects the main column — Summarize,
+  // Suggest todos, a source's own `action` (Scan for issues), and Add — all
+  // built here (the state they drive lives in this component regardless of
+  // where they render), then handed to `MergedList` to draw inside its own
+  // header. None of these ever touch the aside column beside it, so they
+  // belong in a header that only spans the main column too — see
+  // `MergedList`'s own `actions` doc comment for why that used to not be
+  // true.
+  const mainColumnActions = (
+    <>
+      {/* A pane-level read, not tied to one source, so it belongs beside
+          Suggest todos/Scan rather than inside any one source's own
+          controls. */}
+      <Tooltip
+        content={
+          <Box padding={2}>
+            <Text size={1}>{t('summarize.hint')}</Text>
+          </Box>
+        }
+        placement="bottom"
+      >
+        <Button
+          disabled={summary.status === 'loading'}
+          fontSize={1}
+          icon={SparklesIcon}
+          mode="ghost"
+          onClick={handleSummarize}
+          text={summary.status === 'loading' ? t('summarize.loading') : t('summarize.ask')}
+        />
+      </Tooltip>
+
+      {/* Same tier as Summarize — both are AI reads across everything open
+          right now, triggered from the same toolbar. Used to live as a
+          plain link inside the Overview stats card; moved out once a short
+          inbox (the common case) made that card render as almost nothing
+          but this one link, which read as its own kind of misplaced. */}
+      {addTodo && (
+        <Button
+          disabled={suggestions.status === 'loading'}
+          fontSize={1}
+          icon={SparklesIcon}
+          mode="ghost"
+          onClick={handleSuggestTodos}
+          text={suggestions.status === 'loading' ? t('todoSuggest.loading') : t('todoSuggest.ask')}
+        />
+      )}
+
+      {/* Ahead of `AddMenu`, not after: `AddMenu` stays the right-most,
+          primary action a returning editor already knows, and a
+          source-level action is the newer, less frequent one. Ghost mode
+          for the same reason — until there's a real signal to weigh one
+          action over the other, neither should read as more important than
+          the other. */}
+      {actionSources.map((report) => {
+        const {action} = report
+        if (!action) return null
+        const running = runningActions[report.source.name] ?? false
+        const button = (
+          <Button
+            disabled={running}
+            fontSize={1}
+            icon={action.icon}
+            mode="ghost"
+            onClick={() => runSourceAction(report)}
+            text={running ? (action.pendingLabel ?? action.label) : action.label}
+          />
+        )
+        if (!action.description) return <Box key={report.source.name}>{button}</Box>
+        return (
+          <Tooltip
+            content={
+              <Box padding={2}>
+                <Text size={1}>{action.description}</Text>
+              </Box>
+            }
+            key={report.source.name}
+            placement="bottom"
+          >
+            {button}
+          </Tooltip>
+        )
+      })}
+      <AddMenu
+        creators={creators.map((report) => ({
+          key: report.source.name,
+          label:
+            report.source.name === 'todos'
+              ? t('todos.addButton')
+              : `${t('inbox.addMenu')} ${report.source.title}`,
+          onClick: () => requestCreate(report.source.name),
+        }))}
+      />
+      {/* Hidden-trigger dialogs only — `AddMenu` above is the only visible
+          entry point now; each one still needs to be mounted somewhere to
+          have a dialog `requestCreate` can pop open. Mounted regardless of
+          tab for the same reason `AddMenu` itself now is — adding a new item
+          always adds it as open, whichever tab that dialog happened to be
+          triggered from. */}
+      {creators.map((report) => (
+        <CreateItemRow
+          hideTrigger
+          key={report.source.name}
+          onCreate={(input) => report.create?.(input)}
+          openSignal={createSignals[report.source.name]}
+        />
+      ))}
+    </>
+  )
+
   if (sources.length === 0) {
     return (
       <Box padding={4}>
@@ -791,151 +923,35 @@ export function Inbox({sources, ask = false}: InboxProps) {
             </Heading>
           </Flex>
 
-          {/* Tabs left, actions flush right — same row, `wrap="wrap"` so a
-              narrow phone drops the actions to a line of their own under the
-              tabs instead of squeezing both onto one, matching how
-              `SelectionActions` already handles the same width constraint. */}
-          <Flex align="center" gap={3} justify="space-between" wrap="wrap">
-            {/* `minHeight` matching the action buttons' own real rendered
-                height (measured live: 33px), plus a small `marginTop` on
-                top of that — `align="center"` above puts this row's two
-                groups on the same mathematical axis (confirmed live: their
-                box centers matched exactly, to the pixel), but a plain
-                `Tab` label and an icon-plus-text `Button` don't read as
-                level even so — confirmed live again, by a human eye, after
-                the box-center fix alone: optical alignment isn't the same
-                thing as centering two boxes. The nudge was tuned by eye, not
-                derived from a rule — if the button row's own height or font
-                size ever changes, re-check this by screenshot, not by math. */}
-            <TabList gap={1} style={{alignItems: 'center', display: 'flex', marginTop: 3, minHeight: 33}}>
-              <Tab
-                aria-controls={PANEL_ID}
-                fontSize={1}
-                id={OPEN_TAB_ID}
-                label={t('tab.open')}
-                onClick={showOpen}
-                selected={view === 'open'}
-              />
-              {/* Open, Snoozed, Cleared — the actual lifecycle order (active,
-                  deferred, resolved), not the arbitrary order this used to
-                  be in. */}
-              <Tab
-                aria-controls={PANEL_ID}
-                fontSize={1}
-                id={SNOOZED_TAB_ID}
-                label={t('tab.snoozed')}
-                onClick={showSnoozed}
-                selected={view === 'snoozed'}
-              />
-              <Tab
-                aria-controls={PANEL_ID}
-                fontSize={1}
-                id={CLEARED_TAB_ID}
-                label={t('tab.cleared')}
-                onClick={showCleared}
-                selected={view === 'cleared'}
-              />
-            </TabList>
-
-            {/* Global actions, not tied to the Open tab — a scan, an add,
-                nothing here depends on what's currently being looked at.
-                Rendered on every tab so nothing jumps or disappears just
-                from switching between Open/Snoozed/Cleared. */}
-            <Flex gap={2} wrap="wrap">
-              {/* Same reasoning as a source's own `action` below: a pane-
-                  level read, not tied to one source, so it belongs beside
-                  them rather than inside any one source's own controls. */}
-              <Tooltip
-                content={
-                  <Box padding={2}>
-                    <Text size={1}>{t('summarize.hint')}</Text>
-                  </Box>
-                }
-                placement="bottom"
-              >
-                <Button
-                  disabled={summary.status === 'loading'}
-                  fontSize={1}
-                  icon={SparklesIcon}
-                  mode="ghost"
-                  onClick={handleSummarize}
-                  text={summary.status === 'loading' ? t('summarize.loading') : t('summarize.ask')}
-                />
-              </Tooltip>
-
-              {/* Same tier as Summarize, not the aside — both are pane-wide
-                  AI reads triggered from the same header, the same reasoning
-                  Summarize itself already gets this spot for. Used to live as
-                  a plain link inside the Overview stats card; moved here once
-                  a short inbox (the common case) made that card render as
-                  almost nothing but this one link, which read as its own
-                  kind of misplaced. */}
-              {addTodo && (
-                <Button
-                  disabled={suggestions.status === 'loading'}
-                  fontSize={1}
-                  icon={SparklesIcon}
-                  mode="ghost"
-                  onClick={handleSuggestTodos}
-                  text={suggestions.status === 'loading' ? t('todoSuggest.loading') : t('todoSuggest.ask')}
-                />
-              )}
-
-              {/* Ahead of `AddMenu`, not after: `AddMenu` stays the
-                  right-most, primary action a returning editor already
-                  knows, and a source-level action is the newer, less
-                  frequent one. Ghost mode for the same reason — until
-                  there's a real signal to weigh one action over the
-                  other, neither should read as more important than
-                  the other. */}
-              {actionSources.map((report) => {
-                const {action} = report
-                if (!action) return null
-                const running = runningActions[report.source.name] ?? false
-                const button = (
-                  <Button
-                    disabled={running}
-                    fontSize={1}
-                    icon={action.icon}
-                    mode="ghost"
-                    onClick={() => runSourceAction(report)}
-                    text={running ? (action.pendingLabel ?? action.label) : action.label}
-                  />
-                )
-                if (!action.description) return <Box key={report.source.name}>{button}</Box>
-                return (
-                  <Tooltip content={<Box padding={2}><Text size={1}>{action.description}</Text></Box>} key={report.source.name} placement="bottom">
-                    {button}
-                  </Tooltip>
-                )
-              })}
-              <AddMenu
-                creators={creators.map((report) => ({
-                  key: report.source.name,
-                  label:
-                    report.source.name === 'todos'
-                      ? t('todos.addButton')
-                      : `${t('inbox.addMenu')} ${report.source.title}`,
-                  onClick: () => requestCreate(report.source.name),
-                }))}
-              />
-              {/* Hidden-trigger dialogs only — `AddMenu` above is the only
-                  visible entry point now; each one still needs to be
-                  mounted somewhere to have a dialog `requestCreate` can
-                  pop open. Mounted regardless of tab for the same reason
-                  `AddMenu` itself now is — adding a new item always adds
-                  it as open, whichever tab that dialog happened to be
-                  triggered from. */}
-              {creators.map((report) => (
-                <CreateItemRow
-                  hideTrigger
-                  key={report.source.name}
-                  onCreate={(input) => report.create?.(input)}
-                  openSignal={createSignals[report.source.name]}
-                />
-              ))}
-            </Flex>
-          </Flex>
+          <TabList gap={1}>
+            <Tab
+              aria-controls={PANEL_ID}
+              fontSize={1}
+              id={OPEN_TAB_ID}
+              label={t('tab.open')}
+              onClick={showOpen}
+              selected={view === 'open'}
+            />
+            {/* Open, Snoozed, Cleared — the actual lifecycle order (active,
+                deferred, resolved), not the arbitrary order this used to
+                be in. */}
+            <Tab
+              aria-controls={PANEL_ID}
+              fontSize={1}
+              id={SNOOZED_TAB_ID}
+              label={t('tab.snoozed')}
+              onClick={showSnoozed}
+              selected={view === 'snoozed'}
+            />
+            <Tab
+              aria-controls={PANEL_ID}
+              fontSize={1}
+              id={CLEARED_TAB_ID}
+              label={t('tab.cleared')}
+              onClick={showCleared}
+              selected={view === 'cleared'}
+            />
+          </TabList>
         </Stack>
       </Card>
 
@@ -1128,7 +1144,51 @@ export function Inbox({sources, ask = false}: InboxProps) {
                     </Box>
                   )}
 
+                  {/* A source's own `action` result (e.g. "Scan for issues")
+                      — same dismissible-card shape as Summarize/Suggest
+                      todos above, titled with the action's own label rather
+                      than a new i18n key, since that label is already
+                      whatever the source itself called this action. */}
+                  {actionSources.map((report) => {
+                    const {action} = report
+                    const result = actionResults[report.source.name]
+                    if (!action || !result) return null
+                    return (
+                      <Box key={report.source.name} marginBottom={4}>
+                        <AnimateIn>
+                          <Card
+                            border
+                            padding={4}
+                            radius={2}
+                            tone={result.status === 'error' ? 'critical' : 'primary'}
+                          >
+                            <Stack gap={3}>
+                              <Flex align="center" justify="space-between">
+                                <Text size={1} weight="semibold">
+                                  {action.label}
+                                </Text>
+                                <Button
+                                  fontSize={1}
+                                  mode="bleed"
+                                  onClick={() => dismissActionResult(report.source.name)}
+                                  padding={2}
+                                  text={t('sourceAction.dismiss')}
+                                />
+                              </Flex>
+                              <Box style={{maxWidth: '640px'}}>
+                                <Text size={1}>
+                                  {result.status === 'error' ? t('sourceAction.error') : result.message}
+                                </Text>
+                              </Box>
+                            </Stack>
+                          </Card>
+                        </AnimateIn>
+                      </Box>
+                    )
+                  })}
+
                   <MergedList
+                    actions={mainColumnActions}
                     ask={ask}
                     assessments={assessments}
                     assigneeFilter={assigneeFilter}

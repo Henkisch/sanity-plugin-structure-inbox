@@ -389,7 +389,14 @@ export interface InboxSourceResult {
    */
   action?: {
     label: string
-    run: () => Promise<void>
+    /**
+     * An optional one-line result, shown in a dismissible card the same way
+     * `summarize.ask`/`todoSuggest.ask`'s own results are — a scan (or any
+     * other action) that ran silently gave an editor no way to tell it
+     * actually did anything beyond the button's own pending state. Return
+     * nothing when there's genuinely nothing worth reporting.
+     */
+    run: () => Promise<string | void>
     /** Shown on the button while `run`'s promise is pending. Defaults to `label`. */
     pendingLabel?: string
     /**

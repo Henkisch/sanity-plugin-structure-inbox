@@ -19,6 +19,7 @@ import {
   readReport,
   REPORT_DOC_ID,
   runScan,
+  summarizeResult,
   type LinkCheckerPluginConfig,
   type ScanFinding,
   type ScanResult,
@@ -412,10 +413,24 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
       // through the live `observeReport`-equivalent listen above like any
       // other re-scan would (the CLI's, another editor's, a deployed
       // Document Function's) — nothing here refreshes `items` directly.
+      // Returns a one-line summary — the same distinct-problem counts
+      // `summarizeResult` already gives the CLI and this source's own
+      // acknowledged-findings filter, so this reads exactly as many issues
+      // as the row list below would show. `action.run`'s return becomes the
+      // inbox pane's own result card (`Inbox.tsx`), the same "insight" a
+      // click on Summarize/Suggest todos already produces — a scan used to
+      // give no feedback at all beyond the button's own pending state.
       const runFromInbox = useCallback(async () => {
         const linkCheckerClient = toLinkCheckerClient(client)
-        const result = await runScan(linkCheckerClient, scanConfig ?? {}, 'browser')
-        await writeReport(linkCheckerClient, result)
+        const scanResult = await runScan(linkCheckerClient, scanConfig ?? {}, 'browser')
+        await writeReport(linkCheckerClient, scanResult)
+
+        const {issueCount, brokenLinks, brokenRefs} = summarizeResult(scanResult)
+        if (issueCount === 0) return 'No issues found.'
+        const parts: string[] = []
+        if (brokenLinks > 0) parts.push(`${brokenLinks} broken link${brokenLinks === 1 ? '' : 's'}`)
+        if (brokenRefs > 0) parts.push(`${brokenRefs} broken reference${brokenRefs === 1 ? '' : 's'}`)
+        return `Found ${issueCount} issue${issueCount === 1 ? '' : 's'} (${parts.join(', ')}).`
       }, [client])
 
       // Same shape and reasoning as `unpublishedDrafts.ts`'s own
