@@ -1,4 +1,4 @@
-import {cleanup, fireEvent, screen} from '@testing-library/react'
+import {act, cleanup, fireEvent, screen} from '@testing-library/react'
 import {useState} from 'react'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
@@ -767,6 +767,45 @@ describe('AskInbox integration', () => {
     resolvePrompt({keys: ['drafts d1'], reason: 'Matches.'})
     expect(await screen.findByText('Matches.')).toBeTruthy()
     expect(promptJsonMock).toHaveBeenCalledTimes(1)
+  })
+
+  // The tighter race: both submits dispatched inside one `act()` call, the
+  // same technique Plan 032's own `Inbox.test.tsx` test uses for the
+  // Inbox.tsx menu. A plain `result.status === 'loading'` check alone does
+  // not close this one — both clicks run before React commits the first
+  // one's `onResultChange({status: 'loading'})`, so both read the same
+  // stale, pre-loading state and both would fire. `submitInFlightRef` (a
+  // plain ref, mutated synchronously, not through `setState`) is what
+  // actually closes it.
+  it('submits a question only once even when both clicks land in the same React batch', async () => {
+    let resolvePrompt!: (value: {keys: string[]; reason: string}) => void
+    promptJsonMock.mockImplementation(
+      () => new Promise((resolve) => (resolvePrompt = resolve)),
+    )
+
+    const reports = {
+      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]}),
+    }
+    renderList({ask: true, reports, order: ['drafts']})
+
+    fireEvent.change(screen.getByPlaceholderText('ask.placeholder'), {
+      target: {value: 'anything about the launch'},
+    })
+    const submitButton = screen.getByRole('button', {name: 'ask.submit'})
+
+    act(() => {
+      fireEvent.click(submitButton)
+      fireEvent.click(submitButton)
+    })
+
+    expect(promptJsonMock).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolvePrompt({keys: ['drafts d1'], reason: 'Matches.'})
+      await Promise.resolve()
+    })
+
+    expect(await screen.findByText('Matches.')).toBeTruthy()
   })
 })
 

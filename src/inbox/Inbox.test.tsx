@@ -261,64 +261,65 @@ function openAiInsightsMenu() {
 }
 
 describe('Inbox handleSuggestTodos', () => {
-  it('keeps the later request\'s result even when the earlier request resolves last', async () => {
-    let resolveFirst!: (value: {items: {title: string; reason: string}[]}) => void
-    let resolveSecond!: (value: {items: {title: string; reason: string}[]}) => void
-
-    promptJsonMock
-      .mockImplementationOnce(() => new Promise((resolve) => (resolveFirst = resolve)))
-      .mockImplementationOnce(() => new Promise((resolve) => (resolveSecond = resolve)))
+  // Plan 044 (revised): this used to be Plan 032's own "keeps the later
+  // request's result even when the earlier request resolves last" test — it
+  // fired two clicks inside one `act()` and asserted `promptJsonMock` was
+  // called *twice*, then resolved the two requests out of order to prove
+  // the later one's result won. That premise no longer holds: since
+  // `handleSuggestTodos`'s own `suggestTodosInFlightRef` (a plain ref,
+  // mutated synchronously, not through `setState`) now gates the request
+  // itself — not just a `suggestions.status === 'loading'` state read, which
+  // is stale for both clicks in the same batch and would let both through —
+  // a second click landing in the very same React batch as the first is
+  // now a genuine no-op: there is no longer a second real request for a
+  // second, later response to ever race against. This test now proves
+  // that directly, the same technique Plan 032's test used (two
+  // `fireEvent.click` calls inside one `act()`), with the assertion updated
+  // to match: exactly one call, not two.
+  //
+  // `suggestTodosRequestRef` (the original bump-then-compare ref) still
+  // exists alongside `suggestTodosInFlightRef` as defense-in-depth — see
+  // `Inbox.tsx`'s own comment on `handleSummarize` for why the two refs
+  // guard different things — but with the in-flight ref now closing the
+  // request-level race, there is no longer a reachable path in this
+  // component to construct two genuinely concurrent requests whose
+  // responses could land out of order, so that defense-in-depth is not
+  // separately exercised here.
+  it('calls promptJson only once even when both clicks land in the same React batch', async () => {
+    let resolvePrompt!: (value: {items: {title: string; reason: string}[]}) => void
+    promptJsonMock.mockImplementation(() => new Promise((resolve) => (resolvePrompt = resolve)))
 
     renderWithTheme(<Inbox sources={[todosSource()]} />)
 
     openAiInsightsMenu()
     const suggestTodosItem = screen.getByRole('menuitem', {name: /todoSuggest\.ask/})
 
-    // Both clicks fired inside one `act()` call, rather than as two separate
-    // `fireEvent.click` calls: `MenuItem`'s own `disabled` prop (see
-    // `Inbox.tsx`'s `disabled={suggestions.status === 'loading'}`) means a
-    // second *sequential* click — each individually flushed by
-    // `fireEvent`'s own act-wrapping before the next runs — would already be
-    // blocked by the time it fires, since React commits the first click's
-    // `setSuggestions({status: 'loading'})` (and the resulting `disabled`
-    // attribute) before that first `fireEvent.click` call even returns. This
-    // is exactly the double-click race `handleSuggestTodos`'s new
-    // generation-ref guard defends against: two overlapping requests that
-    // start before either one's disable has committed, racing back in the
-    // opposite order.
     act(() => {
       fireEvent.click(suggestTodosItem)
       fireEvent.click(suggestTodosItem)
     })
 
-    expect(promptJsonMock).toHaveBeenCalledTimes(2)
+    expect(promptJsonMock).toHaveBeenCalledTimes(1)
 
-    // Resolve out of order: the second (later) request finishes first.
     await act(async () => {
-      resolveSecond({items: [{title: 'Second suggestion', reason: 'because second'}]})
-      await Promise.resolve()
-    })
-    await act(async () => {
-      resolveFirst({items: [{title: 'First suggestion', reason: 'because first'}]})
+      resolvePrompt({items: [{title: 'Only suggestion', reason: 'because only'}]})
       await Promise.resolve()
     })
 
-    expect(await screen.findByText('Second suggestion')).toBeTruthy()
-    expect(screen.queryByText('First suggestion')).toBeNull()
+    expect(await screen.findByText('Only suggestion')).toBeTruthy()
   })
 
   // Plan 044: two *separate*, individually-flushed clicks (the realistic
   // shape of a rapid double-click, unlike the single-`act()` race above) —
-  // `promptJson` still runs only once. Note this exact path was already
-  // covered before this plan by the trigger's own `disabled={suggestions
-  // .status === 'loading'}` (Plan 032): reverting only this plan's new
-  // `if (suggestions.status === 'loading') return` guard, with that
-  // `disabled` wiring left in place, does not make this case fail — the
-  // `disabled` prop alone already blocks a second *sequential* click here.
-  // This case still guards the combined behavior (and is the same
-  // regression test that *does* catch a dropped guard for `AskInbox`'s
-  // Enter-key path and `InboxRow`'s `handleAssess`/`handleProposeFix`,
-  // which have no such pre-existing `disabled` wiring of their own).
+  // `promptJson` still runs only once. This exact path was already covered
+  // before this plan by the trigger's own `disabled={suggestions.status
+  // === 'loading'}` (Plan 032), so it doesn't independently prove this
+  // plan's own guard on its own — see the same-tick case above for the one
+  // that does. This case still guards the combined, real-world behavior
+  // (and is the same regression test shape that *does* catch a dropped
+  // guard for `AskInbox`'s Enter-key path and `InboxRow`'s
+  // `handleAssess`/`handleProposeFix`, which have no such pre-existing
+  // `disabled` wiring of their own).
   it('calls promptJson only once for two separate clicks on the same trigger', async () => {
     let resolvePrompt!: (value: {items: never[]}) => void
     promptJsonMock.mockImplementation(() => new Promise((resolve) => (resolvePrompt = resolve)))
