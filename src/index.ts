@@ -29,6 +29,10 @@ export {needsAttention, type NeedsAttentionOptions} from './inbox/sources/needsA
 export {openTasks, type OpenTasksOptions} from './inbox/sources/openTasks'
 export {todos, type TodosOptions} from './inbox/sources/todos'
 export {unpublishedDrafts, type UnpublishedDraftsOptions} from './inbox/sources/unpublishedDrafts'
+export {
+  unresolvedComments,
+  type UnresolvedCommentsOptions,
+} from './inbox/sources/unresolvedComments'
 export {upcomingReleases, type UpcomingReleasesOptions} from './inbox/sources/upcomingReleases'
 
 export {SectionCard} from './ui/SectionCard'

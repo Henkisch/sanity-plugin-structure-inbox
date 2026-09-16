@@ -9,6 +9,7 @@ import {
   structureInboxTeamView,
   todos,
   unpublishedDrafts,
+  unresolvedComments,
   upcomingReleases,
 } from 'sanity-plugin-structure-inbox'
 import {linkCheckerFindings} from 'sanity-plugin-structure-inbox/link-checker'
@@ -83,6 +84,12 @@ export default defineConfig([
           unpublishedDrafts({olderThanDays: 0}),
           documentValidation(),
           assetIssues(),
+          // Everyone's unresolved comment threads, not just this editor's
+          // own mentions — same reasoning as `openTasks({onlyMine: false})`
+          // above, and the only way this workspace's own single-editor
+          // test comment (which mentions this same editor either way)
+          // exercises both audience states meaningfully.
+          unresolvedComments({onlyMine: false}),
           needsAttention(),
           upcomingReleases(),
           todos(),

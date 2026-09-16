@@ -49,7 +49,7 @@ extra menu item — because the plugin teaches the root pane to resolve the Inbo
 
 ## Sources
 
-A source is a feed of inbox items. Seven ship with the plugin:
+A source is a feed of inbox items. Eight ship with the plugin:
 
 | Source                                                       | What it lists                                                 | Whose      |
 | ------------------------------------------------------------ | ------------------------------------------------------------- | ---------- |
@@ -59,6 +59,7 @@ A source is a feed of inbox items. Seven ship with the plugin:
 | `needsAttention({limit})`                                    | Releases that should have run and didn't, or are quietly stalling. | Everyone's |
 | `documentValidation({limit, types})`                         | Drafts currently failing their own schema's validation rules. | Everyone's |
 | `assetIssues({limit, maxSizeBytes, altFieldName})`            | Oversized, unused, or missing-alt-text image/file assets.     | Everyone's |
+| `unresolvedComments({limit, onlyMine})`                       | Unresolved comment threads (requires the Growth plan or above). | Yours    |
 | `todos({title, placement})`                                  | A personal scratch list you type into, right in the pane.     | Yours      |
 
 Sources choose their column with `placement`. `main` is the wide column on the
@@ -215,6 +216,27 @@ on an ordinary document, though, and opens it the normal way.
 
 No `resolve`: fixing any of these means editing the asset or the document
 that references it. No AI: all three are plain, deterministic facts.
+
+### Unresolved comments
+
+**Requires the [Growth plan](https://www.sanity.io/pricing) or above** —
+Sanity's own Comments feature isn't available on the Free plan. On a
+project without it, `unresolvedComments` simply contributes nothing (the
+same graceful "nothing to show" every other source in this plugin falls
+back to when its own data isn't there yet), so it's safe to configure on
+any project regardless of plan.
+
+`unresolvedComments` lists unresolved comment threads (top-level only, not
+replies) — by default, only ones that @mention you, mirroring `openTasks`'s
+own `onlyMine` default; set `onlyMine: false` for every open thread
+team-wide. Comments live in the same per-project add-on dataset Sanity
+Tasks already uses, so this reads it the exact same way `openTasks` does —
+there's no separate API, config, or organization-level setup to wire up.
+
+No `resolve`: resolving a thread is a Studio comment-panel action this pane
+doesn't reimplement — clicking a row opens the document, where the comment
+itself is still visible and resolvable as normal. No AI: a comment already
+says what it means.
 
 ### Todos
 
