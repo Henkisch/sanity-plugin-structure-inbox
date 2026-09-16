@@ -35,11 +35,16 @@
       "source": "./src/index.ts",
       "default": "./dist/index.js"
     },
+    "./link-checker": {
+      "source": "./src/link-checker.ts",
+      "default": "./dist/link-checker.js"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "exports": {
       ".": "./dist/index.js",
+      "./link-checker": "./dist/link-checker.js",
       "./package.json": "./package.json"
     },
     "access": "public"
@@ -76,6 +81,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "sanity": "^6.12.0",
+    "sanity-plugin-link-checker": "^0.4.0",
     "semantic-release": "^25.0.9",
     "styled-components": "^6.5.3",
     "typescript": "^6.0.3",
@@ -84,7 +90,13 @@
   "peerDependencies": {
     "react": "^19.2",
     "sanity": "^6.0.0-0",
+    "sanity-plugin-link-checker": "^0.4.0",
     "styled-components": "^6.1"
+  },
+  "peerDependenciesMeta": {
+    "sanity-plugin-link-checker": {
+      "optional": true
+    }
   },
   "browserslist": "extends @sanity/browserslist-config",
   "engines": {

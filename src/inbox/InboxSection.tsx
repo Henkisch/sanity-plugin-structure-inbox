@@ -58,14 +58,14 @@ export function InboxSection(props: InboxSectionProps) {
     return () => clearInterval(id)
   }, [])
 
-  const {open, done, snoozed} = useMemo(() => {
+  const {open, cleared, snoozed} = useMemo(() => {
     const openItems: InboxItem[] = []
-    const doneItems: InboxItem[] = []
+    const clearedItems: InboxItem[] = []
     const snoozedItems: InboxItem[] = []
 
     for (const item of items) {
       if (isDismissed(dismissals.state, source.name, item.id, item.changedAt)) {
-        doneItems.push(item)
+        clearedItems.push(item)
       } else if (isSnoozed(snoozes.state, source.name, item.id, now, item.changedAt)) {
         snoozedItems.push(item)
       } else {
@@ -73,7 +73,7 @@ export function InboxSection(props: InboxSectionProps) {
       }
     }
 
-    return {open: openItems, done: doneItems, snoozed: snoozedItems}
+    return {open: openItems, cleared: clearedItems, snoozed: snoozedItems}
   }, [items, dismissals.state, snoozes.state, source.name, now])
 
   useEffect(() => {
@@ -81,9 +81,9 @@ export function InboxSection(props: InboxSectionProps) {
   }, [onCount, source.name, open.length])
 
   // Exactly one of the three at a time: the tabs mean different things, and
-  // interleaving them was what made a done or snoozed row look like an open
-  // one.
-  const visible = view === 'done' ? done : view === 'snoozed' ? snoozed : open
+  // interleaving them was what made a cleared or snoozed row look like an
+  // open one.
+  const visible = view === 'cleared' ? cleared : view === 'snoozed' ? snoozed : open
 
   const isEmpty = visible.length === 0
   const editingItem = editingId ? visible.find((item) => item.id === editingId) : undefined
@@ -133,8 +133,8 @@ export function InboxSection(props: InboxSectionProps) {
       ) : isEmpty ? (
         <Box padding={3}>
           <Text muted size={1}>
-            {view === 'done'
-              ? t('source.noneDone')
+            {view === 'cleared'
+              ? t('source.noneCleared')
               : view === 'snoozed'
                 ? t('source.noneSnoozed')
                 : t('source.empty')}
@@ -147,7 +147,7 @@ export function InboxSection(props: InboxSectionProps) {
               <InboxRow
                 assignableUsers={assign?.users}
                 compact={compact}
-                done={view === 'done'}
+                done={view === 'cleared'}
                 item={item}
                 key={item.id}
                 onAssess={assess}

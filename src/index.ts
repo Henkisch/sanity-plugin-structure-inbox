@@ -1,7 +1,13 @@
 export {DEFAULT_TOOL_NAME, INBOX_PANE_ID, STRUCTURE_INBOX_NAMESPACE} from './constants'
 export {structureInbox} from './plugin'
 export {inboxListItem} from './structure/inboxNode'
+export {useInboxOpenCount} from './studio/inboxCountLayout'
 export type {StructureInboxConfig} from './types'
+
+export {
+  structureInboxTeamView,
+  type StructureInboxTeamViewConfig,
+} from './teamView/structureInboxTeamView'
 
 export type {InboxItem, InboxSource, InboxSourceResult} from './inbox/types'
 export {openTasks, type OpenTasksOptions} from './inbox/sources/openTasks'

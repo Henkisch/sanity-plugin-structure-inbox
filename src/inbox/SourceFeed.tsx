@@ -1,6 +1,5 @@
 import {useEffect, useMemo, useRef} from 'react'
 
-import {type Dismissals} from '../store/useDismissals'
 import {type Snoozes} from '../store/useSnoozes'
 import {splitItems} from './splitItems'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from './types'
@@ -10,13 +9,12 @@ export interface SourceReport extends Omit<InboxSourceResult, 'items' | 'loading
   source: InboxSource
   loading?: boolean
   open: InboxItem[]
-  done: InboxItem[]
+  cleared: InboxItem[]
   snoozed: InboxItem[]
 }
 
 interface SourceFeedProps {
   source: InboxSource
-  dismissals: Dismissals
   snoozes: Snoozes
   /** Shared across every source feed, so all of them split on the same instant. */
   now: number
@@ -32,12 +30,12 @@ interface SourceFeedProps {
  * a throw here costs this source's rows, never the whole list.
  */
 export function SourceFeed(props: SourceFeedProps) {
-  const {source, dismissals, snoozes, now, onReport} = props
+  const {source, snoozes, now, onReport} = props
   const {items, loading, error, resolve, create, assess, assign, remove, update} = source.useItems()
 
-  const {open, done, snoozed} = useMemo(
-    () => splitItems(items, source.name, dismissals.state, snoozes.state, now),
-    [items, source.name, dismissals.state, snoozes.state, now],
+  const {open, cleared, snoozed} = useMemo(
+    () => splitItems(items, source.name, snoozes.state, now),
+    [items, source.name, snoozes.state, now],
   )
 
   // `resolve`/`create`/`assess`/`assign`/`remove`/`update` are read through a
@@ -70,14 +68,14 @@ export function SourceFeed(props: SourceFeedProps) {
   const assignUserCount = assign?.users.length ?? -1
 
   useEffect(() => {
-    onReport(source.name, {source, loading, error, open, done, snoozed, ...capabilities.current})
+    onReport(source.name, {source, loading, error, open, cleared, snoozed, ...capabilities.current})
   }, [
     onReport,
     source,
     loading,
     error,
     open,
-    done,
+    cleared,
     snoozed,
     hasResolve,
     hasCreate,

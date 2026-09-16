@@ -9,8 +9,13 @@ import {type InboxView} from './types'
 interface SelectionActionsProps {
   count: number
   view: InboxView
-  /** True when the source can complete items where they actually live. */
-  resolves: boolean
+  /**
+   * How many of the `count` selected rows can actually be completed where
+   * they live (a real `resolve`) — `0` means every row will only be
+   * acknowledged, `count` means every row will really resolve, anything
+   * between is a mixed batch that does both at once.
+   */
+  resolvableCount: number
   busy: boolean
   onConfirm: () => void
   onCancel: () => void
@@ -43,24 +48,28 @@ function isSnoozePreset(value: string): value is SnoozePreset {
  * The bar that appears once rows are selected.
  *
  * The primary action is always one verb for the tab it appears in — "Mark as
- * done" in Open, "Mark as not done" in Done, "Wake now" in Snoozed — never a
- * menu of near-synonyms standing in for the same thing. "Snooze" next to it
- * in the Open view is not a synonym: it defers rather than completes, which
- * is why it earns a control of its own instead of collapsing into the first.
+ * done"/"Acknowledge" in Open, "Mark as not done" in Cleared, "Wake now" in
+ * Snoozed — never a menu of near-synonyms standing in for the same thing.
+ * "Snooze" next to it in the Open view is not a synonym: it defers rather
+ * than completes, which is why it earns a control of its own instead of
+ * collapsing into the first.
+ *
+ * In the Open view, the label itself depends on `resolvableCount`: "Mark as
+ * done" only when every selected row can really resolve (or a mixed batch —
+ * it still resolves what it can), "Acknowledge" when none of them can. This
+ * is the one place this plugin distinguishes those two verbs at all — see
+ * `splitItems.ts`'s own doc comment for why they're different actions, not
+ * two names for the same one.
  *
  * The snooze picker is a plain `<select>` rather than a popover menu: this
  * kit ships no menu/popover primitive, and a native select needs none — it
  * gets keyboard and screen-reader behaviour for free.
- *
- * Whether "done" also changes anything outside this editor's inbox is the
- * source's business, so it is explained in the button's tooltip rather than
- * split into two buttons the editor has to choose between.
  */
 export function SelectionActions(props: SelectionActionsProps) {
   const {
     count,
     view,
-    resolves,
+    resolvableCount,
     busy,
     onConfirm,
     onCancel,
@@ -72,11 +81,13 @@ export function SelectionActions(props: SelectionActionsProps) {
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
   const confirmLabel =
-    view === 'done'
+    view === 'cleared'
       ? t('action.markNotDone')
       : view === 'snoozed'
         ? t('action.wakeNow')
-        : t('action.markDone')
+        : resolvableCount === 0
+          ? t('action.acknowledge')
+          : t('action.markDone')
 
   // Pinned to the placeholder rather than tracking the choice: the picker's
   // job is to fire an action, not to remember one — leaving a preset showing
@@ -169,7 +180,13 @@ export function SelectionActions(props: SelectionActionsProps) {
             text={confirmLabel}
             title={
               view === 'open'
-                ? t(resolves ? 'action.markDone.resolves' : 'action.markDone.mine')
+                ? t(
+                    resolvableCount === 0
+                      ? 'action.acknowledge.hint'
+                      : resolvableCount === count
+                        ? 'action.markDone.resolves'
+                        : 'action.markDone.mixed',
+                  )
                 : undefined
             }
             tone={view === 'open' ? 'positive' : 'default'}

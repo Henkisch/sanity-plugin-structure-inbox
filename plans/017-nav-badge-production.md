@@ -1,5 +1,35 @@
 # Plan 017: A live badge on the Studio navbar, for real
 
+> **REJECTED (2026-09-14) — built, verified working end to end, then pulled
+> by the maintainer at review.** Not a bug: everything in this plan worked
+> exactly as written (`npm run typecheck`/`lint`/`test`/`build` all green,
+> and Step 4's manual checks all passed — hidden when clean, correct count
+> and label when open, live update on mark-done, still visible and correct
+> after switching tools). Reverted anyway once the maintainer actually saw
+> it running, for reasons this plan didn't anticipate:
+> 1. **The number was misleading, not just imprecise.** The badge only
+>    counts sources with a working `useOpenCount` — today, that's
+>    `unpublishedDrafts` but not `openTasks` (task counting needs the addon
+>    dataset, unavailable at the `layout` slot — see 016's own plan note).
+>    In verification the pane's headline read "8 things" while the badge
+>    showed `1`. A badge that quietly under-reports is worse than no badge.
+> 2. **The fixed `position: fixed` placement (top-left, over the Studio
+>    logo) read as visually broken**, not as a deliberate notification dot —
+>    small, easy to miss, awkwardly overlapping the logo rather than sitting
+>    near it.
+> 3. **It wasn't clickable.** A badge that doesn't take you to the Inbox
+>    when clicked is a passive number with no action attached — diminishes
+>    the "glance from any tool" value it was meant to add.
+> Do not resurrect this plan's approach as-is. If a navbar badge is wanted
+> again later, it needs all three addressed together: an accurate count
+> (which most likely means fixing `openTasks`'s addon-dataset access at
+> this slot first, not just documenting the gap), a placement that reads as
+> an intentional notification affordance, and a click target that opens the
+> Inbox. `src/studio/createInboxBadgeNavbar.tsx` was deleted; the
+> `useInboxOpenCount()` hook itself (Plan 016) was kept — it's still real,
+> useful API surface independent of whether anything visual is built on it.
+> See revert commit `263c8f1`.
+
 > **Executor instructions**: Follow this plan step by step. Every step ends
 > in a verification command — run it before moving to the next step. If a
 > STOP condition fires, stop and report rather than improvising. When done,

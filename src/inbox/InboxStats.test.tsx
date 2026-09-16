@@ -1,8 +1,6 @@
 import {cleanup, screen} from '@testing-library/react'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
-import {EMPTY_DISMISSALS} from '../store/dismissals'
-import {type Dismissals} from '../store/useDismissals'
 import {renderWithTheme} from '../test/renderWithTheme'
 import {
   bucketByAge,
@@ -94,19 +92,17 @@ describe('groupByAssigneeLoad', () => {
 })
 
 describe('countClearedToday', () => {
-  it('counts only entries dismissed on the same local day as now', () => {
-    const dismissed = {
-      drafts: {
-        '1': new Date(NOW).toISOString(),
-        '2': new Date(NOW - 2 * DAY).toISOString(),
-      },
-      tasks: {'3': new Date(NOW).toISOString()},
-    }
-    expect(countClearedToday(dismissed, NOW)).toBe(2)
+  it('counts only rows whose real cleared changedAt falls on the same local day as now', () => {
+    const rows = [
+      row('drafts', {id: '1', changedAt: new Date(NOW).toISOString()}),
+      row('drafts', {id: '2', changedAt: new Date(NOW - 2 * DAY).toISOString()}),
+      row('tasks', {id: '3', changedAt: new Date(NOW).toISOString()}),
+    ]
+    expect(countClearedToday(rows, NOW)).toBe(2)
   })
 
-  it('returns 0 for an unparseable timestamp rather than throwing', () => {
-    expect(countClearedToday({drafts: {'1': 'not-a-date'}}, NOW)).toBe(0)
+  it('returns 0 for a row with no changedAt rather than throwing', () => {
+    expect(countClearedToday([row('drafts', {id: '1'})], NOW)).toBe(0)
   })
 })
 
@@ -115,10 +111,6 @@ vi.mock('sanity', async (importOriginal) => {
   return {...actual, useTranslation: () => ({t: (key: string) => key})}
 })
 
-function fakeDismissals(): Dismissals {
-  return {state: EMPTY_DISMISSALS, dismiss: vi.fn(), restore: vi.fn()}
-}
-
 describe('InboxStats', () => {
   it('renders the age breakdown, unassigned count and cleared-today count', () => {
     const rows = [
@@ -126,9 +118,7 @@ describe('InboxStats', () => {
       row('tasks', {id: '2', assignee: {id: 'ada', label: 'Ada'}}),
     ]
 
-    renderWithTheme(
-      <InboxStats assignableRows={rows} dismissals={fakeDismissals()} openRows={rows} />,
-    )
+    renderWithTheme(<InboxStats assignableRows={rows} clearedRows={[]} openRows={rows} />)
 
     expect(screen.getByText('stats.title')).toBeTruthy()
     expect(screen.getByText('Ada')).toBeTruthy()
@@ -137,9 +127,7 @@ describe('InboxStats', () => {
   it('omits the per-assignee section entirely when nobody has anything assigned', () => {
     const rows = [row('tasks', {id: '1'})]
 
-    renderWithTheme(
-      <InboxStats assignableRows={rows} dismissals={fakeDismissals()} openRows={rows} />,
-    )
+    renderWithTheme(<InboxStats assignableRows={rows} clearedRows={[]} openRows={rows} />)
 
     expect(screen.queryByText('stats.load.title')).toBeNull()
   })

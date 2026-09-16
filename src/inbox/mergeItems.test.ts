@@ -12,7 +12,7 @@ function report(open: InboxItem[]): SourceReport {
   return {
     source: {name: 'x', title: 'X', useItems: () => ({items: []})},
     open,
-    done: [],
+    cleared: [],
     snoozed: [],
   }
 }
@@ -74,10 +74,12 @@ describe('mergeRows', () => {
 
   it('reads the requested view, not always open', () => {
     const reports = {
-      drafts: {...report([]), done: [item('done-1')], snoozed: [item('snoozed-1')]},
+      drafts: {...report([]), cleared: [item('cleared-1')], snoozed: [item('snoozed-1')]},
     }
 
-    expect(mergeRows(reports, ['drafts'], 'done').map((row) => row.item.id)).toEqual(['done-1'])
+    expect(mergeRows(reports, ['drafts'], 'cleared').map((row) => row.item.id)).toEqual([
+      'cleared-1',
+    ])
     expect(mergeRows(reports, ['drafts'], 'snoozed').map((row) => row.item.id)).toEqual([
       'snoozed-1',
     ])

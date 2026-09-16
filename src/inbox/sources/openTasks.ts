@@ -13,8 +13,10 @@ import {
   type UserListWithPermissionsOptions,
 } from 'sanity'
 
+import {type SnoozeState} from '../../store/snoozes'
+import {splitItems} from '../splitItems'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
-import {optionalHook} from './capability'
+import {optionalHook, useSafely} from './capability'
 import {liveQuery$} from './liveQuery'
 
 /**
@@ -64,6 +66,16 @@ export interface OpenTasksOptions {
    * @defaultValue true
    */
   onlyMine?: boolean
+  /**
+   * How far back a closed task still counts toward Cleared — older closures
+   * simply age out of the query, the same way a dismissal already ages out
+   * after `DISMISSAL_TTL_DAYS`. This is the only place a task's own resolved
+   * state can be shown at all: unlike a dismissal, there is no separate
+   * per-editor record of "this got cleared" to fall back on.
+   *
+   * @defaultValue 7
+   */
+  clearedWithinDays?: number
 }
 
 interface TaskRow {
@@ -72,20 +84,48 @@ interface TaskRow {
   title?: string
   dueBy?: string
   assignedTo?: string
+  status: string
   targetId?: string
   targetType?: string
 }
 
-const QUERY = `*[
-  _type == "tasks.task" &&
-  status == "open" &&
-  defined(title) &&
-  ($assignedTo == null || assignedTo == $assignedTo)
-] | order(coalesce(dueBy, _updatedAt) asc)[0...$limit]{
-  _id, _updatedAt, title, dueBy, assignedTo,
-  "targetId": target.document._ref,
-  "targetType": target.documentType
+// Two independently-capped slices, not one combined order-then-slice: a
+// closed row's only meaningful recency is *when it closed*, the opposite
+// direction from an open row's "how soon is it due" — sharing one
+// ascending `coalesce(dueBy, _updatedAt)` sort put the two on the same
+// axis, and a project with `limit` or more open tasks silently sliced the
+// task someone had just closed off the end of the array entirely (found by
+// closing one live and watching it vanish from both tabs, not from reading
+// the query). Each bucket keeps its own natural order and its own `limit`,
+// so one can never crowd the other out.
+const QUERY = `{
+  "open": *[
+    _type == "tasks.task" &&
+    defined(title) &&
+    ($assignedTo == null || assignedTo == $assignedTo) &&
+    status == "open"
+  ] | order(coalesce(dueBy, _updatedAt) asc)[0...$limit]{
+    _id, _updatedAt, title, dueBy, assignedTo, status,
+    "targetId": target.document._ref,
+    "targetType": target.documentType
+  },
+  "cleared": *[
+    _type == "tasks.task" &&
+    defined(title) &&
+    ($assignedTo == null || assignedTo == $assignedTo) &&
+    status == "closed" &&
+    _updatedAt > $clearedSince
+  ] | order(_updatedAt desc)[0...$limit]{
+    _id, _updatedAt, title, dueBy, assignedTo, status,
+    "targetId": target.document._ref,
+    "targetType": target.documentType
+  }
 }`
+
+interface TaskQueryResult {
+  open: TaskRow[]
+  cleared: TaskRow[]
+}
 
 /**
  * `useItems`'s own intermediate shape, before `assignedTo` ids are resolved
@@ -139,50 +179,53 @@ function isOverdue(dueBy?: string): boolean {
  * down.
  */
 export function openTasks(options: OpenTasksOptions = {}): InboxSource {
-  const {limit = 10, title = 'Task', placement = 'main', onlyMine = true} = options
+  const {
+    limit = 10,
+    title = 'Task',
+    placement = 'main',
+    onlyMine = true,
+    clearedWithinDays = 7,
+  } = options
 
-  return {
-    name: 'openTasks',
-    title,
-    icon: TaskIcon,
-    placement,
-    audience: onlyMine ? 'mine' : 'everyone',
+  /**
+   * The base task fetch — deliberately shared between `useItems` and
+   * `useOpenCount` below, since both need exactly this and nothing else
+   * (`useOpenCount` doesn't resolve `assignedTo` ids to a label/photo, only
+   * `useItems` does, further down).
+   */
+  function useTaskFetch(
+    client: AddonDatasetContextValue['client'],
+    ready: boolean,
+    userId: string | undefined,
+  ): RawTaskResult {
+    const result$ = useMemo(() => {
+      if (useAddonDataset === useUnavailableAddonDataset) {
+        return of<RawTaskResult>({
+          items: [],
+          error: new Error('Open tasks are unavailable: Sanity no longer exports useAddonDataset.'),
+          rowAssignees: new Map(),
+        })
+      }
 
-    useItems(): InboxSourceResult {
-      const {client, ready} = useAddonDataset()
-      const currentUser = useCurrentUser()
-      const userId = currentUser?.id
-      // `null` documentValue: not scoped to one task, since any of them could
-      // be reassigned — see `unpublishedDrafts.ts`, which reaches the same
-      // hook the same way for the same reason.
-      const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
+      // No addon dataset means tasks have never been used in this Studio.
+      // That is not a failure, it is simply nothing to show.
+      if (!client || !ready) {
+        return of<RawTaskResult>({items: [], loading: !ready, rowAssignees: new Map()})
+      }
 
-      const result$ = useMemo(() => {
-        if (useAddonDataset === useUnavailableAddonDataset) {
-          return of<RawTaskResult>({
-            items: [],
-            error: new Error(
-              'Open tasks are unavailable: Sanity no longer exports useAddonDataset.',
-            ),
-            rowAssignees: new Map(),
-          })
-        }
+      const assignedTo = onlyMine ? (userId ?? null) : null
+      // eslint-disable-next-line react/purity -- see `unpublishedDrafts.ts`'s own `before`: read once per recompute, not a live clock.
+      const clearedSince = new Date(Date.now() - clearedWithinDays * 24 * 60 * 60 * 1000).toISOString()
+      const params = {assignedTo, limit, clearedSince}
+      const fetch$ = client.observable.fetch<TaskQueryResult>(QUERY, params)
 
-        // No addon dataset means tasks have never been used in this Studio.
-        // That is not a failure, it is simply nothing to show.
-        if (!client || !ready) {
-          return of<RawTaskResult>({items: [], loading: !ready, rowAssignees: new Map()})
-        }
-
-        const assignedTo = onlyMine ? (userId ?? null) : null
-        const params = {assignedTo, limit}
-        const fetch$ = client.observable.fetch<TaskRow[]>(QUERY, params)
-
-        // Live rather than fetched once: a task closed, reassigned, or its due
-        // date changed by someone else used to only leave (or enter) this list
-        // once the editor navigated away and back.
-        return liveQuery$(client, QUERY, params, fetch$).pipe(
-          map((rows): RawTaskResult => ({
+      // Live rather than fetched once: a task closed, reassigned, or its due
+      // date changed by someone else used to only leave (or enter) this list
+      // once the editor navigated away and back.
+      return liveQuery$(client, QUERY, params, fetch$).pipe(
+        map(({open, cleared}): RawTaskResult => {
+          const rows = [...open, ...cleared]
+          return {
             items: rows.map((row): InboxItem => ({
               id: row._id,
               title: row.title || row._id,
@@ -197,6 +240,9 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
                 row.targetId && row.targetType
                   ? {type: 'edit', params: {id: row.targetId, type: row.targetType}}
                   : undefined,
+              // Real, Sanity-confirmed evidence, not a dismissal — see `cleared`
+              // on `InboxItem`. This is the one source that can set it at all.
+              cleared: row.status === 'closed',
             })),
             // Row-level `assignedTo` from the query, kept alongside `items`
             // rather than folded into them here: resolving it to a
@@ -205,19 +251,55 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
             // over — see the `items` memo below, the same two-step split
             // `unpublishedDrafts.ts` uses for the same reason.
             rowAssignees: new Map(rows.map((row) => [row._id, row.assignedTo])),
-          })),
-          startWith<RawTaskResult>({items: [], loading: true, rowAssignees: new Map()}),
-          catchError((error: Error) =>
-            of<RawTaskResult>({items: [], error, rowAssignees: new Map()}),
-          ),
-        )
-      }, [client, ready, userId])
+          }
+        }),
+        startWith<RawTaskResult>({items: [], loading: true, rowAssignees: new Map()}),
+        catchError((error: Error) => of<RawTaskResult>({items: [], error, rowAssignees: new Map()})),
+      )
+    }, [client, ready, userId])
 
-      const result: RawTaskResult = useObservable(result$, {
-        items: [],
-        loading: true,
-        rowAssignees: new Map(),
-      })
+    return useObservable(result$, {items: [], loading: true, rowAssignees: new Map()})
+  }
+
+  return {
+    name: 'openTasks',
+    title,
+    icon: TaskIcon,
+    placement,
+    audience: onlyMine ? 'mine' : 'everyone',
+
+    useOpenCount(snoozes: SnoozeState, now: number): number | null {
+      // Tasks live in the addon dataset, so unlike `unpublishedDrafts.ts`
+      // (whose base query needs nothing from it), there is no count here at
+      // all without `useAddonDataset` — this can't be worked around the way
+      // that source's `useOpenCount` was. `useSafely` (see `capability.ts`)
+      // returns the "unavailable" fallback instead of throwing when its
+      // context isn't mounted here, so this reports `null` (does not
+      // contribute to the total) rather than crashing the count provider —
+      // which today, from `src/studio/inboxCountLayout.tsx`'s
+      // `studio.components.layout` slot, it always will, since that context
+      // has only been confirmed present inside the structure tool's own
+      // resolved pane tree.
+      const {client, ready} = useSafely(useAddonDataset, useUnavailableAddonDataset())
+      const userId = useCurrentUser()?.id
+      const result = useTaskFetch(client, ready, userId)
+
+      return useMemo(() => {
+        if (result.loading || result.error) return null
+        return splitItems(result.items, 'openTasks', snoozes, now).open.length
+      }, [result, snoozes, now])
+    },
+
+    useItems(): InboxSourceResult {
+      const {client, ready} = useAddonDataset()
+      const currentUser = useCurrentUser()
+      const userId = currentUser?.id
+      // `null` documentValue: not scoped to one task, since any of them could
+      // be reassigned — see `unpublishedDrafts.ts`, which reaches the same
+      // hook the same way for the same reason.
+      const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
+
+      const result = useTaskFetch(client, ready, userId)
 
       // Every assignable project member, keyed by id — same shape and same
       // reasoning as `unpublishedDrafts.ts`'s own `assigneesById`: `assignable`
