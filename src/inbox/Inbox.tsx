@@ -1038,7 +1038,27 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
           are tied to one source, so they group together here rather than
           living inside any one source's own controls. */}
       <MenuButton
-        button={<Button fontSize={1} icon={SparklesIcon} mode="ghost" text={t('inbox.aiInsightsMenu')} />}
+        button={
+          // The menu itself closes the instant a `MenuItem` is clicked, so
+          // its own per-item loading label (`summary.status === 'loading' ?
+          // t('summarize.loading') : ...` below) is never actually seen —
+          // the trigger button needs its own loading state, or a click
+          // reads as having done nothing at all until the result card
+          // eventually appears. Any one of the three reads loading is
+          // enough to show it: they're mutually exclusive in practice (one
+          // menu, one click at a time) but this doesn't assume that.
+          <Button
+            fontSize={1}
+            icon={SparklesIcon}
+            loading={
+              summary.status === 'loading' ||
+              suggestions.status === 'loading' ||
+              contentGapsResult.status === 'loading'
+            }
+            mode="ghost"
+            text={t('inbox.aiInsightsMenu')}
+          />
+        }
         id="structure-inbox-ai-insights-menu"
         menu={
           <Menu>
