@@ -3,7 +3,7 @@ import {SparklesIcon} from '@sanity/icons/Sparkles'
 import {UserIcon} from '@sanity/icons/User'
 import {Avatar, Box, Button, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
 import {Menu, MenuButton, MenuDivider, MenuItem} from '@sanity/ui/menu'
-import {type CSSProperties, type MouseEvent, useCallback, useId, useState} from 'react'
+import {type CSSProperties, type MouseEvent, useCallback, useId, useRef, useState} from 'react'
 import {useCurrentUser, useTranslation} from 'sanity'
 import {useRouter} from 'sanity/router'
 import {styled} from 'styled-components'
@@ -281,33 +281,64 @@ export function InboxRow(props: InboxRowProps) {
   // No event to stop propagating here, unlike the row's other inline handlers
   // — this only ever fires from a `MenuItem` inside a portal-rendered
   // popover, never from anything nested inside the row's own clickable card.
-  // No request-generation ref here (unlike the four `Inbox.tsx`/`AskInbox.tsx`
-  // handlers): a ref read from inside a closure that ends up embedded in
-  // `allMenuActions` below and iterated via `.map()` trips oxlint's
-  // `react(refs)` rule (it can't tell "referenced as a future click handler"
-  // from "read during this render"), and it would be redundant here anyway —
-  // the `status === 'loading'` guard below already guarantees at most one
-  // `onAssess`/`onProposeFix` call is ever in flight at a time for a given
-  // row, so there is no earlier/later response race left to resolve.
+  //
+  // `assessInFlightRef` is a second, distinct ref from `assessRequestRef`
+  // below, for a reason worth spelling out: a plain `assessment.status ===
+  // 'loading'` check (what `Inbox.tsx`'s three handlers and `AskInbox`'s
+  // `handleSubmit` rely on) reads *component state*, which is only ever
+  // up to date once React has committed a render — so two clicks landing
+  // in the same React batch (both dispatched before that commit, e.g. via
+  // `act(() => { fireEvent.click(x); fireEvent.click(x) })`, the same
+  // technique Plan 032's own test uses for the Inbox.tsx menu) both read
+  // the same stale, pre-loading `assessment.status` and both fire —
+  // confirmed by a failing test during this plan's own review before this
+  // ref was added. A `ref.current` write, by contrast, is visible
+  // synchronously to the very next line of JS that runs, regardless of
+  // whether React has re-rendered — so flipping it true *before* calling
+  // `onAssess`/`onProposeFix`, and using it (not `assessment.status`/
+  // `fix.status`) as the actual gate, closes that same-tick race too.
+  const assessInFlightRef = useRef(false)
+  const assessRequestRef = useRef(0)
+
   const handleAssess = useCallback(() => {
-    if (!onAssess || assessment.status === 'loading') return
+    if (!onAssess || assessInFlightRef.current) return
+    assessInFlightRef.current = true
+    const requestId = ++assessRequestRef.current
     setAssessment({status: 'loading'})
     onAssess(item)
-      .then((assessment) => setAssessment({status: 'done', ...assessment}))
+      .then((assessment) => {
+        assessInFlightRef.current = false
+        return requestId === assessRequestRef.current ? setAssessment({status: 'done', ...assessment}) : undefined
+      })
       .catch((error: unknown) => {
+        assessInFlightRef.current = false
         console.error('[sanity-plugin-structure-inbox] assess failed', error)
         const message = error instanceof AssessmentUnavailableError ? t('assess.unavailable') : t('assess.error')
-        setAssessment({status: 'done', message})
+        return requestId === assessRequestRef.current ? setAssessment({status: 'done', message}) : undefined
       })
-  }, [onAssess, item, t, assessment.status])
+  }, [onAssess, item, t])
+
+  // Same two-ref shape as `handleAssess` above, same reason.
+  const proposeFixInFlightRef = useRef(false)
+  const proposeFixRequestRef = useRef(0)
 
   const handleProposeFix = useCallback(() => {
-    if (!onProposeFix || fix.status === 'loading') return
+    if (!onProposeFix || proposeFixInFlightRef.current) return
+    proposeFixInFlightRef.current = true
+    const requestId = ++proposeFixRequestRef.current
     setFix({status: 'loading'})
     onProposeFix(item)
-      .then((proposal) => setFix(proposal ? {status: 'proposed', proposal} : {status: 'none'}))
-      .catch(() => setFix({status: 'error'}))
-  }, [onProposeFix, item, fix.status])
+      .then((proposal) => {
+        proposeFixInFlightRef.current = false
+        return requestId === proposeFixRequestRef.current
+          ? setFix(proposal ? {status: 'proposed', proposal} : {status: 'none'})
+          : undefined
+      })
+      .catch(() => {
+        proposeFixInFlightRef.current = false
+        return requestId === proposeFixRequestRef.current ? setFix({status: 'error'}) : undefined
+      })
+  }, [onProposeFix, item])
 
   const handleApplyFix = useCallback(() => {
     setFix((current) => {
@@ -604,6 +635,7 @@ export function InboxRow(props: InboxRowProps) {
   // The same actions the bulk selection bar offers, reachable for just this
   // one row without ticking its checkbox first — the direct-manipulation
   // path the avatar's own reassign picker already established for `assign`.
+  // eslint-disable-next-line refs -- false positive: `allMenuActions` embeds `handleAssess`/`handleProposeFix` by reference (for a `MenuItem`'s `onClick`, called later at click time), and those two read `assessRequestRef.current`/`proposeFixRequestRef.current` — but only from inside their own callback bodies, never during this render. The rule's taint tracking can't tell "a ref-touching function is referenced here" from "a ref is read here", and flags this `.length` check (and the `.map()` below) as if it depended on the ref's current value, which it does not.
   const menuButton = allMenuActions.length > 0 && (
     <Box onClick={stopPropagation}>
       <MenuButton
@@ -618,14 +650,17 @@ export function InboxRow(props: InboxRowProps) {
         id={`${labelId}-menu`}
         menu={
           <Menu>
-            {allMenuActions.map((menuAction) => (
-              <MenuItem
-                key={menuAction.key}
-                onClick={menuAction.onClick}
-                text={menuAction.label}
-                tone={menuAction.tone}
-              />
-            ))}
+            {
+              // eslint-disable-next-line refs -- same false positive as `menuButton` above: `menuAction.onClick` is only ever a reference to `handleAssess`/`handleProposeFix`/an external action, invoked later on click, not a ref read happening here.
+              allMenuActions.map((menuAction) => (
+                <MenuItem
+                  key={menuAction.key}
+                  onClick={menuAction.onClick}
+                  text={menuAction.label}
+                  tone={menuAction.tone}
+                />
+              ))
+            }
           </Menu>
         }
         popover={{placement: 'bottom-end', portal: true}}

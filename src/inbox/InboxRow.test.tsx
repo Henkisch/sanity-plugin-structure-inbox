@@ -1,7 +1,7 @@
 import {ThemeProvider} from '@sanity/ui'
 import {buildTheme} from '@sanity/ui/theme'
 import {ToastProvider} from '@sanity/ui/toast'
-import {cleanup, fireEvent, render, screen} from '@testing-library/react'
+import {act, cleanup, fireEvent, render, screen} from '@testing-library/react'
 import {type ReactElement} from 'react'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
@@ -263,6 +263,37 @@ describe('InboxRow', () => {
 
       expect(await screen.findByText('Looks ready to publish.')).toBeTruthy()
       expect(onAssess).toHaveBeenCalledTimes(1)
+    })
+
+    // The tighter race: both clicks dispatched inside one `act()` call, the
+    // same technique Plan 032's own test uses for the Inbox.tsx menu (see
+    // `Inbox.test.tsx`'s `handleSuggestTodos` describe block). A plain
+    // `assessment.status === 'loading'` check alone does *not* close this
+    // one — both clicks run before React commits the first one's
+    // `setAssessment({status: 'loading'})`, so both read the same stale,
+    // pre-loading state and both would fire. `assessInFlightRef` (a plain
+    // ref, mutated synchronously, not through `setState`) is what actually
+    // closes it here.
+    it('calls onAssess only once even when both clicks land in the same React batch', async () => {
+      let resolveOnAssess!: (value: {message: string}) => void
+      const onAssess = vi.fn().mockImplementation(() => new Promise((resolve) => (resolveOnAssess = resolve)))
+
+      renderRow(<InboxRow item={item()} onAssess={onAssess} onSelectedChange={vi.fn()} selected={false} />)
+
+      fireEvent.click(screen.getByRole('button', {name: 'row.menu'}))
+      const assessItem = screen.getByRole('menuitem', {name: 'assess.ask'})
+
+      act(() => {
+        fireEvent.click(assessItem)
+        fireEvent.click(assessItem)
+      })
+
+      expect(onAssess).toHaveBeenCalledTimes(1)
+
+      await act(async () => {
+        resolveOnAssess({message: 'Looks ready to publish.'})
+        await Promise.resolve()
+      })
     })
   })
 })
