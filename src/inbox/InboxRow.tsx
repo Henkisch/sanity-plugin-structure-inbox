@@ -6,11 +6,29 @@ import {Menu, MenuButton, MenuDivider, MenuItem} from '@sanity/ui/menu'
 import {type CSSProperties, type MouseEvent, useCallback, useId, useState} from 'react'
 import {useCurrentUser, useTranslation} from 'sanity'
 import {useRouter} from 'sanity/router'
+import {styled} from 'styled-components'
 
 import {AssessmentUnavailableError} from '../ai/assessment'
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {RelativeTime} from './RelativeTime'
 import {type FixProposal, type InboxAssessment, type InboxItem} from './types'
+
+/**
+ * A real `:hover` background, not a prop toggled by hand — confirmed live
+ * that `Card`'s own CSS only applies a hover background when rendered as a
+ * genuinely interactive tag (`as="button"`/`"a"`), which this row can't be:
+ * it already contains its own real `<button>`s (the menu trigger, the
+ * reassign avatar), and nesting `<button>` inside `<button>` is invalid
+ * HTML. `--card-border-color` is `Card`'s own CSS custom property (one
+ * step lighter than its background in the theme scale, confirmed live via
+ * computed style) — a genuine Sanity token, just applied through `:hover`
+ * instead of a component prop.
+ */
+const HoverableCard = styled(Card)`
+  &:hover {
+    background-color: var(--card-border-color);
+  }
+`
 
 interface InboxRowProps {
   item: InboxItem
@@ -213,9 +231,6 @@ export function InboxRow(props: InboxRowProps) {
     initialAssessment ? {status: 'done', ...initialAssessment} : {status: 'idle'},
   )
   const [fix, setFix] = useState<FixState>({status: 'idle'})
-  // Drives the row's own `shadow` — see both `Card` renders below for why
-  // this replaces `as="button"` as this row's native-feeling hover cue.
-  const [hovered, setHovered] = useState(false)
 
   // Checking a box marks the row, it does not act on it. Which action follows
   // is the editor's next decision, offered once something is selected — the
@@ -616,21 +631,11 @@ export function InboxRow(props: InboxRowProps) {
 
   if (compact) {
     return (
-      <Card
-        // `as="button"` would give this a real native hover for free, but
-        // this row already contains its own real `<button>`s (the menu
-        // trigger, the reassign avatar) — nesting a `<button>` inside
-        // another is invalid HTML and browsers un-nest it unpredictably.
-        // `shadow` is Sanity UI's own elevation cue instead: still a native
-        // theme token, not custom CSS, just toggled by hand since the tag
-        // itself can't be interactive.
+      <HoverableCard
         aria-hidden={leaving}
         onClick={leaving ? undefined : handleRowClick}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
         padding={3}
         radius={2}
-        shadow={hovered && !leaving ? 1 : 0}
         style={exitStyle}
         tone={selected ? 'primary' : tone}
       >
@@ -642,20 +647,16 @@ export function InboxRow(props: InboxRowProps) {
           {assigneeAvatar}
           {menuButton}
         </Flex>
-      </Card>
+      </HoverableCard>
     )
   }
 
   return (
-    <Card
-      // See the `compact` branch above for why this is `shadow`, not `as="button"`.
+    <HoverableCard
       aria-hidden={leaving}
       onClick={leaving ? undefined : handleRowClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       padding={2}
       radius={2}
-      shadow={hovered && !leaving ? 1 : 0}
       style={exitStyle}
       tone={selected ? 'primary' : tone}
     >
@@ -677,6 +678,6 @@ export function InboxRow(props: InboxRowProps) {
         {assigneeAvatar}
         {menuButton}
       </Flex>
-    </Card>
+    </HoverableCard>
   )
 }
