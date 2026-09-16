@@ -54,6 +54,9 @@ behaviour here, fix the comment in the same commit.
 | 040 | Make source titles (and openTasks' Overdue/Due) actually translatable | P2 | M | — | TODO |
 | 041 | Add `AGENTS.md` | P2 | S | — | TODO |
 | 042 | Feed Ask (and Find content gaps) the same automated project survey, and make it scale | P2 | M | — | DONE — merged to main. One deliberate deviation from the Done-criteria wording, reviewed and agreed correct: `handleFindContentGaps` still fails the whole read on a survey error (unchanged, pre-existing behavior — that read *is* the survey, there's no meaningful degraded mode), only Ask (Step 3, genuinely optional enrichment) gets the soft-fail fallback. Step 1a's real-dataset timing claim correctly reported as unverified (no large dataset available) rather than fabricated. |
+| 043 | `suggestSnooze` fires without consent — make it click-triggered like every other AI read | P1 | M | — | TODO |
+| 044 | Guard every AI handler against a duplicate request on rapid double-click | P2 | M | — | TODO |
+| 045 | Let an integrator opt out of Summarize/Suggest todos individually | P2 | M | — | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale)
@@ -212,6 +215,55 @@ Eight plans, by category:
 - **Docs** (1): 041 — `AGENTS.md`, finally. Third time this specific
   finding has been re-confirmed across three separate `/improve`-style
   passes without landing a plan.
+
+## AI-cost research track, 2026-09-16
+
+Prompted directly: "cost wise, ai usage etc, how will this affect the
+sanity billing... we should do everything we can to keep costs as low as
+possible so its as available as possible for all users." Investigated via
+Sanity's own docs (not guessing) plus a full audit of every AI call site
+in this codebase, cross-checked against the maintainer's own real usage
+dashboard.
+
+**The real billing mechanic** (confirmed at
+`sanity.io/docs/platform-management/how-ai-credits-work`, verified exactly
+against the maintainer's own numbers — 85 Agent Action requests billed at
+exactly $4.25, i.e. $0.05 × 85): every `client.agent.action.prompt(...)`
+call this plugin makes is billed as a **flat 1 credit ($0.05) per
+request**, regardless of prompt/response size. The cost lever is request
+*count*, not prompt size — Plan 042's own bigger survey text costs
+nothing extra (it's not even an Agent Action; it's a plain GROQ fetch).
+
+Three real findings, each its own plan:
+
+- **043 — `suggestSnooze` fires with no click at all.** Every other AI
+  feature here is click-triggered; this one fires automatically via a
+  `useEffect` the instant an editor selects a single `unpublishedDrafts`
+  row, for *any* reason (assign, delete, clear — not just snooze). Silent,
+  unconsented spend on a routine, frequent, non-AI action. The most
+  important of the three findings — real money spent with zero signal to
+  the editor that anything billable just happened.
+- **044 — a rapid double-click spends two credits for one intended
+  action.** The request-generation-ref guard from Plan 032 stops a stale
+  *result* from overwriting a fresher one; it does not stop the stale
+  *request* from being sent. Not theoretical: Plan 032's own regression
+  test already proves the double-request happens today (asserts the mock
+  was called `toHaveBeenCalledTimes(2)`) — it just never checked that as
+  a cost problem, only a display one. Six handlers across three files
+  share the exact same gap.
+- **045 — no way to disable Summarize/Suggest todos individually.** `ask`/
+  `contentGaps` already have their own opt-out; these two don't, short of
+  disabling Agent Actions Studio-wide. Directly requested: "the ability to
+  opt out of some features that are ai heavy is a good thing."
+
+**A genuine, verified differentiator worth knowing**: this plugin is
+fully functional and valuable with zero AI configured. Every source's own
+core capability (list, assign, snooze, clear, resolve, link-check,
+validate, flag asset issues) runs on plain Content Lake API calls — `assess`/
+`proposeFix`/`suggestSnooze`/Summarize/Suggest todos/Ask/Find content gaps
+are 100% additive; `useAgentClient()` returns `undefined` when Agent
+Actions aren't configured and every AI-dependent capability just doesn't
+render, nothing errors or degrades. Confirmed in code, not aspirational.
 
 ## Reviewed by `/improve execute`, awaiting merge
 
