@@ -67,7 +67,6 @@ export function AddMenu() {
           fontSize={1}
           icon={AddIcon}
           mode="ghost"
-          padding={2}
           text={t('inbox.addContent')}
           tone="primary"
         />
