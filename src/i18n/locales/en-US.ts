@@ -54,7 +54,6 @@ const enUS = {
   'filter.type': 'Type',
   'source.loading': 'Loading…',
   'source.error.title': 'This section could not load',
-  'source.error.retry': 'Try again',
 
   'item.open': 'Open',
 

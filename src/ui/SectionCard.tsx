@@ -1,5 +1,5 @@
-import {Box, Button, Card, Flex, Stack, Text} from '@sanity/ui'
-import {type ReactNode, useCallback} from 'react'
+import {Box, Card, Flex, Stack, Text} from '@sanity/ui'
+import {type ReactNode} from 'react'
 import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
@@ -37,11 +37,6 @@ interface SectionCardProps {
 export function SectionCard(props: SectionCardProps) {
   const {title, badge, note, toolbar, error, children} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
-
-  // A reported error comes back from the source's own hook on every render —
-  // there is no local "caught" state here to clear, so retrying is only ever
-  // meaningful if the source itself stops reporting one.
-  const handleRetry = useCallback(() => {}, [])
 
   return (
     // `overflow: hidden` so the header's own square-cornered background is
@@ -112,16 +107,6 @@ export function SectionCard(props: SectionCardProps) {
             <Text muted size={1}>
               {error.message}
             </Text>
-            <Flex>
-              {/* Ghost mode: recovering from an error is not the primary thing
-                  on this pane, and a filled button would say otherwise. */}
-              <Button
-                fontSize={1}
-                mode="ghost"
-                onClick={handleRetry}
-                text={t('source.error.retry')}
-              />
-            </Flex>
           </Stack>
         </Box>
       ) : (
