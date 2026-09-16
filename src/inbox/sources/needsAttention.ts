@@ -7,13 +7,32 @@ import {map} from 'rxjs/operators'
 // Type-only: erased at compile time — see `upcomingReleases.ts`'s own note
 // on why this stays a type-only import.
 import type {useActiveReleases as UseActiveReleasesType} from 'sanity'
-import {useClient, useTranslation} from 'sanity'
+// `useUserListWithPermissions` stays out of this named import — see
+// `optionalHook` below, same reasoning `openTasks.ts` already gives.
+import {
+  useClient,
+  useCurrentUser,
+  useTranslation,
+  type UserListWithPermissionsHookValue,
+  type UserListWithPermissionsOptions,
+} from 'sanity'
 
 import {API_VERSION, STRUCTURE_INBOX_NAMESPACE} from '../../constants'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
+import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
 import {optionalHook} from './capability'
 import {liveQuery$} from './liveQuery'
 import {classifyRelease, toneForAttention} from './releaseAttention'
+
+/** Stands in for `useUserListWithPermissions` when Sanity does not export it. */
+function useUnavailableUserList(): UserListWithPermissionsHookValue {
+  return {data: null, error: null, loading: false}
+}
+
+// Resolved once at module scope — see `openTasks.ts` for why.
+const useAssignableUsers = optionalHook<
+  (opts: UserListWithPermissionsOptions) => UserListWithPermissionsHookValue
+>('useUserListWithPermissions', useUnavailableUserList)
 
 const RELEASE_INTENT = 'release'
 
@@ -105,6 +124,14 @@ function useDocumentCounts(client: SanityClient, releaseIds: readonly string[]):
  * No AI anywhere in this source — every condition is a date comparison and a
  * count, both already fully certain.
  *
+ * Offers `assign`, sharing the exact same assignment record
+ * `upcomingReleases.ts` does (same shared `ASSIGNMENT_TYPE`, same target id —
+ * a release's own `_id` — since a row here and a row there can be the same
+ * release): a real gap otherwise, confirmed live — assigning the release via
+ * `upcomingReleases`'s own aside card left this row's avatar a dead,
+ * permanently-"Unassigned" placeholder with no click affordance at all,
+ * which read as broken rather than simply not wired up.
+ *
  * Scheduled *documents* as a mechanism separate from releases does not exist
  * in this Sanity version (confirmed empirically — no `schedule`-shaped
  * document type exists in a v6 dataset; scheduled publishing is entirely
@@ -126,7 +153,24 @@ export function needsAttention(options: NeedsAttentionOptions = {}): InboxSource
     useItems(): InboxSourceResult {
       const client = useClient({apiVersion: API_VERSION})
       const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
+      const currentUser = useCurrentUser()
+      const userId = currentUser?.id
       const {data, loading, error} = useReleases()
+      const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
+      const assignments = useAssignmentStore(client, ASSIGNMENT_TYPE)
+
+      const assigneesById = useMemo(() => {
+        const byId = new Map<string, {id: string; label: string; imageUrl?: string}>()
+        for (const user of assignable ?? []) {
+          const isSelf = user.id === userId
+          byId.set(user.id, {
+            id: user.id,
+            label: user.displayName || user.email || user.id,
+            imageUrl: (isSelf && currentUser?.profileImage) || user.imageUrl,
+          })
+        }
+        return byId
+      }, [assignable, userId, currentUser])
 
       const releaseIds = useMemo(
         () => data.map((release) => getReleaseIdFromReleaseDocumentId(release._id)),
@@ -160,7 +204,10 @@ export function needsAttention(options: NeedsAttentionOptions = {}): InboxSource
               )
             : undefined
 
-          rows.push({
+          const assignedTo = assignments.byTarget.get(release._id)
+          const assignee = assignedTo ? assigneesById.get(assignedTo) : undefined
+
+          const row: InboxItem = {
             id: release._id,
             title: release.metadata.title || releaseId,
             subtitle:
@@ -174,11 +221,28 @@ export function needsAttention(options: NeedsAttentionOptions = {}): InboxSource
               type: RELEASE_INTENT,
               params: {id: releaseId},
             },
-          })
+          }
+          rows.push(assignee ? {...row, assignee} : row)
         }
 
         return rows.slice(0, limit)
-      }, [data, counts, t])
+      }, [data, counts, t, assignments.byTarget, assigneesById])
+
+      const assign = useMemo(() => {
+        if (!assignable) return undefined
+
+        return {
+          users: assignable
+            .filter((user) => user.granted)
+            .map((user) => ({id: user.id, label: user.displayName || user.email || user.id})),
+          toUser: async (item: InboxItem, assignedTo: string) => {
+            await assignments.assign(item.id, assignedTo)
+          },
+          unassign: async (item: InboxItem) => {
+            await assignments.unassign(item.id)
+          },
+        }
+      }, [assignable, assignments])
 
       if (useReleases === useUnavailableReleases) {
         return {
@@ -189,7 +253,7 @@ export function needsAttention(options: NeedsAttentionOptions = {}): InboxSource
         }
       }
 
-      return {items, loading, error}
+      return {items, loading, error, assign}
     },
   }
 }

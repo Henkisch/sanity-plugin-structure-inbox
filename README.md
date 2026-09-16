@@ -162,7 +162,10 @@ fully certain.
 An off-track release can appear in **both** columns at once — the aside
 card (it's still a release) and the main list (it's also an obligation).
 That's correct, not duplication: the two columns answer different
-questions.
+questions. `assign` is shared between them for the same reason: both rows
+can name the same release (its own `_id`), so assigning it from either
+column is one fact, not two — see [Assigning an item to someone
+else](#assigning-an-item-to-someone-else).
 
 ### Document validation
 
@@ -382,8 +385,8 @@ Most built-in sources offer `assign`: select rows, then pick a name from the
 single natural owner to be worth assigning (an upcoming release, a stray
 oversized asset), the same way a task board assigns work regardless of
 whether the underlying thing has one. `unpublishedDrafts`, `documentValidation`,
-`linkCheckerFindings`, `unresolvedComments`, `upcomingReleases`, and
-`assetIssues` all offer it. Two built-in sources don't, both for a real
+`linkCheckerFindings`, `unresolvedComments`, `upcomingReleases`, `needsAttention`,
+and `assetIssues` all offer it. Two built-in sources don't, both for a real
 structural reason: `openTasks` already has a native, real assignee field of
 its own (shown, but read-only, so there's no second competing path to the
 same fact), and `todos` lives in the acting editor's own private list with
