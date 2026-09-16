@@ -612,7 +612,10 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
     {status: 'idle'} | {status: 'loading'} | {status: 'done'; message: string} | {status: 'error'}
   >({status: 'idle'})
 
+  const summarizeRequestRef = useRef(0)
+
   const handleSummarize = useCallback(async () => {
+    const requestId = ++summarizeRequestRef.current
     setSummary({status: 'loading'})
     const digest = openRows
       .slice(0, 30)
@@ -620,7 +623,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
       .join('\n')
 
     if (!agentClient) {
-      setSummary({status: 'error'})
+      if (requestId === summarizeRequestRef.current) setSummary({status: 'error'})
       return
     }
 
@@ -632,10 +635,10 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
           'In two or three short sentences, say what looks most worth starting with first and why.',
         instructionParams: {items: digest || 'Nothing is open right now.'},
       })
-      setSummary({status: 'done', message})
+      if (requestId === summarizeRequestRef.current) setSummary({status: 'done', message})
     } catch (error: unknown) {
       console.error('[sanity-plugin-structure-inbox] summarize failed', error)
-      setSummary({status: 'error'})
+      if (requestId === summarizeRequestRef.current) setSummary({status: 'error'})
     }
   }, [agentClient, openRows, context])
 
@@ -652,7 +655,10 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
   // render rather than offering suggestions with nowhere real to put them.
   const addTodo = reports.todos?.create
 
+  const suggestTodosRequestRef = useRef(0)
+
   const handleSuggestTodos = useCallback(async () => {
+    const requestId = ++suggestTodosRequestRef.current
     setSuggestions({status: 'loading'})
     const digest = openRows
       .slice(0, 30)
@@ -660,7 +666,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
       .join('\n')
 
     if (!agentClient) {
-      setSuggestions({status: 'error'})
+      if (requestId === suggestTodosRequestRef.current) setSuggestions({status: 'error'})
       return
     }
 
@@ -678,10 +684,12 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
         {items: digest || 'Nothing is open right now.'},
       )
 
-      setSuggestions({status: 'done', items: (choice?.items ?? []).slice(0, 3)})
+      if (requestId === suggestTodosRequestRef.current) {
+        setSuggestions({status: 'done', items: (choice?.items ?? []).slice(0, 3)})
+      }
     } catch (error: unknown) {
       console.error('[sanity-plugin-structure-inbox] suggest-todos failed', error)
-      setSuggestions({status: 'error'})
+      if (requestId === suggestTodosRequestRef.current) setSuggestions({status: 'error'})
     }
   }, [agentClient, openRows, context])
 
@@ -697,11 +705,14 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
     | {status: 'error'}
   >({status: 'idle'})
 
+  const findContentGapsRequestRef = useRef(0)
+
   const handleFindContentGaps = useCallback(async () => {
+    const requestId = ++findContentGapsRequestRef.current
     setContentGapsResult({status: 'loading'})
 
     if (!agentClient) {
-      setContentGapsResult({status: 'error'})
+      if (requestId === findContentGapsRequestRef.current) setContentGapsResult({status: 'error'})
       return
     }
 
@@ -726,10 +737,12 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
         {survey: digest || 'This project has no content types with any documents yet.'},
       )
 
-      setContentGapsResult({status: 'done', items: (choice?.gaps ?? []).slice(0, 5)})
+      if (requestId === findContentGapsRequestRef.current) {
+        setContentGapsResult({status: 'done', items: (choice?.gaps ?? []).slice(0, 5)})
+      }
     } catch (error: unknown) {
       console.error('[sanity-plugin-structure-inbox] find-content-gaps failed', error)
-      setContentGapsResult({status: 'error'})
+      if (requestId === findContentGapsRequestRef.current) setContentGapsResult({status: 'error'})
     }
   }, [agentClient, client, schema, context])
 

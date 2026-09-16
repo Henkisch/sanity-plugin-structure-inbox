@@ -1,16 +1,64 @@
 import {ThemeProvider} from '@sanity/ui'
 import {buildTheme} from '@sanity/ui/theme'
 import {ToastProvider} from '@sanity/ui/toast'
-import {render, screen} from '@testing-library/react'
-import {describe, expect, it, vi} from 'vitest'
+import {act, cleanup, fireEvent, render, screen} from '@testing-library/react'
+import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {EMPTY_DISMISSALS} from '../store/dismissals'
 import {EMPTY_SNOOZES} from '../store/snoozes'
 import {type Dismissals} from '../store/useDismissals'
 import {type Snoozes} from '../store/useSnoozes'
-import {BoundedSection, BoundedSourceFeed} from './Inbox'
+import {renderWithTheme} from '../test/renderWithTheme'
+import {BoundedSection, BoundedSourceFeed, Inbox} from './Inbox'
 import {type SourceReport} from './SourceFeed'
 import {type InboxSource} from './types'
+
+// `Inbox` itself (unlike `BoundedSection`/`BoundedSourceFeed` above) calls
+// `useClient`, `useSchema`, `useCurrentUser`, `useSharedInboxStore` (via
+// `../studio/inboxCountLayout`) and `useAgentClient` — a full Studio source
+// context this suite does not build. Same mocking shape MergedList.test.tsx
+// already established for the `sanity`/`useAgentClient`/`promptJson` half of
+// this; `useClient`/`useSchema` and `../studio/inboxCountLayout` are the two
+// additions `Inbox` itself needs beyond what rendering `MergedList` alone
+// does.
+vi.mock('sanity', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('sanity')>()
+  return {
+    ...actual,
+    useRelativeTime: () => 'a while ago',
+    useCurrentUser: () => null,
+    useClient: () => ({}) as never,
+    // `AddMenu` (always mounted alongside `mainColumnActions`, regardless of
+    // whether any source actually offers `create`) calls `schema.getTypeNames()`
+    // unconditionally — a bare `{}` stub throws there before this suite ever
+    // reaches the AI-insights menu it's actually testing.
+    useSchema: () => ({getTypeNames: () => [], get: () => undefined}) as never,
+  }
+})
+
+const {useAgentClientMock, promptJsonMock} = vi.hoisted(() => ({
+  useAgentClientMock: vi.fn(() => ({}) as never),
+  promptJsonMock: vi.fn(),
+}))
+
+vi.mock('../ai/useAgentClient', () => ({useAgentClient: useAgentClientMock}))
+vi.mock('../ai/promptJson', () => ({promptJson: promptJsonMock}))
+
+// Stands in for the plugin's always-mounted layout provider (see
+// `useSharedInboxStore`'s own doc comment in `../studio/inboxCountLayout` —
+// `Inbox` throws without it, and the real provider itself needs a full
+// Studio source context to mount its own `useDismissals`/`useSnoozes`).
+vi.mock('../studio/inboxCountLayout', () => ({
+  useSharedInboxStore: () => ({
+    dismissals: {state: EMPTY_DISMISSALS, dismiss: vi.fn(), restore: vi.fn()},
+    snoozes: {state: EMPTY_SNOOZES, snooze: vi.fn(), wake: vi.fn()},
+  }),
+}))
+
+afterEach(() => {
+  cleanup()
+  promptJsonMock.mockReset()
+})
 
 /**
  * `Inbox` itself calls `useDismissals`, which calls `useClient` and needs a
@@ -142,5 +190,82 @@ describe('BoundedSourceFeed', () => {
       'good',
       expect.objectContaining({open: [], cleared: [], snoozed: []}),
     )
+  })
+})
+
+// Stable references, not created fresh inside `useItems` below: a real
+// source (`todos.ts`) keeps its own `items` array reference stable across
+// renders via its own internal state/memoization, the same way `useState`
+// or `useMemo` would. A literal `{items: []}` returned fresh on every call
+// does not — `SourceFeed`'s own report effect depends on `open`/`cleared`/
+// `snoozed` (derived from `items`), so a new array each render re-fires
+// that effect, which calls `onReport`, which (only once wired to the real
+// `Inbox`, unlike `BoundedSection`/`BoundedSourceFeed` above) sets state on
+// `Inbox` itself and re-renders it — an infinite loop, confirmed live
+// ("Maximum update depth exceeded") before this was hoisted out.
+const TODOS_ITEMS: never[] = []
+const TODOS_CREATE = vi.fn()
+
+function todosSource(): InboxSource {
+  // `handleSuggestTodos`'s own trigger (`addTodo = reports.todos?.create`,
+  // in `Inbox.tsx`) only renders once some `main` source named exactly
+  // `todos` reports a `create` — this is that source, standing in for the
+  // real `todos.ts` built-in.
+  return {name: 'todos', title: 'Todos', useItems: () => ({items: TODOS_ITEMS, create: TODOS_CREATE})}
+}
+
+function openAiInsightsMenu() {
+  // No real i18next instance in this suite (see the same `t()`-returns-the-
+  // raw-key behaviour `MergedList.test.tsx` already relies on for its own
+  // `getByRole(..., {name: 'action.assign'})`-style queries) — so the
+  // accessible name is the untranslated key, not the English copy.
+  fireEvent.click(screen.getByRole('button', {name: 'inbox.aiInsightsMenu'}))
+}
+
+describe('Inbox handleSuggestTodos', () => {
+  it('keeps the later request\'s result even when the earlier request resolves last', async () => {
+    let resolveFirst!: (value: {items: {title: string; reason: string}[]}) => void
+    let resolveSecond!: (value: {items: {title: string; reason: string}[]}) => void
+
+    promptJsonMock
+      .mockImplementationOnce(() => new Promise((resolve) => (resolveFirst = resolve)))
+      .mockImplementationOnce(() => new Promise((resolve) => (resolveSecond = resolve)))
+
+    renderWithTheme(<Inbox sources={[todosSource()]} />)
+
+    openAiInsightsMenu()
+    const suggestTodosItem = screen.getByRole('menuitem', {name: /todoSuggest\.ask/})
+
+    // Both clicks fired inside one `act()` call, rather than as two separate
+    // `fireEvent.click` calls: `MenuItem`'s own `disabled` prop (see
+    // `Inbox.tsx`'s `disabled={suggestions.status === 'loading'}`) means a
+    // second *sequential* click — each individually flushed by
+    // `fireEvent`'s own act-wrapping before the next runs — would already be
+    // blocked by the time it fires, since React commits the first click's
+    // `setSuggestions({status: 'loading'})` (and the resulting `disabled`
+    // attribute) before that first `fireEvent.click` call even returns. This
+    // is exactly the double-click race `handleSuggestTodos`'s new
+    // generation-ref guard defends against: two overlapping requests that
+    // start before either one's disable has committed, racing back in the
+    // opposite order.
+    act(() => {
+      fireEvent.click(suggestTodosItem)
+      fireEvent.click(suggestTodosItem)
+    })
+
+    expect(promptJsonMock).toHaveBeenCalledTimes(2)
+
+    // Resolve out of order: the second (later) request finishes first.
+    await act(async () => {
+      resolveSecond({items: [{title: 'Second suggestion', reason: 'because second'}]})
+      await Promise.resolve()
+    })
+    await act(async () => {
+      resolveFirst({items: [{title: 'First suggestion', reason: 'because first'}]})
+      await Promise.resolve()
+    })
+
+    expect(await screen.findByText('Second suggestion')).toBeTruthy()
+    expect(screen.queryByText('First suggestion')).toBeNull()
   })
 })
