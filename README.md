@@ -49,7 +49,7 @@ extra menu item — because the plugin teaches the root pane to resolve the Inbo
 
 ## Sources
 
-A source is a feed of inbox items. Six ship with the plugin:
+A source is a feed of inbox items. Seven ship with the plugin:
 
 | Source                                                       | What it lists                                                 | Whose      |
 | ------------------------------------------------------------ | ------------------------------------------------------------- | ---------- |
@@ -58,6 +58,7 @@ A source is a feed of inbox items. Six ship with the plugin:
 | `upcomingReleases({limit})`                                  | Releases that are scheduled or still being filled.            | Everyone's |
 | `needsAttention({limit})`                                    | Releases that should have run and didn't, or are quietly stalling. | Everyone's |
 | `documentValidation({limit, types})`                         | Drafts currently failing their own schema's validation rules. | Everyone's |
+| `assetIssues({limit, maxSizeBytes, altFieldName})`            | Oversized, unused, or missing-alt-text image/file assets.     | Everyone's |
 | `todos({title, placement})`                                  | A personal scratch list you type into, right in the pane.     | Yours      |
 
 Sources choose their column with `placement`. `main` is the wide column on the
@@ -187,6 +188,33 @@ follows elsewhere in this plugin.
 
 No `resolve`: a validation error is fixed by editing the document, not by
 this pane. No AI: a schema's own rules are already fully deterministic.
+
+### Asset issues
+
+Neither Sanity's own Structure Tool nor its Media library surfaces asset
+problems in aggregate. `assetIssues` runs three independent checks against
+your image/file assets:
+
+- **Oversized** — larger than `maxSizeBytes` (default 5 MiB).
+- **Unused** — referenced by nothing, using Sanity's own documented recipe
+  (`count(*[references(^._id)]) == 0`). Skipped entirely (reports zero rows,
+  rather than risk a slow query) once the project has more than 200 total
+  assets — the same silently-absent-when-uncertain posture `needsAttention`
+  already uses elsewhere in this plugin.
+- **Missing alt text** — a top-level image field, on any document type, that
+  declares its own `altFieldName` sub-field (default `'alt'`, the common
+  convention — a project using a different name for its own alt-text field
+  should pass it explicitly) but leaves it empty on a real document. This one
+  is scoped to top-level image fields, not any nested inside an object or array.
+
+Oversized and unused rows have no click-through: `sanity.imageAsset`/
+`sanity.fileAsset` are real document types, but Structure Tool deliberately
+excludes them from its own default document handling, so there's no safe
+"open" target for one outside the Media browser. A missing-alt-text row is
+on an ordinary document, though, and opens it the normal way.
+
+No `resolve`: fixing any of these means editing the asset or the document
+that references it. No AI: all three are plain, deterministic facts.
 
 ### Todos
 

@@ -23,6 +23,7 @@ export {
   useAssignmentStore,
   type AssignmentStore,
 } from './inbox/sources/assignmentStore'
+export {assetIssues, type AssetIssuesOptions} from './inbox/sources/assetIssues'
 export {documentValidation, type DocumentValidationOptions} from './inbox/sources/documentValidation'
 export {needsAttention, type NeedsAttentionOptions} from './inbox/sources/needsAttention'
 export {openTasks, type OpenTasksOptions} from './inbox/sources/openTasks'

@@ -1,6 +1,7 @@
 import {visionTool} from '@sanity/vision'
 import {defineConfig} from 'sanity'
 import {
+  assetIssues,
   documentValidation,
   needsAttention,
   openTasks,
@@ -81,6 +82,7 @@ export default defineConfig([
           // default would make this workspace look broken while testing.
           unpublishedDrafts({olderThanDays: 0}),
           documentValidation(),
+          assetIssues(),
           needsAttention(),
           upcomingReleases(),
           todos(),
