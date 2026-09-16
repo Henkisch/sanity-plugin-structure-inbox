@@ -971,59 +971,49 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
   // true.
   const mainColumnActions = (
     <>
-      {/* A pane-level read, not tied to one source, so it belongs beside
-          Suggest todos/Scan rather than inside any one source's own
-          controls. */}
-      <Tooltip
-        content={
-          <Box padding={2}>
-            <Text size={1}>{t('summarize.hint')}</Text>
-          </Box>
+      {/* Every pane-level AI read (Summarize, Suggest todos, Find content
+          gaps) behind one entry point instead of three same-tier buttons —
+          raised repeatedly ("a bit too much going on... nothing
+          prioritised") once Scan for issues and Add todo joined them at
+          the same visual weight, five controls deep. None of these three
+          are tied to one source, so they group together here rather than
+          living inside any one source's own controls. */}
+      <MenuButton
+        button={<Button fontSize={1} icon={SparklesIcon} mode="ghost" text={t('inbox.aiReadsMenu')} />}
+        id="structure-inbox-ai-reads-menu"
+        menu={
+          <Menu>
+            <MenuItem
+              disabled={summary.status === 'loading'}
+              icon={SparklesIcon}
+              onClick={handleSummarize}
+              text={summary.status === 'loading' ? t('summarize.loading') : t('summarize.ask')}
+            />
+            {addTodo && (
+              <MenuItem
+                disabled={suggestions.status === 'loading'}
+                icon={SparklesIcon}
+                onClick={handleSuggestTodos}
+                text={suggestions.status === 'loading' ? t('todoSuggest.loading') : t('todoSuggest.ask')}
+              />
+            )}
+            {/* Only rendered when `contentGaps` is configured: unlike
+                Summarize/Suggest todos, this one's output is a judgment
+                call, not a fact, and it's the heaviest read here (see
+                `StructureInboxConfig.contentGaps`'s own doc comment) —
+                an opt-in, not a default. */}
+            {contentGaps && (
+              <MenuItem
+                disabled={contentGapsResult.status === 'loading'}
+                icon={SparklesIcon}
+                onClick={handleFindContentGaps}
+                text={contentGapsResult.status === 'loading' ? t('contentGaps.loading') : t('contentGaps.ask')}
+              />
+            )}
+          </Menu>
         }
-        placement="bottom"
-      >
-        <Button
-          disabled={summary.status === 'loading'}
-          fontSize={1}
-          icon={SparklesIcon}
-          mode="ghost"
-          onClick={handleSummarize}
-          text={summary.status === 'loading' ? t('summarize.loading') : t('summarize.ask')}
-        />
-      </Tooltip>
-
-      {/* Same tier as Summarize — both are AI reads across everything open
-          right now, triggered from the same toolbar. Used to live as a
-          plain link inside the Overview stats card; moved out once a short
-          inbox (the common case) made that card render as almost nothing
-          but this one link, which read as its own kind of misplaced. */}
-      {addTodo && (
-        <Button
-          disabled={suggestions.status === 'loading'}
-          fontSize={1}
-          icon={SparklesIcon}
-          mode="ghost"
-          onClick={handleSuggestTodos}
-          text={suggestions.status === 'loading' ? t('todoSuggest.loading') : t('todoSuggest.ask')}
-        />
-      )}
-
-      {/* Same tier again — a third AI read across the project's own
-          content, not just the current queue. Only rendered when
-          `contentGaps` is configured: unlike Summarize/Suggest todos, this
-          one's output is a judgment call, not a fact, and it's the
-          heaviest read here (see `StructureInboxConfig.contentGaps`'s own
-          doc comment) — an opt-in, not a default. */}
-      {contentGaps && (
-        <Button
-          disabled={contentGapsResult.status === 'loading'}
-          fontSize={1}
-          icon={SparklesIcon}
-          mode="ghost"
-          onClick={handleFindContentGaps}
-          text={contentGapsResult.status === 'loading' ? t('contentGaps.loading') : t('contentGaps.ask')}
-        />
-      )}
+        popover={{placement: 'bottom-start', portal: true}}
+      />
 
       {/* Ahead of the creators control, not after: that one stays the
           right-most, primary action a returning editor already knows, and a
@@ -1122,7 +1112,13 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
   // looking. Built here (the state lives in this component) but placed
   // by `MergedList`, the same split `actions` already uses.
   const mainColumnResults = (
-    <>
+    // `gap`, not each card's own `marginBottom` — a `Stack` only puts space
+    // *between* children, never after the last one, so the space between
+    // two simultaneous result cards is preserved without also leaving a
+    // redundant gap before the checkbox/filter row right below (that row
+    // already supplies its own top padding — see `MergedList.tsx`'s own
+    // `results` wrapper doc comment).
+    <Stack gap={4}>
       {/* Same loading/done/error shape as `InboxRow.tsx`'s own
           `assessRow` — this is the pane-level version of the same
           capability, not a different pattern. Dismissible rather than
@@ -1130,7 +1126,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
           list changed shouldn't linger silently forever, but the editor
           decides when they're done with it, not the next render. */}
       {(summary.status === 'done' || summary.status === 'error') && (
-        <Box marginBottom={4}>
+        <Box>
           <AnimateIn>
             <Card
               border
@@ -1178,7 +1174,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
           button hides once `suggestions.status === 'done'`, the same gate
           `summarize.ask` never needed since it can always re-run). */}
       {addTodo && (suggestions.status === 'done' || suggestions.status === 'error') && (
-        <Box marginBottom={4}>
+        <Box>
           <AnimateIn>
             <Card
               border
@@ -1297,7 +1293,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
           broken reference or a failed validation rule is. */}
       {contentGaps &&
         (contentGapsResult.status === 'done' || contentGapsResult.status === 'error') && (
-          <Box marginBottom={4}>
+          <Box>
             <AnimateIn>
               <Card
                 border
@@ -1405,7 +1401,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
         const result = actionResults[report.source.name]
         if (!action || !result) return null
         return (
-          <Box key={report.source.name} marginBottom={4}>
+          <Box key={report.source.name}>
             <AnimateIn>
               <Card
                 border
@@ -1440,17 +1436,17 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
           </Box>
         )
       })}
-    </>
+    </Stack>
   )
 
-  // `mainColumnResults` is a Fragment, always truthy even when every
-  // condition inside it is false — `results && (...)` in `MergedList` can't
-  // tell "nothing to show" from "something to show" off that alone, which
-  // left an empty padded box rendering between the toolbar and the
-  // checkbox row whenever no result was actually active. This mirrors the
-  // same conditions `mainColumnResults` itself checks, so `MergedList`
-  // gets `undefined` (not just an empty Fragment) when there's genuinely
-  // nothing to render.
+  // `mainColumnResults` is a real element (a `Stack`), always truthy even
+  // when every condition inside it is false — `results && (...)` in
+  // `MergedList` can't tell "nothing to show" from "something to show" off
+  // that alone, which left an empty padded box rendering between the
+  // toolbar and the checkbox row whenever no result was actually active.
+  // This mirrors the same conditions `mainColumnResults` itself checks, so
+  // `MergedList` gets `undefined` (not just an empty `Stack`) when there's
+  // genuinely nothing to render.
   const hasMainColumnResults =
     summary.status === 'done' ||
     summary.status === 'error' ||
