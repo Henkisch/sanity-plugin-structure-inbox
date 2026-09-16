@@ -28,6 +28,19 @@ const ASSET_TYPES = ['sanity.imageAsset', 'sanity.fileAsset']
  */
 const UNUSED_ASSET_SCAN_LIMIT = 200
 
+/** True when some sub-field's own type is an image type — the wrapper-object convention's inner field, name-agnostic. */
+function hasImageSubfield(fields: {name: string; type: WalkableSchemaType}[] | undefined): boolean {
+  return Boolean(fields?.some((sub) => isImageSchemaType(sub.type)))
+}
+
+/** True when some sub-field is named `altFieldName` — works the same whether `fields` came from a direct image type or a wrapper object type. */
+function hasAltSibling(
+  fields: {name: string; type: WalkableSchemaType}[] | undefined,
+  altFieldName: string,
+): boolean {
+  return Boolean(fields?.some((sub) => sub.name === altFieldName))
+}
+
 interface EligibleImageField {
   documentType: string
   documentTypeTitle: string
@@ -58,9 +71,14 @@ interface WalkableSchemaType {
  * `isDocumentSchemaType`) `AddMenu.tsx`'s own "new content" menu already
  * uses. Not schema-agnostic in general: alt text lives on the *referencing
  * document's* image field, not the asset itself, so this has to be found
- * per document type rather than queried off the asset. Top-level fields
- * only, v1 — an image nested inside an object or array isn't walked.
- * Exported for its own test.
+ * per document type rather than queried off the asset. Recognizes two
+ * schema conventions: the field's own type customizing `image` directly
+ * (Sanity's own recommended pattern), or the field's type being a separate
+ * reusable wrapper object (e.g. `imageWithAlt`) that itself contains an
+ * image sub-field alongside the alt sub-field — both produce the identical
+ * result shape, since the alt text lives at the same JSON path either way.
+ * Top-level fields only, v1 — an image nested inside an object or array
+ * isn't walked. Exported for its own test.
  */
 export function findAltEligibleImageFields(
   schema: {getTypeNames: () => string[]; get: (name: string) => WalkableSchemaType | undefined},
@@ -79,15 +97,18 @@ export function findAltEligibleImageFields(
     // confirmed live against the real test-studio schema, which is
     // exactly where this crashed before the fallback was added.
     for (const field of type.fields ?? []) {
-      if (!isImageSchemaType(field.type)) continue
-      const altField = field.type.fields?.find((sub) => sub.name === altFieldName)
-      if (!altField) continue
+      // eslint-disable-next-line no-unsafe-type-assertion -- against the real `Schema`, `field.type` is a wide union of every schema type kind (most without a `.fields` property at all); `isImageSchemaType`'s own guard only collapses that union when used directly in an `if`, which the wrapper-object OR below can't do, so re-assert this walk's own loose shape once here instead.
+      const fieldType = field.type as unknown as WalkableSchemaType
+      const isDirectImage = isImageSchemaType(fieldType)
+      const isWrapperWithImage = !isDirectImage && hasImageSubfield(fieldType.fields)
+      if (!isDirectImage && !isWrapperWithImage) continue
+      if (!hasAltSibling(fieldType.fields, altFieldName)) continue
 
       results.push({
         documentType: typeName,
         documentTypeTitle: type.title || typeName,
         fieldName: field.name,
-        fieldTitle: field.type.title || field.name,
+        fieldTitle: fieldType.title || field.name,
       })
     }
   }
@@ -106,6 +127,35 @@ export function formatAssetSize(bytes: number): string {
     unitIndex += 1
   }
   return `${value.toFixed(1)} ${units[unitIndex]}`
+}
+
+export type AltTextIssue = 'filenameLike' | 'placeholder' | 'tooShort'
+
+const GENERIC_ALT_WORDS = new Set(['image', 'photo', 'picture', 'img', 'graphic', 'photograph'])
+const MIN_ALT_LENGTH = 4
+
+/** Normalizes for comparison: lowercase, strip a file extension, collapse `-`/`_`/whitespace runs to single spaces. Exported for its own test. */
+export function normalizeForComparison(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\.[a-z0-9]+$/i, '')
+    .replace(/[-_\s]+/g, ' ')
+    .trim()
+}
+
+/**
+ * Classifies alt text that exists but isn't pulling its weight — never
+ * called on missing alt text, that's the existing separate check. Returns
+ * `null` for anything that looks like a real description; this function
+ * has no opinion on whether a real description is *accurate*, only on
+ * whether it looks like a placeholder or a lazy default.
+ */
+export function classifyAltText(altText: string, assetFilename?: string): AltTextIssue | null {
+  const normalized = normalizeForComparison(altText)
+  if (!normalized || normalized.length < MIN_ALT_LENGTH) return 'tooShort'
+  if (GENERIC_ALT_WORDS.has(normalized)) return 'placeholder'
+  if (assetFilename && normalized === normalizeForComparison(assetFilename)) return 'filenameLike'
+  return null
 }
 
 export interface AssetIssuesOptions {
@@ -134,17 +184,34 @@ interface MissingAltRow {
   _updatedAt?: string
 }
 
+interface PoorAltRow {
+  _id: string
+  title: string
+  _updatedAt?: string
+  alt: string
+  assetFilename?: string
+}
+
+/** Distinct row `category` text per `AltTextIssue` kind — three separate findings, not one vague bucket. */
+const ALT_ISSUE_CATEGORY: Record<AltTextIssue, string> = {
+  filenameLike: 'Alt text looks like a filename',
+  placeholder: 'Generic alt text',
+  tooShort: 'Alt text too short',
+}
+
 interface AssetIssuesFetch {
   oversized: AssetRow[]
   unused: AssetRow[]
   missingAlt: MissingAltRow[][]
+  poorAlt: PoorAltRow[][]
   loading?: boolean
   error?: Error
 }
 
 /**
- * Unused, oversized, and missing-alt-text image/file assets — none of
- * which Sanity's own Structure Tool or Media library surfaces in
+ * Unused, oversized, missing-alt-text, and poor-alt-text (filename-like,
+ * generic, or too short — via `classifyAltText`) image/file assets — none
+ * of which Sanity's own Structure Tool or Media library surfaces in
  * aggregate. No AI, no `resolve`: fixing any of these means editing the
  * asset or the document that references it, the same reasoning
  * `documentValidation` already uses for a schema validation error —
@@ -155,8 +222,8 @@ interface AssetIssuesFetch {
  * from Structure Tool's own default document-type handling (confirmed by
  * reading that package's own source — see this plan's own Step 1 findings),
  * so there is no safe "open" target for one outside the Media browser.
- * Missing-alt-text rows are on a real, ordinary document, so those do get
- * the normal `'edit'` intent.
+ * Missing- and poor-alt-text rows are on a real, ordinary document, so
+ * those do get the normal `'edit'` intent.
  */
 export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
   const {limit = 20, title = 'Asset issues', maxSizeBytes = 5 * 1024 * 1024, altFieldName = 'alt'} = options
@@ -202,13 +269,21 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
         const read$ = defer(() =>
           from(
             (async () => {
-              const [oversized, assetCount, missingAlt] = await Promise.all([
+              const [oversized, assetCount, missingAlt, poorAlt] = await Promise.all([
                 client.fetch<AssetRow[]>(OVERSIZED_QUERY, params),
                 client.fetch<number>(ASSET_COUNT_QUERY, params),
                 Promise.all(
                   altEligibleFields.map((field) =>
                     client.fetch<MissingAltRow[]>(
                       `*[_type == $type && defined(${field.fieldName}) && !defined(${field.fieldName}.${altFieldName})] | order(_updatedAt desc)[0...$limit]{_id, "title": coalesce(title, name, label, _id), _updatedAt}`,
+                      {type: field.documentType, limit},
+                    ),
+                  ),
+                ),
+                Promise.all(
+                  altEligibleFields.map((field) =>
+                    client.fetch<PoorAltRow[]>(
+                      `*[_type == $type && defined(${field.fieldName}.${altFieldName})] | order(_updatedAt desc)[0...$limit]{_id, "title": coalesce(title, name, label, _id), _updatedAt, "alt": ${field.fieldName}.${altFieldName}, "assetFilename": ${field.fieldName}.asset->originalFilename}`,
                       {type: field.documentType, limit},
                     ),
                   ),
@@ -220,7 +295,7 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
                   ? await client.fetch<AssetRow[]>(UNUSED_QUERY, params)
                   : []
 
-              return {oversized, unused, missingAlt}
+              return {oversized, unused, missingAlt, poorAlt}
             })(),
           ),
         )
@@ -231,18 +306,19 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
         const listenTypes = [...ASSET_TYPES, ...altEligibleFields.map((f) => f.documentType)]
         return liveQuery$(client, `_type in $types`, {types: listenTypes}, read$).pipe(
           map((result): AssetIssuesFetch => ({...result, loading: false})),
-          startWith<AssetIssuesFetch>({oversized: [], unused: [], missingAlt: [], loading: true}),
+          startWith<AssetIssuesFetch>({oversized: [], unused: [], missingAlt: [], poorAlt: [], loading: true}),
           catchError((error: Error) =>
-            of<AssetIssuesFetch>({oversized: [], unused: [], missingAlt: [], error}),
+            of<AssetIssuesFetch>({oversized: [], unused: [], missingAlt: [], poorAlt: [], error}),
           ),
         )
         // eslint-disable-next-line react-hooks/exhaustive-deps -- `altEligibleFields` is a derived, memoized array (schema is stable for this pane's lifetime); re-running this on every render it appears in would defeat the memoization the schema walk is already doing.
       }, [client, maxSizeBytes, limit])
 
-      const {oversized, unused, missingAlt, loading, error} = useObservable(fetch$, {
+      const {oversized, unused, missingAlt, poorAlt, loading, error} = useObservable(fetch$, {
         oversized: [] as AssetRow[],
         unused: [] as AssetRow[],
         missingAlt: [] as MissingAltRow[][],
+        poorAlt: [] as PoorAltRow[][],
         loading: true,
       })
 
@@ -298,9 +374,30 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
           }
         }
 
+        for (const [index, fieldPoorAlt] of poorAlt.entries()) {
+          const field = altEligibleFields[index]
+          if (!field) continue
+          for (const doc of fieldPoorAlt) {
+            const issue = classifyAltText(doc.alt, doc.assetFilename)
+            if (!issue) continue
+            rows.push(
+              withAssignee({
+                id: `poorAlt:${doc._id}:${field.fieldName}`,
+                title: doc.title,
+                subtitle: `${field.documentTypeTitle} · ${field.fieldTitle}`,
+                category: ALT_ISSUE_CATEGORY[issue],
+                tone: 'caution',
+                timestamp: doc._updatedAt,
+                changedAt: doc._updatedAt,
+                intent: {type: 'edit', params: {id: doc._id, type: field.documentType}},
+              }),
+            )
+          }
+        }
+
         return rows
         // eslint-disable-next-line react-hooks/exhaustive-deps -- `withAssignee` closes over `assignments.byTarget`/`assigneesById`, both already listed; it is redefined every render (not memoized) so including it would just make this dependency list re-describe itself.
-      }, [oversized, unused, missingAlt, altEligibleFields, assignments.byTarget, assigneesById])
+      }, [oversized, unused, missingAlt, poorAlt, altEligibleFields, assignments.byTarget, assigneesById])
 
       const assign = useMemo(() => {
         if (!assignable) return undefined

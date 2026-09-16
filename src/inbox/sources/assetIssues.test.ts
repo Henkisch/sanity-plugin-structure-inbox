@@ -1,6 +1,11 @@
 import {describe, expect, it} from 'vitest'
 
-import {findAltEligibleImageFields, formatAssetSize} from './assetIssues'
+import {
+  classifyAltText,
+  findAltEligibleImageFields,
+  formatAssetSize,
+  normalizeForComparison,
+} from './assetIssues'
 
 /**
  * Minimal fixture schema types, shaped exactly the way `@sanity/types`'
@@ -100,6 +105,70 @@ describe('findAltEligibleImageFields', () => {
       {documentType: 'post', documentTypeTitle: 'Post', fieldName: 'heroImage', fieldTitle: 'heroImage'},
     ])
   })
+
+  it('finds a wrapper-object field (e.g. `imageWithAlt`) with an image sub-field and a sibling alt field', () => {
+    const imageWithAltType: FixtureType = {
+      name: 'imageWithAlt',
+      jsonType: 'object',
+      fields: [
+        {name: 'image', type: imageType()},
+        {name: 'alt', type: stringType},
+      ],
+    }
+    const type = {
+      name: 'event',
+      title: 'Event',
+      jsonType: 'object' as const,
+      type: documentType,
+      fields: [{name: 'coverImage', type: imageWithAltType}],
+    }
+    const schema = {getTypeNames: () => ['event'], get: () => type}
+
+    expect(findAltEligibleImageFields(schema, 'alt')).toEqual([
+      {documentType: 'event', documentTypeTitle: 'Event', fieldName: 'coverImage', fieldTitle: 'coverImage'},
+    ])
+  })
+
+  it('skips a wrapper-object field with no alt sibling', () => {
+    const imageWithoutAltType: FixtureType = {
+      name: 'imageWithoutAlt',
+      jsonType: 'object',
+      fields: [{name: 'image', type: imageType()}],
+    }
+    const type = {
+      name: 'event',
+      title: 'Event',
+      jsonType: 'object' as const,
+      type: documentType,
+      fields: [{name: 'coverImage', type: imageWithoutAltType}],
+    }
+    const schema = {getTypeNames: () => ['event'], get: () => type}
+
+    expect(findAltEligibleImageFields(schema, 'alt')).toEqual([])
+  })
+
+  it("finds a wrapper-object field even when its inner image sub-field isn't named `image`", () => {
+    const imageWithAltType: FixtureType = {
+      name: 'imageWithAlt',
+      jsonType: 'object',
+      fields: [
+        {name: 'asset', type: imageType()},
+        {name: 'alt', type: stringType},
+      ],
+    }
+    const type = {
+      name: 'event',
+      title: 'Event',
+      jsonType: 'object' as const,
+      type: documentType,
+      fields: [{name: 'coverImage', type: imageWithAltType}],
+    }
+    const schema = {getTypeNames: () => ['event'], get: () => type}
+
+    expect(findAltEligibleImageFields(schema, 'alt')).toEqual([
+      {documentType: 'event', documentTypeTitle: 'Event', fieldName: 'coverImage', fieldTitle: 'coverImage'},
+    ])
+  })
 })
 
 describe('formatAssetSize', () => {
@@ -115,5 +184,56 @@ describe('formatAssetSize', () => {
     // Confirmed live against the test dataset — two AI-generated images, both flagged oversized and unused.
     expect(formatAssetSize(1_055_292)).toBe('1.0 MB')
     expect(formatAssetSize(1_118_783)).toBe('1.1 MB')
+  })
+})
+
+describe('normalizeForComparison', () => {
+  it('lowercases, strips a file extension, and collapses separators to single spaces', () => {
+    expect(normalizeForComparison('IMG_2831.jpg')).toBe('img 2831')
+    expect(normalizeForComparison('summer-vacation-photo.PNG')).toBe('summer vacation photo')
+    expect(normalizeForComparison('  Team   Offsite  ')).toBe('team offsite')
+  })
+
+  it('leaves a string with no extension or separators alone, aside from case', () => {
+    expect(normalizeForComparison('Photo')).toBe('photo')
+  })
+})
+
+describe('classifyAltText', () => {
+  it('flags alt text that exactly matches the asset filename', () => {
+    expect(classifyAltText('IMG_2831.jpg', 'IMG_2831.jpg')).toBe('filenameLike')
+  })
+
+  it('flags alt text that matches the filename after normalizing case, extension, and separators', () => {
+    expect(classifyAltText('summer vacation photo', 'summer-vacation-photo.png')).toBe('filenameLike')
+    expect(classifyAltText('Summer_Vacation_Photo', 'summer-vacation-photo.jpg')).toBe('filenameLike')
+  })
+
+  it.each(['image', 'photo', 'picture', 'graphic', 'photograph'])(
+    'flags the generic word %s as a placeholder',
+    (word) => {
+      expect(classifyAltText(word)).toBe('placeholder')
+      expect(classifyAltText(word.toUpperCase())).toBe('placeholder')
+    },
+  )
+
+  it('flags the generic word "img" as too short rather than placeholder — the length check runs first, and "img" is only 3 characters', () => {
+    expect(classifyAltText('img')).toBe('tooShort')
+  })
+
+  it('flags empty or whitespace-only alt text as too short', () => {
+    expect(classifyAltText('')).toBe('tooShort')
+    expect(classifyAltText('   ')).toBe('tooShort')
+  })
+
+  it('flags alt text under the minimum length as too short', () => {
+    expect(classifyAltText('a')).toBe('tooShort')
+    expect(classifyAltText('ab')).toBe('tooShort')
+    expect(classifyAltText('abc')).toBe('tooShort')
+  })
+
+  it('returns null for a real, descriptive alt text', () => {
+    expect(classifyAltText('A golden retriever catching a frisbee in a park')).toBeNull()
+    expect(classifyAltText('Team offsite in Gothenburg, September 2026', 'IMG_2831.jpg')).toBeNull()
   })
 })
