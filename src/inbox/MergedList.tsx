@@ -977,14 +977,18 @@ export function MergedList(props: MergedListProps) {
             comment for why that is the whole safety argument for this
             feature — a selection it makes flips the checkbox row directly
             above into `SelectionActions`, the same feedback a manual tick
-            already gives. Same `borderBottom`/`tone="transparent"`
-            treatment as the actions/checkbox rows above, so this reads as
-            a third consistent header sub-row, not a visually distinct
-            insert. */}
+            already gives. Deliberately NOT the same boxed
+            `tone="transparent"` treatment the actions/checkbox rows above
+            get — a first pass gave it that same wrapper and the result was
+            three identical dark bars stacked with no priority between them.
+            A single input doesn't need its own "header" framing the way an
+            actual toolbar does; this matches the row list's own plain
+            background instead, reading as a lead-in to the rows rather than
+            a third competing section. */}
         {ask && view === 'open' && (
-          <Card borderBottom paddingX={3} paddingY={3} radius={0} tone="transparent">
+          <Box paddingX={3} paddingY={3}>
             <AskInbox onSelect={setSelectedKeys} rows={rows} />
-          </Card>
+          </Box>
         )}
 
         {anyLoading && isEmpty ? (
