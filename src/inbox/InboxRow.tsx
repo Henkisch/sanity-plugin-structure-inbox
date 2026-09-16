@@ -19,14 +19,18 @@ import {type FixProposal, type InboxAssessment, type InboxItem} from './types'
  * genuinely interactive tag (`as="button"`/`"a"`), which this row can't be:
  * it already contains its own real `<button>`s (the menu trigger, the
  * reassign avatar), and nesting `<button>` inside `<button>` is invalid
- * HTML. `--card-border-color` is `Card`'s own CSS custom property (one
- * step lighter than its background in the theme scale, confirmed live via
- * computed style) — a genuine Sanity token, just applied through `:hover`
- * instead of a component prop.
+ * HTML. `--card-muted-bg-color` is `Card`'s own CSS custom property for
+ * exactly this — Sanity UI's own compiled styles use it as the "subtle
+ * emphasis" background elsewhere in the theme, one step up from the
+ * card's own resting background but well short of `--card-border-color`
+ * (confirmed live: that one is the theme's actual pressed/selected
+ * shade, not hover — using it here read as "this row is being clicked,"
+ * not merely "the mouse is over it"). A genuine Sanity token either way,
+ * just applied through `:hover` instead of a component prop.
  */
 const HoverableCard = styled(Card)`
   &:hover {
-    background-color: var(--card-border-color);
+    background-color: var(--card-muted-bg-color);
   }
 `
 
@@ -634,7 +638,7 @@ export function InboxRow(props: InboxRowProps) {
       <HoverableCard
         aria-hidden={leaving}
         onClick={leaving ? undefined : handleRowClick}
-        padding={3}
+        padding={2}
         radius={2}
         style={exitStyle}
         tone={selected ? 'primary' : tone}
