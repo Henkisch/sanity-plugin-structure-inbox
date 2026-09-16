@@ -92,8 +92,6 @@ export function useTodos(): Todos {
   useEffect(() => {
     if (!dirtyRef.current || !documentId || !loadedRef.current) return
 
-    dirtyRef.current = false
-
     const value = JSON.stringify(state)
 
     client
@@ -101,7 +99,14 @@ export function useTodos(): Todos {
       .createIfNotExists({_id: documentId, _type: TODOS_TYPE, [TODOS_FIELD]: value})
       .patch(documentId, (patch) => patch.set({[TODOS_FIELD]: value}))
       .commit({visibility: 'async'})
+      .then(() => {
+        dirtyRef.current = false
+        return undefined
+      })
       .catch((error: unknown) => {
+        // Left dirty on purpose: the write never actually landed, so the next
+        // time this effect runs for any reason, it retries this same value
+        // instead of silently treating a failed write as done.
         console.error('[sanity-plugin-structure-inbox] could not save todos', error)
       })
   }, [client, documentId, state])

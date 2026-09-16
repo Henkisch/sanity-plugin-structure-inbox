@@ -99,6 +99,38 @@ describe('useSnoozes', () => {
     expect(transaction.commit).not.toHaveBeenCalled()
   })
 
+  it('retries a failed write the next time the persist effect runs, instead of silently dropping it', async () => {
+    const {client, transaction} = mockClient(Promise.resolve(null))
+    transaction.commit = vi.fn().mockRejectedValueOnce(new Error('network down')).mockResolvedValue(undefined)
+    useClientMock.mockReturnValue(client)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const {result, rerender} = renderHook(() => useSnoozes())
+    await waitFor(() => expect(client.fetch).toHaveBeenCalled())
+
+    act(() =>
+      result.current.snooze('tasks', 'task-1', new Date(Date.now() + 60 * 60 * 1000).toISOString()),
+    )
+
+    await waitFor(() => expect(transaction.commit).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(console.error).toHaveBeenCalled())
+
+    // Nothing about the snoozed state changes here — only `client`'s identity
+    // does, standing in for any future unrelated reason the persist effect
+    // might re-run. The load effect's own re-fetch is made to hang forever so
+    // it cannot itself cause a second state change and confound what's being
+    // tested: whether the *previously failed* write is retried. If the
+    // failed commit had wrongly cleared `dirtyRef`, this second run would
+    // skip the write entirely instead of retrying it.
+    useClientMock.mockReturnValue({
+      fetch: vi.fn().mockReturnValue(new Promise(() => {})),
+      transaction: client.transaction,
+    })
+    rerender()
+
+    await waitFor(() => expect(transaction.commit).toHaveBeenCalledTimes(2))
+  })
+
   it('wakes an item, clearing its entry', async () => {
     const {client} = mockClient(Promise.resolve(null))
     useClientMock.mockReturnValue(client)

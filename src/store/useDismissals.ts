@@ -143,8 +143,6 @@ export function useDismissals(neverExpireSources: readonly string[] = []): Dismi
   useEffect(() => {
     if (!dirtyRef.current || !documentId || !loadedRef.current) return
 
-    dirtyRef.current = false
-
     const value = JSON.stringify(state)
 
     client
@@ -152,9 +150,14 @@ export function useDismissals(neverExpireSources: readonly string[] = []): Dismi
       .createIfNotExists({_id: documentId, _type: DISMISSALS_TYPE, [DISMISSALS_FIELD]: value})
       .patch(documentId, (patch) => patch.set({[DISMISSALS_FIELD]: value}))
       .commit({visibility: 'async'})
+      .then(() => {
+        dirtyRef.current = false
+        return undefined
+      })
       .catch((error: unknown) => {
-        // The local state stands for this session, so the tick the editor just
-        // made still holds until they reload.
+        // Left dirty on purpose: the write never actually landed, so the next
+        // time this effect runs for any reason, it retries this same value
+        // instead of silently treating a failed write as done.
         console.error('[sanity-plugin-structure-inbox] could not save dismissals', error)
       })
   }, [client, documentId, state])
