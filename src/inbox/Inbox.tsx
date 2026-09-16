@@ -1295,6 +1295,22 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
     </>
   )
 
+  // `mainColumnResults` is a Fragment, always truthy even when every
+  // condition inside it is false — `results && (...)` in `MergedList` can't
+  // tell "nothing to show" from "something to show" off that alone, which
+  // left an empty padded box rendering between the toolbar and the
+  // checkbox row whenever no result was actually active. This mirrors the
+  // same conditions `mainColumnResults` itself checks, so `MergedList`
+  // gets `undefined` (not just an empty Fragment) when there's genuinely
+  // nothing to render.
+  const hasMainColumnResults =
+    summary.status === 'done' ||
+    summary.status === 'error' ||
+    (Boolean(addTodo) && (suggestions.status === 'done' || suggestions.status === 'error')) ||
+    (Boolean(contentGaps) &&
+      (contentGapsResult.status === 'done' || contentGapsResult.status === 'error')) ||
+    actionSources.some((report) => Boolean(report.action) && Boolean(actionResults[report.source.name]))
+
   if (sources.length === 0) {
     return (
       <Box padding={4}>
@@ -1423,7 +1439,7 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
                     maxHeight={sidebarHeight}
                     order={mainOrder}
                     reports={reports}
-                    results={mainColumnResults}
+                    results={hasMainColumnResults ? mainColumnResults : undefined}
                     snoozes={snoozes}
                     typeFilter={typeFilter}
                     view={view}
