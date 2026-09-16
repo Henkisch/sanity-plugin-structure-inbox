@@ -1,5 +1,5 @@
 import {ChevronDownIcon} from '@sanity/icons/ChevronDown'
-import {Badge, Box, Button, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
+import {Box, Button, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
 import {Menu, MenuButton, MenuDivider, MenuItem} from '@sanity/ui/menu'
 import {Tooltip} from '@sanity/ui/tooltip'
 import {type ReactNode, useCallback, useEffect, useMemo, useState} from 'react'
@@ -11,6 +11,7 @@ import {resolveSnoozeUntil, type SnoozePreset} from '../store/snoozePresets'
 import {type Assessments} from '../store/useAssessments'
 import {type Dismissals} from '../store/useDismissals'
 import {type Snoozes} from '../store/useSnoozes'
+import {CountBadge} from '../ui/CountBadge'
 import {AskInbox, type AskState} from './AskInbox'
 import {CreateItemRow} from './CreateItemRow'
 import {matchesInboxFilters} from './inboxFilterSentinels'
@@ -1220,13 +1221,7 @@ function GroupHeader(props: {label: string; count: number}) {
         <Text muted size={0} weight="semibold">
           {props.label}
         </Text>
-        {/* Same rounded-pill treatment the type-filter's own active count
-            already uses (`Inbox.tsx`'s filter `Badge`) — a plain muted
-            number here read as part of the label's own sentence, not as a
-            count of something. */}
-        <Badge fontSize={0} padding={1} radius="full">
-          {props.count}
-        </Badge>
+        <CountBadge>{props.count}</CountBadge>
       </Flex>
     </Box>
   )

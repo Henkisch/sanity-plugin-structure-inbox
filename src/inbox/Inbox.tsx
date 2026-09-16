@@ -5,7 +5,6 @@ import {SparklesIcon} from '@sanity/icons/Sparkles'
 import {
   Avatar,
   AvatarStack,
-  Badge,
   Box,
   Button,
   Card,
@@ -32,6 +31,7 @@ import {type useDismissals} from '../store/useDismissals'
 import {type useSnoozes} from '../store/useSnoozes'
 import {useSharedInboxStore} from '../studio/inboxCountLayout'
 import {type StructureInboxConfig} from '../types'
+import {COUNT_MONOSPACE_FONT_FAMILY, CountBadge} from '../ui/CountBadge'
 import {SectionCard} from '../ui/SectionCard'
 import {SectionErrorBoundary} from '../ui/SectionErrorBoundary'
 import {StatusDot} from '../ui/StatusDot'
@@ -188,7 +188,14 @@ function AssigneeOverflowMenu(props: AssigneeOverflowMenuProps) {
             cursor: 'pointer',
             display: 'inline-flex',
             font: 'inherit',
+            // Same monospace/tabular-width choice `CountBadge` uses, so this
+            // count reads consistently with every other one in the pane —
+            // this stays its own `<button>` rather than using `CountBadge`
+            // itself, since it's a real interactive avatar-stack member
+            // (border, overlap, z-index) rather than a static badge.
+            fontFamily: COUNT_MONOSPACE_FONT_FAMILY,
             fontSize: '0.75em',
+            fontVariantNumeric: 'tabular-nums',
             fontWeight: 600,
             height: '1.625em',
             justifyContent: 'center',
@@ -970,22 +977,11 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
               {typeFilter.size > 0 && (
                 // A count instead of a blue "active" fill — the fill read as
                 // just another button state, not as "N filters applied."
-                <Badge
-                  fontSize={0}
-                  padding={1}
-                  radius="full"
-                  style={{
-                    minWidth: '1.2em',
-                    pointerEvents: 'none',
-                    position: 'absolute',
-                    right: -4,
-                    textAlign: 'center',
-                    top: -4,
-                  }}
-                  tone="primary"
-                >
-                  {typeFilter.size}
-                </Badge>
+                // The positioning here is this call site's own job; the pill
+                // itself (size/centering/font) is `CountBadge`'s.
+                <Box style={{pointerEvents: 'none', position: 'absolute', right: -4, top: -4}}>
+                  <CountBadge tone="primary">{typeFilter.size}</CountBadge>
+                </Box>
               )}
             </Box>
           }
