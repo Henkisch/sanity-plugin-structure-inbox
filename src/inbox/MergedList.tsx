@@ -575,7 +575,7 @@ export function MergedList(props: MergedListProps) {
 
   const [assigneeSuggestion, setAssigneeSuggestion] = useState<{
     userId: string
-    reason: 'lastEditor'
+    reason: 'lastEditor' | 'mentioned'
   } | null>(null)
 
   useEffect(() => {

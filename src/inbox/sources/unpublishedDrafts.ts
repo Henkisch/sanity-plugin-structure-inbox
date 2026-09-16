@@ -23,7 +23,7 @@ import {API_VERSION} from '../../constants'
 import {type SnoozeState} from '../../store/snoozes'
 import {splitItems} from '../splitItems'
 import {type InboxAssessment, type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
-import {useAssignmentStore} from './assignmentStore'
+import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
 import {fetchDocumentAuthors, filterAuthoredBy} from './authoredBy'
 import {optionalHook} from './capability'
 import {liveQuery$} from './liveQuery'
@@ -89,12 +89,6 @@ const QUERY = `*[
   _id, _type, _updatedAt,
   "title": coalesce(title, name, label, _id)
 }`
-
-/**
- * This source's own private assignment doc type — see `assignmentStore.ts`
- * for the shared mechanics and why it's a plain doc, not a Sanity Task.
- */
-const ASSIGNMENT_TYPE = 'structureInbox.draftAssignment'
 
 /**
  * Drafts that have sat unpublished long enough to look forgotten.

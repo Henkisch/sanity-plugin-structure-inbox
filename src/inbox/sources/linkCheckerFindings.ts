@@ -37,7 +37,7 @@ import {
   type InboxSource,
   type InboxSourceResult,
 } from '../types'
-import {useAssignmentStore} from './assignmentStore'
+import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
 import {optionalHook} from './capability'
 
 /** Stands in for `useUserListWithPermissions` when Sanity does not export it — see `unpublishedDrafts.ts`. */
@@ -49,12 +49,6 @@ function useUnavailableUserList(): UserListWithPermissionsHookValue {
 const useAssignableUsers = optionalHook<
   (opts: UserListWithPermissionsOptions) => UserListWithPermissionsHookValue
 >('useUserListWithPermissions', useUnavailableUserList)
-
-/**
- * This source's own private assignment doc type — see `assignmentStore.ts`
- * for the shared mechanics and why it's a plain doc, not a Sanity Task.
- */
-const ASSIGNMENT_TYPE = 'structureInbox.linkCheckerAssignment'
 
 export interface LinkCheckerFindingsOptions {
   /** Cap on rows shown, after filtering. Defaults to 50 — a report can carry far more findings than a pane should ever list at once. */

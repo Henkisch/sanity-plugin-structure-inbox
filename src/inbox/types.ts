@@ -271,7 +271,19 @@ export interface InboxSourceResult {
    */
   proposeFix?: (item: InboxItem) => Promise<FixProposal | null>
   /**
-   * Delegates an item to someone else by creating a real Sanity Task.
+   * Delegates an item to someone else — "who's taking this," not just "who
+   * owns this": a row needs no single natural owner to be worth assigning
+   * (a release, a stray asset), the same way a Jira- or Notion-style task
+   * board assigns work regardless of whether the underlying thing has one.
+   *
+   * Written through one shared, plain, unregistered document
+   * (`assignmentStore.ts`'s `ASSIGNMENT_TYPE`) mapping a target id to an
+   * assignee id — deliberately not a real Sanity Task: an earlier version
+   * of this created one `tasks.task` per assignment, which surfaced as a
+   * second, unrelated "Follow up: …" row, needed the addon dataset for a
+   * feature that has nothing to do with Tasks, and didn't reliably reuse
+   * the same task on reassignment (see `assignmentStore.ts`'s own doc
+   * comment for the full history).
    *
    * `users` is who it can go to; `toUser` does the assigning. Bundled
    * together, rather than a bare function, because the list of people to
@@ -279,9 +291,11 @@ export interface InboxSourceResult {
    * permission) makes someone a sensible assignee — not something the
    * generic selection bar should have an opinion on.
    *
-   * Optional: only a source with somewhere for a task to point at makes sense
-   * to delegate. `openTasks`'s own items are already tasks, and `todos` has
-   * no one else to hand a personal item to.
+   * Optional: only two built-in sources omit it, both for a real structural
+   * reason rather than policy — `openTasks` already has a native, real
+   * assignee field of its own (`assigneeReadOnly`, a second path here would
+   * be redundant), and `todos` lives in the acting editor's own private
+   * storage with no shared copy anywhere to label (see `transfer` instead).
    */
   assign?: {
     users: {id: string; label: string}[]
@@ -304,14 +318,18 @@ export interface InboxSourceResult {
      *
      * `reason` is a key, not English text: the source knows *why* (the fact
      * it read), the UI knows *how to say it* in the editor's own language.
-     * Only `'lastEditor'` exists today; a future reason should extend this
-     * union rather than fall back to a free-text string, so every reason
-     * this plugin can ever show stays translatable the same way.
+     * `'lastEditor'` (whoever last touched the document) and `'mentioned'`
+     * (whoever an `@mention` named, `unresolvedComments`' own suggestion)
+     * exist today; a future reason should extend this union rather than
+     * fall back to a free-text string, so every reason this plugin can
+     * ever show stays translatable the same way.
      *
      * Returns `null` when there is no defensible suggestion, including when
      * the obvious candidate is no longer assignable.
      */
-    suggestAssignee?: (item: InboxItem) => Promise<{userId: string; reason: 'lastEditor'} | null>
+    suggestAssignee?: (
+      item: InboxItem,
+    ) => Promise<{userId: string; reason: 'lastEditor' | 'mentioned'} | null>
   }
   /**
    * True for a source whose items have a real, native assignee — just not

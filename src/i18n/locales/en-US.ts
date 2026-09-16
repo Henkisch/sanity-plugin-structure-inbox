@@ -98,6 +98,7 @@ const enUS = {
   'action.assign': 'Assign to…',
   'action.assign.suggested': 'Suggest {{name}}',
   'action.assign.reason.lastEditor': 'edited this most recently',
+  'action.assign.reason.mentioned': 'was mentioned in this thread',
   'action.delete': 'Delete',
 
   // The main column's own creator control (today, only `todos`) — a plain

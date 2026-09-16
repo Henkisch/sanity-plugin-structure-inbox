@@ -1,13 +1,33 @@
 import {CalendarIcon} from '@sanity/icons/Calendar'
 import {useMemo} from 'react'
+// `useUserListWithPermissions` stays out of this named import — see
+// `optionalHook` in `capability.ts`. `useActiveReleases` is type-only (below).
+import {
+  useClient,
+  useCurrentUser,
+  type UserListWithPermissionsHookValue,
+  type UserListWithPermissionsOptions,
+} from 'sanity'
 // Type-only: erased at compile time, so this never touches the runtime
 // module-evaluation path `optionalHook` exists to protect against. It only
 // borrows `useActiveReleases`'s shape (`ReleasesState`) for the call sites
 // below — `sanity` does not export `ReleasesState` on its own.
 import type {useActiveReleases as UseActiveReleasesType} from 'sanity'
 
+import {API_VERSION} from '../../constants'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
+import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
 import {optionalHook} from './capability'
+
+/** Stands in for `useUserListWithPermissions` when Sanity does not export it. */
+function useUnavailableUserList(): UserListWithPermissionsHookValue {
+  return {data: null, error: null, loading: false}
+}
+
+// Resolved once at module scope — see `openTasks.ts` for why.
+const useAssignableUsers = optionalHook<
+  (opts: UserListWithPermissionsOptions) => UserListWithPermissionsHookValue
+>('useUserListWithPermissions', useUnavailableUserList)
 
 // `getReleaseIdFromReleaseDocumentId` strips the `_.releases.` prefix a
 // release's own document id carries — the Releases tool's `release` intent
@@ -86,14 +106,39 @@ export function upcomingReleases(options: UpcomingReleasesOptions = {}): InboxSo
     audience: 'everyone',
 
     useItems(): InboxSourceResult {
+      const client = useClient({apiVersion: API_VERSION})
+      const currentUser = useCurrentUser()
+      const userId = currentUser?.id
       const {data, loading, error} = useReleases()
+      // "Who's shepherding this release" — a task like any other this pane
+      // surfaces, delegable the same way a draft or a validation error is,
+      // even though (unlike those) no single person's edits point at it
+      // more than another's. Same shared record every assignable source
+      // writes through — see `assignmentStore.ts`.
+      const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
+      const assignments = useAssignmentStore(client, ASSIGNMENT_TYPE)
+
+      const assigneesById = useMemo(() => {
+        const byId = new Map<string, {id: string; label: string; imageUrl?: string}>()
+        for (const user of assignable ?? []) {
+          const isSelf = user.id === userId
+          byId.set(user.id, {
+            id: user.id,
+            label: user.displayName || user.email || user.id,
+            imageUrl: (isSelf && currentUser?.profileImage) || user.imageUrl,
+          })
+        }
+        return byId
+      }, [assignable, userId, currentUser])
 
       const items = useMemo(
         () =>
           data.slice(0, limit).map((release): InboxItem => {
             const scheduled = release.publishAt || release.metadata.intendedPublishAt
+            const assignedTo = assignments.byTarget.get(release._id)
+            const assignee = assignedTo ? assigneesById.get(assignedTo) : undefined
 
-            return {
+            const row: InboxItem = {
               id: release._id,
               title: release.metadata.title || release.name,
               subtitle: release.state,
@@ -110,9 +155,27 @@ export function upcomingReleases(options: UpcomingReleasesOptions = {}): InboxSo
                 params: {id: getReleaseIdFromReleaseDocumentId(release._id)},
               },
             }
+            if (assignee) row.assignee = assignee
+            return row
           }),
-        [data],
+        [data, assignments.byTarget, assigneesById],
       )
+
+      const assign = useMemo(() => {
+        if (!assignable) return undefined
+
+        return {
+          users: assignable
+            .filter((user) => user.granted)
+            .map((user) => ({id: user.id, label: user.displayName || user.email || user.id})),
+          toUser: async (item: InboxItem, assignedTo: string) => {
+            await assignments.assign(item.id, assignedTo)
+          },
+          unassign: async (item: InboxItem) => {
+            await assignments.unassign(item.id)
+          },
+        }
+      }, [assignable, assignments])
 
       if (useReleases === useUnavailableReleases) {
         return {
@@ -123,7 +186,7 @@ export function upcomingReleases(options: UpcomingReleasesOptions = {}): InboxSo
         }
       }
 
-      return {items, loading, error}
+      return {items, loading, error, assign}
     },
   }
 }

@@ -9,12 +9,31 @@ import {useEffect, useMemo, useState} from 'react'
 import {useObservable} from 'react-rx'
 import {defer, from, of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
-import {useClient, useCurrentUser, useSchema} from 'sanity'
+// `useUserListWithPermissions` stays out of this named import — see
+// `optionalHook` in `capability.ts`.
+import {
+  useClient,
+  useCurrentUser,
+  useSchema,
+  type UserListWithPermissionsHookValue,
+  type UserListWithPermissionsOptions,
+} from 'sanity'
 
 import {API_VERSION} from '../../constants'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
-import {optionalExport} from './capability'
+import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
+import {optionalExport, optionalHook} from './capability'
 import {liveQuery$} from './liveQuery'
+
+/** Stands in for `useUserListWithPermissions` when Sanity does not export it. */
+function useUnavailableUserList(): UserListWithPermissionsHookValue {
+  return {data: null, error: null, loading: false}
+}
+
+// Resolved once at module scope — see `openTasks.ts` for why.
+const useAssignableUsers = optionalHook<
+  (opts: UserListWithPermissionsOptions) => UserListWithPermissionsHookValue
+>('useUserListWithPermissions', useUnavailableUserList)
 
 /**
  * `validateDocument`'s own real shape, confirmed live against this repo's
@@ -289,6 +308,28 @@ export function documentValidation(options: DocumentValidationOptions = {}): Inb
       const client = useClient({apiVersion: API_VERSION})
       const schema = useSchema()
       const currentUser = useCurrentUser()
+      const userId = currentUser?.id
+      // `null` documentValue, same reasoning `unpublishedDrafts.ts` gives:
+      // not scoped to one draft, since any of them could be assigned.
+      const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
+      // Same shared assignment record `unpublishedDrafts.ts` writes through
+      // — these rows are the identical draft documents, just filtered to
+      // ones currently failing validation, so "who's on this draft" has to
+      // be the same fact regardless of which view surfaces it.
+      const assignments = useAssignmentStore(client, ASSIGNMENT_TYPE)
+
+      const assigneesById = useMemo(() => {
+        const byId = new Map<string, {id: string; label: string; imageUrl?: string}>()
+        for (const user of assignable ?? []) {
+          const isSelf = user.id === userId
+          byId.set(user.id, {
+            id: user.id,
+            label: user.displayName || user.email || user.id,
+            imageUrl: (isSelf && currentUser?.profileImage) || user.imageUrl,
+          })
+        }
+        return byId
+      }, [assignable, userId, currentUser])
 
       const fetch$ = useMemo(() => {
         const params = {limit, types: types ?? null}
@@ -314,7 +355,11 @@ export function documentValidation(options: DocumentValidationOptions = {}): Inb
           const subtitle = summarizeErrors(result)
           if (!subtitle) continue
 
-          rows.push({
+          const canonicalId = meta.id.replace(/^drafts\./, '')
+          const assignedTo = assignments.byTarget.get(canonicalId)
+          const assignee = assignedTo ? assigneesById.get(assignedTo) : undefined
+
+          const row: InboxItem = {
             id: meta.id,
             title: meta.title,
             subtitle,
@@ -323,14 +368,33 @@ export function documentValidation(options: DocumentValidationOptions = {}): Inb
             tone: 'critical',
             intent: {
               type: 'edit',
-              params: {id: meta.id.replace(/^drafts\./, ''), type: meta.type},
+              params: {id: canonicalId, type: meta.type},
             },
-          })
+          }
+          rows.push(assignee ? {...row, assignee} : row)
         }
         return rows
-      }, [drafts, results])
+      }, [drafts, results, assignments.byTarget, assigneesById])
 
-      return {items, loading, error}
+      const assign = useMemo(() => {
+        if (!assignable) return undefined
+
+        return {
+          users: assignable
+            .filter((user) => user.granted)
+            .map((user) => ({id: user.id, label: user.displayName || user.email || user.id})),
+          toUser: async (item: InboxItem, assignedTo: string) => {
+            const targetId = item.intent?.params.id
+            if (targetId) await assignments.assign(targetId, assignedTo)
+          },
+          unassign: async (item: InboxItem) => {
+            const targetId = item.intent?.params.id
+            if (targetId) await assignments.unassign(targetId)
+          },
+        }
+      }, [assignable, assignments])
+
+      return {items, loading, error, assign}
     },
   }
 }

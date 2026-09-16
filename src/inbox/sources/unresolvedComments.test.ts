@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
 
-import {firstLineOfMessage, mentionsUser} from './unresolvedComments'
+import {firstLineOfMessage, firstMentionedUser, mentionsUser} from './unresolvedComments'
 
 function span(text: string) {
   return {_type: 'span', text}
@@ -48,5 +48,26 @@ describe('mentionsUser', () => {
 
   it('returns false for a message with no mentions at all', () => {
     expect(mentionsUser([block(span('Just text'))], 'user-1')).toBe(false)
+  })
+})
+
+describe('firstMentionedUser', () => {
+  it('returns the one user mentioned, across blocks', () => {
+    const message = [block(span('Hey ')), block(mention('user-1'), span(' check this'))]
+    expect(firstMentionedUser(message)).toBe('user-1')
+  })
+
+  it('returns undefined when more than one distinct user is mentioned', () => {
+    const message = [block(mention('user-1'), mention('user-2'))]
+    expect(firstMentionedUser(message)).toBeUndefined()
+  })
+
+  it('returns the same user when mentioned more than once', () => {
+    const message = [block(mention('user-1')), block(mention('user-1'))]
+    expect(firstMentionedUser(message)).toBe('user-1')
+  })
+
+  it('returns undefined for a message with no mentions', () => {
+    expect(firstMentionedUser([block(span('Just text'))])).toBeUndefined()
   })
 })

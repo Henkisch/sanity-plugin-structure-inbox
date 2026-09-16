@@ -189,6 +189,11 @@ follows elsewhere in this plugin.
 
 No `resolve`: a validation error is fixed by editing the document, not by
 this pane. No AI: a schema's own rules are already fully deterministic.
+Offers `assign` — see [Assigning an item to someone
+else](#assigning-an-item-to-someone-else) — sharing the same assignment
+record `unpublishedDrafts` does for the identical document, since a row
+here is that same draft, just filtered to ones currently failing
+validation.
 
 ### Asset issues
 
@@ -216,6 +221,8 @@ on an ordinary document, though, and opens it the normal way.
 
 No `resolve`: fixing any of these means editing the asset or the document
 that references it. No AI: all three are plain, deterministic facts.
+Offers `assign` for all three kinds — an asset has no single natural owner,
+but "who's fixing this" is still a real, delegable task.
 
 ### Unresolved comments
 
@@ -236,7 +243,9 @@ there's no separate API, config, or organization-level setup to wire up.
 No `resolve`: resolving a thread is a Studio comment-panel action this pane
 doesn't reimplement — clicking a row opens the document, where the comment
 itself is still visible and resolvable as normal. No AI: a comment already
-says what it means.
+says what it means. Offers `assign`, with the thread's own `@mention`
+suggested (never locked) when exactly one person is mentioned — see
+[Assigning an item to someone else](#assigning-an-item-to-someone-else).
 
 ### Todos
 
@@ -336,18 +345,33 @@ useItems() {
 
 ### Assigning an item to someone else
 
-`unpublishedDrafts` also offers `assign`: select rows, then pick a name from
-the **Assign to…** picker. This is **not** a Sanity Task: an earlier version
-created a real `tasks.task` document per assignment, which surfaced as a
-second, separately-titled "Follow up: …" row editors had to reconcile with
-the actual draft it was about, needed the addon dataset for a feature that
-has nothing to do with Sanity's own Tasks concept, and had a real bug —
-reassigning a draft that already had one of these tasks did not reliably
-find and reuse it, so a fresh task was created on every click. Assignment is
-now a plain, unregistered document
-(`structureInbox.draftAssignment.<targetId>`) mapping the draft's canonical
-id to an assignee id, the same shape and reasoning `useDismissals.ts` already
-uses for its own per-user preference doc.
+Most built-in sources offer `assign`: select rows, then pick a name from the
+**Assign to…** picker. This is delegation, not ownership — a row needs no
+single natural owner to be worth assigning (an upcoming release, a stray
+oversized asset), the same way a task board assigns work regardless of
+whether the underlying thing has one. `unpublishedDrafts`, `documentValidation`,
+`linkCheckerFindings`, `unresolvedComments`, `upcomingReleases`, and
+`assetIssues` all offer it. Two built-in sources don't, both for a real
+structural reason: `openTasks` already has a native, real assignee field of
+its own (shown, but read-only, so there's no second competing path to the
+same fact), and `todos` lives in the acting editor's own private list with
+no shared copy anywhere to label — handing one off needs a different verb
+entirely, not `assign`.
+
+This is **not** a Sanity Task: an earlier version created a real `tasks.task`
+document per assignment, which surfaced as a second, separately-titled
+"Follow up: …" row editors had to reconcile with the actual thing it was
+about, needed the addon dataset for a feature that has nothing to do with
+Sanity's own Tasks concept, and had a real bug — reassigning something that
+already had one of these tasks did not reliably find and reuse it, so a
+fresh task was created on every click. Assignment is now one plain,
+unregistered document type (`structureInbox.assignment`), shared by every
+assignable source, mapping a target id to an assignee id — the same shape
+and reasoning `useDismissals.ts` already uses for its own per-user preference
+doc. One shared type rather than one per source: real Sanity ids never
+collide across a draft, a release, an asset, and a comment, and it means
+"everything assigned to me" is one query away, not several unioned together,
+if a future view ever wants that.
 
 Who can be assigned comes from `useUserListWithPermissions` — `@beta` in
 Sanity's own typings, reached through `optionalHook` for that reason —
@@ -358,15 +382,19 @@ same source: assigning across sources with different assignee pools has no
 single well-defined meaning, so the picker simply doesn't offer it for a mixed
 selection.
 
-With exactly one row selected, `unpublishedDrafts` also offers a suggestion
-above the picker: whoever most recently edited the draft, read from the
-transaction log via `fetchDocumentAuthors` (no LLM — this is a fact already
-in the data, not something that needs inferring from prose) and dropped
-entirely, rather than offered, if that person is no longer assignable. It is
-never pre-selected in the picker — "whoever wrote it" is a good guess, not a
-rule, and the editor still has to click it, the same as choosing a name
-directly. Costs one extra transaction-log request, made when exactly one row
-is selected — never per row in the list, never on every render.
+With exactly one row selected, a source can also offer a suggestion above the
+picker — always dropped, never offered, if the candidate turns out not to be
+assignable, and never pre-selected: the editor still has to click it, the
+same as choosing a name directly. Two built-in sources do this today, each
+from its own real fact, never a guess:
+
+- `unpublishedDrafts` suggests whoever most recently edited the draft, read
+  from the transaction log via `fetchDocumentAuthors` (no LLM — this is
+  already in the data).
+- `unresolvedComments` suggests whoever the thread's own `@mention` named,
+  when exactly one distinct user is mentioned — resolving a thread is still
+  delegable to whoever's actually doing it, so this is a suggestion, not a
+  lock.
 
 A source opts in by returning `suggestAssignee` from its `assign` bag:
 

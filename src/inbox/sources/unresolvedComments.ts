@@ -3,12 +3,30 @@ import {useMemo} from 'react'
 import {useObservable} from 'react-rx'
 import {defer, from, of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
-// `useAddonDataset` stays out of this named import — see `optionalHook`
-// below, same reasoning `openTasks.ts` already gives for the same hook.
-import {type AddonDatasetContextValue, useCurrentUser} from 'sanity'
+// `useAddonDataset`/`useUserListWithPermissions` stay out of this named
+// import — see `optionalHook` in `capability.ts`.
+import {
+  type AddonDatasetContextValue,
+  useClient,
+  useCurrentUser,
+  type UserListWithPermissionsHookValue,
+  type UserListWithPermissionsOptions,
+} from 'sanity'
 
+import {API_VERSION} from '../../constants'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
+import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
 import {optionalHook} from './capability'
+
+/** Stands in for `useUserListWithPermissions` when Sanity does not export it. */
+function useUnavailableUserList(): UserListWithPermissionsHookValue {
+  return {data: null, error: null, loading: false}
+}
+
+// Resolved once at module scope — see `openTasks.ts` for why.
+const useAssignableUsers = optionalHook<
+  (opts: UserListWithPermissionsOptions) => UserListWithPermissionsHookValue
+>('useUserListWithPermissions', useUnavailableUserList)
 
 /** Stands in for `useAddonDataset` when Sanity does not export it — see `openTasks.ts`. */
 function useUnavailableAddonDataset(): AddonDatasetContextValue {
@@ -81,6 +99,26 @@ export function mentionsUser(message: CommentMessageBlock[], userId: string): bo
   )
 }
 
+/**
+ * The first `@mention`ed user in `message`, if exactly one distinct user is
+ * mentioned — a real, evidenced candidate for `suggestAssignee` (same
+ * reasoning `unpublishedDrafts.ts`'s own "last editor" suggestion uses: a
+ * fact this source can point to, not a guess). A thread mentioning more than
+ * one person has no single obvious assignee, so this returns `undefined`
+ * rather than picking one arbitrarily. Exported for its own test.
+ */
+export function firstMentionedUser(message: CommentMessageBlock[]): string | undefined {
+  const mentionedIds: string[] = []
+  for (const block of message) {
+    for (const child of block.children ?? []) {
+      if (child._type === 'mention' && child.userId) mentionedIds.push(child.userId)
+    }
+  }
+
+  const mentioned = new Set(mentionedIds)
+  return mentioned.size === 1 ? mentionedIds[0] : undefined
+}
+
 interface CommentRow {
   _id: string
   _createdAt: string
@@ -147,6 +185,29 @@ export function unresolvedComments(options: UnresolvedCommentsOptions = {}): Inb
     useItems(): InboxSourceResult {
       const {client, ready} = useAddonDataset()
       const currentUser = useCurrentUser()
+      const userId = currentUser?.id
+      // Resolving a thread is a task like any other this pane surfaces —
+      // delegable the same way a draft or a release is, via the same
+      // shared record. Deliberately the *main* dataset client
+      // (`useClient`), not the addon-dataset one above: assignment
+      // bookkeeping lives alongside every other source's, not inside the
+      // Comments/Tasks addon dataset.
+      const mainClient = useClient({apiVersion: API_VERSION})
+      const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
+      const assignments = useAssignmentStore(mainClient, ASSIGNMENT_TYPE)
+
+      const assigneesById = useMemo(() => {
+        const byId = new Map<string, {id: string; label: string; imageUrl?: string}>()
+        for (const user of assignable ?? []) {
+          const isSelf = user.id === userId
+          byId.set(user.id, {
+            id: user.id,
+            label: user.displayName || user.email || user.id,
+            imageUrl: (isSelf && currentUser?.profileImage) || user.imageUrl,
+          })
+        }
+        return byId
+      }, [assignable, userId, currentUser])
 
       const fetch$ = useMemo(() => {
         if (useAddonDataset === useUnavailableAddonDataset) {
@@ -174,8 +235,11 @@ export function unresolvedComments(options: UnresolvedCommentsOptions = {}): Inb
         const currentUserId = currentUser?.id
         return rows
           .filter((row) => !onlyMine || (currentUserId && mentionsUser(row.message, currentUserId)))
-          .map(
-            (row): InboxItem => ({
+          .map((row): InboxItem => {
+            const assignedTo = assignments.byTarget.get(row._id)
+            const assignee = assignedTo ? assigneesById.get(assignedTo) : undefined
+
+            const item: InboxItem = {
               id: row._id,
               title: firstLineOfMessage(row.message),
               subtitle: `${row.target.documentType} · ${row.target.path?.field ?? 'document'}`,
@@ -195,11 +259,42 @@ export function unresolvedComments(options: UnresolvedCommentsOptions = {}): Inb
                   comment: row._id,
                 },
               },
-            }),
-          )
-      }, [rows, currentUser?.id])
+            }
+            if (assignee) item.assignee = assignee
+            return item
+          })
+      }, [rows, currentUser?.id, assignments.byTarget, assigneesById])
 
-      return {items, loading, error}
+      const assign = useMemo(() => {
+        if (!assignable) return undefined
+
+        const grantedIds = new Set(assignable.filter((user) => user.granted).map((user) => user.id))
+
+        return {
+          users: assignable
+            .filter((user) => user.granted)
+            .map((user) => ({id: user.id, label: user.displayName || user.email || user.id})),
+          toUser: async (item: InboxItem, assignedTo: string) => {
+            await assignments.assign(item.id, assignedTo)
+          },
+          unassign: async (item: InboxItem) => {
+            await assignments.unassign(item.id)
+          },
+          // The thread's own `@mention`, when unambiguous — a real fact
+          // (same posture `unpublishedDrafts.ts`'s "last editor" suggestion
+          // uses), never enforced: resolving a thread is delegable to
+          // whoever's actually doing it, not necessarily whoever was
+          // mentioned.
+          suggestAssignee: async (item: InboxItem) => {
+            const row = rows.find((r) => r._id === item.id)
+            const mentioned = row && firstMentionedUser(row.message)
+            if (!mentioned || !grantedIds.has(mentioned)) return null
+            return {userId: mentioned, reason: 'mentioned' as const}
+          },
+        }
+      }, [assignable, assignments, rows])
+
+      return {items, loading, error, assign}
     },
   }
 }

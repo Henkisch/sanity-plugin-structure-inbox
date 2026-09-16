@@ -4,12 +4,32 @@ import {useMemo} from 'react'
 import {useObservable} from 'react-rx'
 import {defer, from, of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
-import {useClient, useSchema} from 'sanity'
+// `useUserListWithPermissions` stays out of this named import — see
+// `optionalHook` in `capability.ts`.
+import {
+  useClient,
+  useCurrentUser,
+  useSchema,
+  type UserListWithPermissionsHookValue,
+  type UserListWithPermissionsOptions,
+} from 'sanity'
 
 import {API_VERSION} from '../../constants'
 import {isHiddenType} from '../AddMenu'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
+import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
+import {optionalHook} from './capability'
 import {liveQuery$} from './liveQuery'
+
+/** Stands in for `useUserListWithPermissions` when Sanity does not export it. */
+function useUnavailableUserList(): UserListWithPermissionsHookValue {
+  return {data: null, error: null, loading: false}
+}
+
+// Resolved once at module scope — see `openTasks.ts` for why.
+const useAssignableUsers = optionalHook<
+  (opts: UserListWithPermissionsOptions) => UserListWithPermissionsHookValue
+>('useUserListWithPermissions', useUnavailableUserList)
 
 /** Real image/file asset documents this project's own dataset holds. */
 const ASSET_TYPES = ['sanity.imageAsset', 'sanity.fileAsset']
@@ -168,6 +188,27 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
     useItems(): InboxSourceResult {
       const client = useClient({apiVersion: API_VERSION})
       const schema = useSchema()
+      const currentUser = useCurrentUser()
+      const userId = currentUser?.id
+      // "Who's fixing this" — a task like any other, delegable even though
+      // an asset (unlike a draft) can be referenced by zero or many
+      // documents, so there's no single natural owner to fall back to.
+      // Same shared record every assignable source writes through.
+      const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
+      const assignments = useAssignmentStore(client, ASSIGNMENT_TYPE)
+
+      const assigneesById = useMemo(() => {
+        const byId = new Map<string, {id: string; label: string; imageUrl?: string}>()
+        for (const user of assignable ?? []) {
+          const isSelf = user.id === userId
+          byId.set(user.id, {
+            id: user.id,
+            label: user.displayName || user.email || user.id,
+            imageUrl: (isSelf && currentUser?.profileImage) || user.imageUrl,
+          })
+        }
+        return byId
+      }, [assignable, userId, currentUser])
 
       const altEligibleFields = useMemo(() => findAltEligibleImageFields(schema, altFieldName), [schema])
 
@@ -221,50 +262,79 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
         loading: true,
       })
 
+      const withAssignee = (row: InboxItem): InboxItem => {
+        const assignedTo = assignments.byTarget.get(row.id)
+        const assignee = assignedTo ? assigneesById.get(assignedTo) : undefined
+        return assignee ? {...row, assignee} : row
+      }
+
       const items = useMemo(() => {
         const rows: InboxItem[] = []
 
         for (const asset of oversized) {
-          rows.push({
-            id: `oversized:${asset._id}`,
-            title: asset.originalFilename || asset._id,
-            subtitle: formatAssetSize(asset.size),
-            category: 'Oversized asset',
-            tone: 'caution',
-          })
+          rows.push(
+            withAssignee({
+              id: `oversized:${asset._id}`,
+              title: asset.originalFilename || asset._id,
+              subtitle: formatAssetSize(asset.size),
+              category: 'Oversized asset',
+              tone: 'caution',
+            }),
+          )
         }
 
         for (const asset of unused) {
-          rows.push({
-            id: `unused:${asset._id}`,
-            title: asset.originalFilename || asset._id,
-            subtitle: formatAssetSize(asset.size),
-            category: 'Unused asset',
-            tone: 'caution',
-          })
+          rows.push(
+            withAssignee({
+              id: `unused:${asset._id}`,
+              title: asset.originalFilename || asset._id,
+              subtitle: formatAssetSize(asset.size),
+              category: 'Unused asset',
+              tone: 'caution',
+            }),
+          )
         }
 
         for (const [index, fieldMissingAlt] of missingAlt.entries()) {
           const field = altEligibleFields[index]
           if (!field) continue
           for (const doc of fieldMissingAlt) {
-            rows.push({
-              id: `missingAlt:${doc._id}:${field.fieldName}`,
-              title: doc.title,
-              subtitle: `${field.documentTypeTitle} · ${field.fieldTitle}`,
-              category: 'Missing alt text',
-              tone: 'caution',
-              timestamp: doc._updatedAt,
-              changedAt: doc._updatedAt,
-              intent: {type: 'edit', params: {id: doc._id, type: field.documentType}},
-            })
+            rows.push(
+              withAssignee({
+                id: `missingAlt:${doc._id}:${field.fieldName}`,
+                title: doc.title,
+                subtitle: `${field.documentTypeTitle} · ${field.fieldTitle}`,
+                category: 'Missing alt text',
+                tone: 'caution',
+                timestamp: doc._updatedAt,
+                changedAt: doc._updatedAt,
+                intent: {type: 'edit', params: {id: doc._id, type: field.documentType}},
+              }),
+            )
           }
         }
 
         return rows
-      }, [oversized, unused, missingAlt, altEligibleFields])
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- `withAssignee` closes over `assignments.byTarget`/`assigneesById`, both already listed; it is redefined every render (not memoized) so including it would just make this dependency list re-describe itself.
+      }, [oversized, unused, missingAlt, altEligibleFields, assignments.byTarget, assigneesById])
 
-      return {items, loading, error}
+      const assign = useMemo(() => {
+        if (!assignable) return undefined
+
+        return {
+          users: assignable
+            .filter((user) => user.granted)
+            .map((user) => ({id: user.id, label: user.displayName || user.email || user.id})),
+          toUser: async (item: InboxItem, assignedTo: string) => {
+            await assignments.assign(item.id, assignedTo)
+          },
+          unassign: async (item: InboxItem) => {
+            await assignments.unassign(item.id)
+          },
+        }
+      }, [assignable, assignments])
+
+      return {items, loading, error, assign}
     },
   }
 }

@@ -61,7 +61,7 @@ interface SelectionActionsProps {
    * editor still has to click, the same as choosing from the `<select>`
    * would be.
    */
-  assigneeSuggestion?: {userId: string; reason: 'lastEditor'}
+  assigneeSuggestion?: {userId: string; reason: 'lastEditor' | 'mentioned'}
   /**
    * Offers "Delete" — for real removal (`todos`, say), not a soft dismiss.
    * Used to live as a plain text link under a lone selected row

@@ -37,6 +37,18 @@ function hash32(input: string, seed: number): number {
 }
 
 /**
+ * The one document type every assignable source's `assign` writes
+ * through — shared, not per-source: `useAssignmentStore` below is already
+ * generic over `docType`, and real Sanity ids never collide across a
+ * draft, a release, an asset, or a comment (different id shapes
+ * entirely), so there is no reason for each source to keep its own
+ * private bookkeeping type. One shared type also means "everything
+ * assigned to me" is one query away, not N separate ones unioned
+ * together, if that's ever wanted.
+ */
+export const ASSIGNMENT_TYPE = 'structureInbox.assignment'
+
+/**
  * A target id can be anything a source finds meaningful — an unpublished
  * draft's own document id (short), but also a link-checker finding's key,
  * which embeds a real field path and, for a broken *link*, the entire URL.
@@ -66,11 +78,14 @@ export interface AssignmentStore {
 
 /**
  * Live map of every assignment of one `docType`, plus the two mutations that
- * keep it current. `docType` is this source's own private document type
- * (e.g. `structureInbox.draftAssignment`) — never registered in the Studio
- * schema, same reasoning `useDismissals.ts` uses for its own preference doc:
- * it is bookkeeping this plugin owns, not content an editor should meet in
- * the structure tool, search, or a reference picker.
+ * keep it current. Every built-in assignable source passes the same shared
+ * `ASSIGNMENT_TYPE` here — `docType` stays a parameter (not a hardcoded
+ * constant inside this function) only so a consumer's own custom source could
+ * point it at a different type if it ever needed real isolation from the
+ * built-in one. Never registered in the Studio schema, same reasoning
+ * `useDismissals.ts` uses for its own preference doc: it is bookkeeping this
+ * plugin owns, not content an editor should meet in the structure tool,
+ * search, or a reference picker.
  *
  * Live rather than fetched once: someone assigning or unassigning elsewhere
  * should update every open tab without a navigate-away-and-back.
