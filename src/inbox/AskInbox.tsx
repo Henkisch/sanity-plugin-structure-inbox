@@ -1,5 +1,5 @@
 import {Box, Button, Flex, TextInput} from '@sanity/ui'
-import {useCallback, useState} from 'react'
+import {useCallback, useRef, useState} from 'react'
 import {useTranslation} from 'sanity'
 
 import {describeRows, selectionFromResponse} from '../ai/askInbox'
@@ -46,11 +46,13 @@ export function AskInbox(props: AskInboxProps) {
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const agentClient = useAgentClient()
   const [question, setQuestion] = useState('')
+  const submitRequestRef = useRef(0)
 
   const handleSubmit = useCallback(async () => {
     const trimmed = question.trim()
     if (!trimmed || !agentClient) return
 
+    const requestId = ++submitRequestRef.current
     onResultChange({status: 'loading'})
 
     try {
@@ -71,15 +73,17 @@ export function AskInbox(props: AskInboxProps) {
 
       const selection = selectionFromResponse(raw, rows)
       if (!selection) {
-        onResultChange({status: 'unparseable'})
+        if (requestId === submitRequestRef.current) onResultChange({status: 'unparseable'})
         return
       }
 
-      onSelect(selection.keys)
-      onResultChange({status: 'done', reason: selection.reason, matched: selection.keys.length > 0})
+      if (requestId === submitRequestRef.current) {
+        onSelect(selection.keys)
+        onResultChange({status: 'done', reason: selection.reason, matched: selection.keys.length > 0})
+      }
     } catch (error: unknown) {
       console.error('[sanity-plugin-structure-inbox] ask-the-inbox failed', error)
-      onResultChange({status: 'error'})
+      if (requestId === submitRequestRef.current) onResultChange({status: 'error'})
     }
   }, [question, agentClient, rows, onSelect, context, onResultChange])
 
