@@ -1,4 +1,4 @@
-import {cleanup, fireEvent, screen} from '@testing-library/react'
+import {act, cleanup, fireEvent, screen} from '@testing-library/react'
 import {useState} from 'react'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
@@ -736,6 +736,76 @@ describe('AskInbox integration', () => {
 
     await vi.waitFor(() => expect(checkboxFor('Draft one').checked).toBe(true))
     expect(resolve).not.toHaveBeenCalled()
+  })
+
+  // Plan 044: before this plan, `handleSubmit` had no loading check of its
+  // own at all (only `!trimmed || !agentClient`). The submit *button*
+  // already goes `disabled` once loading (Plan 032), which alone already
+  // stops a second real *click* — but pressing Enter in the input is a
+  // second, independent path into the same `handleSubmit`, gated by nothing
+  // of its own. Two rapid Enter presses (real key-repeat, or an impatient
+  // editor hitting it twice) called `promptJson` a second time, spending a
+  // second real AI credit for one intended question.
+  it('submits a question only once when Enter is pressed twice in a row', async () => {
+    let resolvePrompt!: (value: {keys: string[]; reason: string}) => void
+    promptJsonMock.mockImplementation(
+      () => new Promise((resolve) => (resolvePrompt = resolve)),
+    )
+
+    const reports = {
+      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]}),
+    }
+    renderList({ask: true, reports, order: ['drafts']})
+
+    const input = screen.getByPlaceholderText('ask.placeholder')
+    fireEvent.change(input, {target: {value: 'anything about the launch'}})
+    fireEvent.keyDown(input, {key: 'Enter'})
+    fireEvent.keyDown(input, {key: 'Enter'})
+
+    expect(promptJsonMock).toHaveBeenCalledTimes(1)
+
+    resolvePrompt({keys: ['drafts d1'], reason: 'Matches.'})
+    expect(await screen.findByText('Matches.')).toBeTruthy()
+    expect(promptJsonMock).toHaveBeenCalledTimes(1)
+  })
+
+  // The tighter race: both submits dispatched inside one `act()` call, the
+  // same technique Plan 032's own `Inbox.test.tsx` test uses for the
+  // Inbox.tsx menu. A plain `result.status === 'loading'` check alone does
+  // not close this one — both clicks run before React commits the first
+  // one's `onResultChange({status: 'loading'})`, so both read the same
+  // stale, pre-loading state and both would fire. `submitInFlightRef` (a
+  // plain ref, mutated synchronously, not through `setState`) is what
+  // actually closes it.
+  it('submits a question only once even when both clicks land in the same React batch', async () => {
+    let resolvePrompt!: (value: {keys: string[]; reason: string}) => void
+    promptJsonMock.mockImplementation(
+      () => new Promise((resolve) => (resolvePrompt = resolve)),
+    )
+
+    const reports = {
+      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})]}),
+    }
+    renderList({ask: true, reports, order: ['drafts']})
+
+    fireEvent.change(screen.getByPlaceholderText('ask.placeholder'), {
+      target: {value: 'anything about the launch'},
+    })
+    const submitButton = screen.getByRole('button', {name: 'ask.submit'})
+
+    act(() => {
+      fireEvent.click(submitButton)
+      fireEvent.click(submitButton)
+    })
+
+    expect(promptJsonMock).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolvePrompt({keys: ['drafts d1'], reason: 'Matches.'})
+      await Promise.resolve()
+    })
+
+    expect(await screen.findByText('Matches.')).toBeTruthy()
   })
 })
 

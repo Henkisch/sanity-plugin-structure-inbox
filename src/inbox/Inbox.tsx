@@ -655,33 +655,50 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
     {status: 'idle'} | {status: 'loading'} | {status: 'done'; message: string} | {status: 'error'}
   >({status: 'idle'})
 
+  // `summarizeInFlightRef` (a plain ref, mutated synchronously) gates the
+  // *request*; `summarizeRequestRef` below (bump-then-compare) decides which
+  // *response* is authoritative if one somehow still lands late. They guard
+  // different things: a `summary.status === 'loading'` state check alone
+  // isn't enough here — two clicks landing in the same React batch (e.g.
+  // `act(() => { fireEvent.click(x); fireEvent.click(x) })`) both run before
+  // React commits the first click's `setSummary({status: 'loading'})`, so a
+  // state read is stale for both and both would fire; a `ref.current` write
+  // is visible to the very next line of JS regardless of whether React has
+  // re-rendered, so checking that instead closes the same-tick race too.
+  const summarizeInFlightRef = useRef(false)
   const summarizeRequestRef = useRef(0)
 
   const handleSummarize = useCallback(async () => {
-    const requestId = ++summarizeRequestRef.current
-    setSummary({status: 'loading'})
-    const digest = openRows
-      .slice(0, 30)
-      .map((row) => `- ${row.item.title}${row.item.subtitle ? ` (${row.item.subtitle})` : ''}`)
-      .join('\n')
-
-    if (!agentClient) {
-      if (requestId === summarizeRequestRef.current) setSummary({status: 'error'})
-      return
-    }
-
+    if (summarizeInFlightRef.current) return
+    summarizeInFlightRef.current = true
     try {
-      const message = await agentClient.agent.action.prompt({
-        instruction:
-          (context ? `About this project: ${context}\n---\n` : '') +
-          'Given this list of open inbox items, one per line:\n$items\n---\n' +
-          'In two or three short sentences, say what looks most worth starting with first and why.',
-        instructionParams: {items: digest || 'Nothing is open right now.'},
-      })
-      if (requestId === summarizeRequestRef.current) setSummary({status: 'done', message})
-    } catch (error: unknown) {
-      console.error('[sanity-plugin-structure-inbox] summarize failed', error)
-      if (requestId === summarizeRequestRef.current) setSummary({status: 'error'})
+      const requestId = ++summarizeRequestRef.current
+      setSummary({status: 'loading'})
+      const digest = openRows
+        .slice(0, 30)
+        .map((row) => `- ${row.item.title}${row.item.subtitle ? ` (${row.item.subtitle})` : ''}`)
+        .join('\n')
+
+      if (!agentClient) {
+        if (requestId === summarizeRequestRef.current) setSummary({status: 'error'})
+        return
+      }
+
+      try {
+        const message = await agentClient.agent.action.prompt({
+          instruction:
+            (context ? `About this project: ${context}\n---\n` : '') +
+            'Given this list of open inbox items, one per line:\n$items\n---\n' +
+            'In two or three short sentences, say what looks most worth starting with first and why.',
+          instructionParams: {items: digest || 'Nothing is open right now.'},
+        })
+        if (requestId === summarizeRequestRef.current) setSummary({status: 'done', message})
+      } catch (error: unknown) {
+        console.error('[sanity-plugin-structure-inbox] summarize failed', error)
+        if (requestId === summarizeRequestRef.current) setSummary({status: 'error'})
+      }
+    } finally {
+      summarizeInFlightRef.current = false
     }
   }, [agentClient, openRows, context])
 
@@ -698,41 +715,49 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
   // render rather than offering suggestions with nowhere real to put them.
   const addTodo = reports.todos?.create
 
+  // Same two-ref shape as `handleSummarize` above, same reason.
+  const suggestTodosInFlightRef = useRef(false)
   const suggestTodosRequestRef = useRef(0)
 
   const handleSuggestTodos = useCallback(async () => {
-    const requestId = ++suggestTodosRequestRef.current
-    setSuggestions({status: 'loading'})
-    const digest = openRows
-      .slice(0, 30)
-      .map((row) => `- ${row.item.title}${row.item.subtitle ? ` (${row.item.subtitle})` : ''}`)
-      .join('\n')
-
-    if (!agentClient) {
-      if (requestId === suggestTodosRequestRef.current) setSuggestions({status: 'error'})
-      return
-    }
-
+    if (suggestTodosInFlightRef.current) return
+    suggestTodosInFlightRef.current = true
     try {
-      type SuggestionChoice = {items: {title: string; reason: string}[]}
+      const requestId = ++suggestTodosRequestRef.current
+      setSuggestions({status: 'loading'})
+      const digest = openRows
+        .slice(0, 30)
+        .map((row) => `- ${row.item.title}${row.item.subtitle ? ` (${row.item.subtitle})` : ''}`)
+        .join('\n')
 
-      const choice = await promptJson<SuggestionChoice>(
-        agentClient,
-        (context ? `About this project: ${context}\n---\n` : '') +
-          'Given this list of open inbox items, one per line:\n$items\n---\n' +
-          'Suggest at most 3 concrete personal todos an editor could add to make progress on ' +
-          'these — each a short, specific, imperative title (max ~8 words) plus a one-sentence ' +
-          'reason. Return JSON {"items": [{"title": string, "reason": string}]}. If nothing open ' +
-          'warrants a new todo, return {"items": []}.',
-        {items: digest || 'Nothing is open right now.'},
-      )
-
-      if (requestId === suggestTodosRequestRef.current) {
-        setSuggestions({status: 'done', items: (choice?.items ?? []).slice(0, 3)})
+      if (!agentClient) {
+        if (requestId === suggestTodosRequestRef.current) setSuggestions({status: 'error'})
+        return
       }
-    } catch (error: unknown) {
-      console.error('[sanity-plugin-structure-inbox] suggest-todos failed', error)
-      if (requestId === suggestTodosRequestRef.current) setSuggestions({status: 'error'})
+
+      try {
+        type SuggestionChoice = {items: {title: string; reason: string}[]}
+
+        const choice = await promptJson<SuggestionChoice>(
+          agentClient,
+          (context ? `About this project: ${context}\n---\n` : '') +
+            'Given this list of open inbox items, one per line:\n$items\n---\n' +
+            'Suggest at most 3 concrete personal todos an editor could add to make progress on ' +
+            'these — each a short, specific, imperative title (max ~8 words) plus a one-sentence ' +
+            'reason. Return JSON {"items": [{"title": string, "reason": string}]}. If nothing open ' +
+            'warrants a new todo, return {"items": []}.',
+          {items: digest || 'Nothing is open right now.'},
+        )
+
+        if (requestId === suggestTodosRequestRef.current) {
+          setSuggestions({status: 'done', items: (choice?.items ?? []).slice(0, 3)})
+        }
+      } catch (error: unknown) {
+        console.error('[sanity-plugin-structure-inbox] suggest-todos failed', error)
+        if (requestId === suggestTodosRequestRef.current) setSuggestions({status: 'error'})
+      }
+    } finally {
+      suggestTodosInFlightRef.current = false
     }
   }, [agentClient, openRows, context])
 
@@ -748,44 +773,52 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
     | {status: 'error'}
   >({status: 'idle'})
 
+  // Same two-ref shape as `handleSummarize` above, same reason.
+  const findContentGapsInFlightRef = useRef(false)
   const findContentGapsRequestRef = useRef(0)
 
   const handleFindContentGaps = useCallback(async () => {
-    const requestId = ++findContentGapsRequestRef.current
-    setContentGapsResult({status: 'loading'})
-
-    if (!agentClient) {
-      if (requestId === findContentGapsRequestRef.current) setContentGapsResult({status: 'error'})
-      return
-    }
-
+    if (findContentGapsInFlightRef.current) return
+    findContentGapsInFlightRef.current = true
     try {
-      const summaries = await getProjectDigest()
-      const digest = formatContentGapsDigest(summaries)
+      const requestId = ++findContentGapsRequestRef.current
+      setContentGapsResult({status: 'loading'})
 
-      type GapsChoice = {gaps: {title: string; reason: string}[]}
-
-      const choice = await promptJson<GapsChoice>(
-        agentClient,
-        (context ? `About this project: ${context}\n---\n` : '') +
-          'Here is a survey of every content type in this Sanity project, how many documents ' +
-          "each has, and a small sample of real text from each (when available):\n$survey\n---\n" +
-          'Suggest at most 5 concrete content gaps — things that seem missing given what this ' +
-          'project already has (an under-supported claim, a content type with far fewer entries ' +
-          "than a related one, a topic mentioned in samples but with nothing dedicated to it). " +
-          'Each gap: a short, specific title (max ~10 words) and a one-sentence reason grounded ' +
-          'in the actual survey data, not a generic best practice. Return JSON ' +
-          '{"gaps": [{"title": string, "reason": string}]}. If nothing looks like a real gap, ' +
-          'return {"gaps": []}.',
-        {survey: digest || 'This project has no content types with any documents yet.'},
-      )
-
-      if (requestId === findContentGapsRequestRef.current) {
-        setContentGapsResult({status: 'done', items: (choice?.gaps ?? []).slice(0, 5)})
+      if (!agentClient) {
+        if (requestId === findContentGapsRequestRef.current) setContentGapsResult({status: 'error'})
+        return
       }
-    } catch (error: unknown) {
-      console.error('[sanity-plugin-structure-inbox] find-content-gaps failed', error)
-      if (requestId === findContentGapsRequestRef.current) setContentGapsResult({status: 'error'})
+
+      try {
+        const summaries = await getProjectDigest()
+        const digest = formatContentGapsDigest(summaries)
+
+        type GapsChoice = {gaps: {title: string; reason: string}[]}
+
+        const choice = await promptJson<GapsChoice>(
+          agentClient,
+          (context ? `About this project: ${context}\n---\n` : '') +
+            'Here is a survey of every content type in this Sanity project, how many documents ' +
+            "each has, and a small sample of real text from each (when available):\n$survey\n---\n" +
+            'Suggest at most 5 concrete content gaps — things that seem missing given what this ' +
+            'project already has (an under-supported claim, a content type with far fewer entries ' +
+            "than a related one, a topic mentioned in samples but with nothing dedicated to it). " +
+            'Each gap: a short, specific title (max ~10 words) and a one-sentence reason grounded ' +
+            'in the actual survey data, not a generic best practice. Return JSON ' +
+            '{"gaps": [{"title": string, "reason": string}]}. If nothing looks like a real gap, ' +
+            'return {"gaps": []}.',
+          {survey: digest || 'This project has no content types with any documents yet.'},
+        )
+
+        if (requestId === findContentGapsRequestRef.current) {
+          setContentGapsResult({status: 'done', items: (choice?.gaps ?? []).slice(0, 5)})
+        }
+      } catch (error: unknown) {
+        console.error('[sanity-plugin-structure-inbox] find-content-gaps failed', error)
+        if (requestId === findContentGapsRequestRef.current) setContentGapsResult({status: 'error'})
+      }
+    } finally {
+      findContentGapsInFlightRef.current = false
     }
   }, [agentClient, getProjectDigest, context])
 

@@ -1,7 +1,7 @@
 import {ThemeProvider} from '@sanity/ui'
 import {buildTheme} from '@sanity/ui/theme'
 import {ToastProvider} from '@sanity/ui/toast'
-import {cleanup, fireEvent, render, screen} from '@testing-library/react'
+import {act, cleanup, fireEvent, render, screen} from '@testing-library/react'
 import {type ReactElement} from 'react'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
@@ -237,6 +237,63 @@ describe('InboxRow', () => {
 
       expect(await screen.findByText('assess.error')).toBeTruthy()
       expect(screen.queryByText('assess.unavailable')).toBeNull()
+    })
+
+    // Plan 044: unlike `handleSuggestTodos`/etc in `Inbox.tsx` (whose trigger
+    // `MenuItem` already has a `disabled={status === 'loading'}` prop from
+    // Plan 032), `handleAssess`'s own trigger here has no such prop at all —
+    // so, before this plan, a second real, separately-timed click on
+    // "assess.ask" while the first request was still in flight called
+    // `onAssess` a second time, spending a second real AI credit for what
+    // reads as one click. Two *separate* `fireEvent.click` calls (not both
+    // batched inside one `act()`, the technique the "keeps the later
+    // request's result" style tests use elsewhere in this codebase) is the
+    // realistic shape of that bug: each click is individually flushed, so
+    // the second one lands only after `assessment.status` has already
+    // committed to `'loading'` from the first.
+    it('calls onAssess only once when its trigger is clicked twice in a row', async () => {
+      const onAssess = vi.fn().mockResolvedValue({message: 'Looks ready to publish.'})
+
+      renderRow(<InboxRow item={item()} onAssess={onAssess} onSelectedChange={vi.fn()} selected={false} />)
+
+      fireEvent.click(screen.getByRole('button', {name: 'row.menu'}))
+      fireEvent.click(screen.getByRole('menuitem', {name: 'assess.ask'}))
+      fireEvent.click(screen.getByRole('button', {name: 'row.menu'}))
+      fireEvent.click(screen.getByRole('menuitem', {hidden: true, name: 'assess.ask'}))
+
+      expect(await screen.findByText('Looks ready to publish.')).toBeTruthy()
+      expect(onAssess).toHaveBeenCalledTimes(1)
+    })
+
+    // The tighter race: both clicks dispatched inside one `act()` call, the
+    // same technique Plan 032's own test uses for the Inbox.tsx menu (see
+    // `Inbox.test.tsx`'s `handleSuggestTodos` describe block). A plain
+    // `assessment.status === 'loading'` check alone does *not* close this
+    // one — both clicks run before React commits the first one's
+    // `setAssessment({status: 'loading'})`, so both read the same stale,
+    // pre-loading state and both would fire. `assessInFlightRef` (a plain
+    // ref, mutated synchronously, not through `setState`) is what actually
+    // closes it here.
+    it('calls onAssess only once even when both clicks land in the same React batch', async () => {
+      let resolveOnAssess!: (value: {message: string}) => void
+      const onAssess = vi.fn().mockImplementation(() => new Promise((resolve) => (resolveOnAssess = resolve)))
+
+      renderRow(<InboxRow item={item()} onAssess={onAssess} onSelectedChange={vi.fn()} selected={false} />)
+
+      fireEvent.click(screen.getByRole('button', {name: 'row.menu'}))
+      const assessItem = screen.getByRole('menuitem', {name: 'assess.ask'})
+
+      act(() => {
+        fireEvent.click(assessItem)
+        fireEvent.click(assessItem)
+      })
+
+      expect(onAssess).toHaveBeenCalledTimes(1)
+
+      await act(async () => {
+        resolveOnAssess({message: 'Looks ready to publish.'})
+        await Promise.resolve()
+      })
     })
   })
 })

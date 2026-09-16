@@ -60,54 +60,71 @@ export function AskInbox(props: AskInboxProps) {
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const agentClient = useAgentClient()
   const [question, setQuestion] = useState('')
+  // `submitInFlightRef` (a plain ref, mutated synchronously) gates the
+  // *request*; `submitRequestRef` below (bump-then-compare) decides which
+  // *response* is authoritative if one somehow still lands late. A
+  // `result.status === 'loading'` state check alone isn't enough here — two
+  // submits landing in the same React batch (e.g. two rapid Enter presses,
+  // or `act(() => { fireEvent.click(x); fireEvent.click(x) })`) both run
+  // before React commits the first one's `onResultChange({status:
+  // 'loading'})`, so a state read is stale for both and both would fire; a
+  // `ref.current` write is visible to the very next line of JS regardless of
+  // whether React has re-rendered, so checking that instead closes the
+  // same-tick race too.
+  const submitInFlightRef = useRef(false)
   const submitRequestRef = useRef(0)
 
   const handleSubmit = useCallback(async () => {
     const trimmed = question.trim()
-    if (!trimmed || !agentClient) return
-
-    const requestId = ++submitRequestRef.current
-    onResultChange({status: 'loading'})
+    if (!trimmed || !agentClient || submitInFlightRef.current) return
+    submitInFlightRef.current = true
 
     try {
-      let projectDigest = ''
+      const requestId = ++submitRequestRef.current
+      onResultChange({status: 'loading'})
+
       try {
-        if (getProjectDigest) projectDigest = formatContentGapsDigest(await getProjectDigest())
-      } catch {
-        // Optional enrichment — a failed survey should not fail the whole read.
-      }
+        let projectDigest = ''
+        try {
+          if (getProjectDigest) projectDigest = formatContentGapsDigest(await getProjectDigest())
+        } catch {
+          // Optional enrichment — a failed survey should not fail the whole read.
+        }
 
-      const described = describeRows(rows)
-      const raw = await promptJson<unknown>(
-        agentClient,
-        (context ? `About this project: ${context}\n---\n` : '') +
-          (projectDigest
-            ? `Here is a survey of every content type in this Sanity project:\n${projectDigest}\n---\n`
-            : '') +
-          'Given this list of inbox items, one per line as JSON:\n$items\n---\n' +
-          'A question about them: "' +
-          trimmed +
-          '"\n' +
-          'Reply with JSON only, no prose and no code fences: ' +
-          '{"keys": [<the "key" of every item that matches, chosen only from the list above>], ' +
-          '"reason": "<one short sentence explaining the selection>"}. ' +
-          'If nothing matches, return {"keys": [], "reason": "<why nothing matched>"}.',
-        {items: JSON.stringify(described)},
-      )
+        const described = describeRows(rows)
+        const raw = await promptJson<unknown>(
+          agentClient,
+          (context ? `About this project: ${context}\n---\n` : '') +
+            (projectDigest
+              ? `Here is a survey of every content type in this Sanity project:\n${projectDigest}\n---\n`
+              : '') +
+            'Given this list of inbox items, one per line as JSON:\n$items\n---\n' +
+            'A question about them: "' +
+            trimmed +
+            '"\n' +
+            'Reply with JSON only, no prose and no code fences: ' +
+            '{"keys": [<the "key" of every item that matches, chosen only from the list above>], ' +
+            '"reason": "<one short sentence explaining the selection>"}. ' +
+            'If nothing matches, return {"keys": [], "reason": "<why nothing matched>"}.',
+          {items: JSON.stringify(described)},
+        )
 
-      const selection = selectionFromResponse(raw, rows)
-      if (!selection) {
-        if (requestId === submitRequestRef.current) onResultChange({status: 'unparseable'})
-        return
-      }
+        const selection = selectionFromResponse(raw, rows)
+        if (!selection) {
+          if (requestId === submitRequestRef.current) onResultChange({status: 'unparseable'})
+          return
+        }
 
-      if (requestId === submitRequestRef.current) {
-        onSelect(selection.keys)
-        onResultChange({status: 'done', reason: selection.reason, matched: selection.keys.length > 0})
+        if (requestId === submitRequestRef.current) {
+          onSelect(selection.keys)
+          onResultChange({status: 'done', reason: selection.reason, matched: selection.keys.length > 0})
+        }
+      } catch (error: unknown) {
+        console.error('[sanity-plugin-structure-inbox] ask-the-inbox failed', error)
+        if (requestId === submitRequestRef.current) onResultChange({status: 'error'})
       }
-    } catch (error: unknown) {
-      console.error('[sanity-plugin-structure-inbox] ask-the-inbox failed', error)
-      if (requestId === submitRequestRef.current) onResultChange({status: 'error'})
+    } finally {
+      submitInFlightRef.current = false
     }
   }, [question, agentClient, rows, onSelect, context, getProjectDigest, onResultChange])
 
