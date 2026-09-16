@@ -1,4 +1,11 @@
-# Plan 042: Feed every AI read the same automated project survey, not just "Find content gaps"
+# Plan 042: Feed Ask (and Find content gaps) the same automated project survey, and make it scale
+
+> **Revised after review** (still commit `87189ec`, before execution): the
+> original draft wired this survey into all four AI reads. Scoped down to
+> two — see "Why only Ask, not Summarize/Suggest todos" below — and this
+> revision adds a real "at scale" pass (bounded concurrency, and an honest
+> note on where the sampling heuristic itself stops working) prompted by
+> a direct question: "picture a project with 1000s of documents."
 
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
@@ -13,10 +20,12 @@
 ## Status
 
 - **Priority**: P2
-- **Effort**: L
+- **Effort**: M (narrowed from the original L — two reads, not four; see
+  below)
 - **Risk**: MED (a real, deliberate behavior change to caching/freshness —
-  see "The one real trade-off" below; needs a considered STOP-condition
-  read before assuming the default choice here is right for every project)
+  see "The one real trade-off" below — plus real scale unknowns flagged in
+  "At scale" that should be checked against a real large dataset, not just
+  `test-studio`'s small one, before trusting the defaults here)
 - **Depends on**: none
 - **Category**: direction / AI feature (this is the plan the maintainer
   asked for out of the "AI context" design session — see this plan's own
@@ -46,11 +55,36 @@ context gets fed in the best way possible, how do we automate as much of
 that as possible — reading the content lake is a good start, what more?"
 This plan is the concrete answer for the "generalize what already works"
 half of that question: `surveyContentTypes` is real, proven, tested code
-sitting one file away from three reads that don't use it. It also adds
-one more automatable, currently-unused signal (schema field/type
+sitting one file away from a read that doesn't use it. It also adds one
+more automatable, currently-unused signal (schema field/type
 `description`s and the reference graph between types) that costs no
-dataset query at all — it's already sitting in the schema object every
-one of these reads already has in hand.
+dataset query at all — it's already sitting in the schema object this
+read already has in hand.
+
+### Why only Ask, not Summarize/Suggest todos
+
+The original draft of this plan wired the survey into all four reads.
+Reviewed before execution and narrowed: **Summarize and Suggest todos are
+about the current open queue** — "what's worth starting first," "what
+should I add to my list" — and both already get that queue in full
+(`openRows.slice(0, 30)`). A project-wide survey (document counts across
+every type, samples from types that may have nothing to do with what's
+currently open) doesn't obviously sharpen either judgment call, and it
+adds a real, non-trivial fetch to two reads that are fast today. That's
+the opposite of the advice this same design session landed on for the
+`context` string itself: concrete and short beats a wall of restated
+facts. **Ask is different**: "things about the spring campaign" is
+explicitly a broader question than the on-screen rows — it's the one
+read whose whole point is reasoning past what's currently visible, so the
+survey earns its cost there. Find content gaps already pays this cost by
+design (it's a whole-project judgment call, always was) — this plan adds
+the same free schema-derived facts to that read too, and makes the
+underlying fetch itself scale better (see "At scale" below), but doesn't
+change what it already does conceptually.
+
+If Summarize/Suggest todos genuinely turn out to want this later, revisit
+then — with real user reports pointing at a real gap in output quality,
+not extended speculatively now.
 
 **Deliberately not in this plan** (see "Out of scope" and "Direction
 options not undertaken here" below): adopting Sanity's own native
@@ -61,7 +95,9 @@ same design session, but both have genuine unresolved questions (token
 cost and answer quality for the first; most projects have no embeddings
 index configured at all for the second) that deserve their own
 investigation, not a blind adoption bundled into a plan that's otherwise
-low-risk.
+low-risk. At real scale, the embeddings direction in particular stops
+being a "nice to have if configured" and starts being the actually-right
+answer — see "At scale" below.
 
 ## Current state
 
@@ -129,12 +165,13 @@ low-risk.
 
 `surveyContentTypes` runs a live GROQ read (a `count()` plus a small text
 sample) against every real content type, every time it's called — today,
-that's once per "Find content gaps" click, always fresh. Generalizing it
-to power all four reads means it would otherwise run **four times as
-often** if each handler called it independently — wasteful, and slower
-per click. The fix this plan uses (Step 2) is a short-TTL cache shared
-across all four handlers: a fresh survey happens at most once per 5
-minutes of Studio session, not once per click. This is a **deliberate,
+that's once per "Find content gaps" click, always fresh. Sharing it with
+Ask means it would otherwise run **twice as often** if each read called it
+independently — wasteful, and slower per click, especially once Step 1a's
+own concurrency work is in place and each survey is genuinely doing more
+work per call, not less. The fix this plan uses (Step 2) is a short-TTL
+cache shared between both reads: a fresh survey happens at most once per
+5 minutes of Studio session, not once per click. This is a **deliberate,
 real behavior change** for "Find content gaps" specifically: it no longer
 guarantees the freshest possible read on every click, only "current as of
 the last 5 minutes." For most projects, content doesn't change fast
@@ -143,6 +180,54 @@ it could mean a `contentGaps` suggestion misses something added 90
 seconds ago. If this trade-off doesn't sit right, treat it as a STOP
 condition and raise it before proceeding, rather than silently shipping a
 shorter or longer TTL than what's specified.
+
+## At scale (a project with 1000s of documents, not `test-studio`'s handful)
+
+Three real things change once the dataset is actually big, checked
+directly against `surveyContentTypes`'s current implementation:
+
+1. **Token/prompt cost stays flat regardless of dataset size** — good,
+   already true by design. `SAMPLES_PER_TYPE = 5` and
+   `MAX_SURVEYED_TYPES = 30` are fixed caps, not proportional to document
+   count; a project with 50 documents and one with 50,000 produce a
+   survey of the same shape and roughly the same size. Nothing to change
+   here.
+2. **The fetch itself does not stay flat, and it was already the risk
+   even at small scale.** `surveyContentTypes`'s own per-type loop is
+   explicitly **sequential** — one `await` at a time, with the file's own
+   comment defending this as "simpler than a worker pool for a cap this
+   low." At `MAX_SURVEYED_TYPES = 30`, a big real project (bigger
+   projects tend to have *more* content types, not fewer) will routinely
+   hit that cap, meaning up to 30 sequential `count()` calls plus up to 30
+   more sequential sample fetches — up to 60 sequential network
+   round-trips before the survey resolves. Each round-trip's latency is
+   mostly fixed overhead (connection + response time), not proportional
+   to how many documents exist — so this cost is really about *type
+   count*, not *document count*, but a big project usually has both. This
+   plan's own **Step 1a** (below) fixes this with bounded concurrency
+   instead of a fully sequential loop.
+3. **The sampling heuristic itself gets weaker as a project grows, and
+   this plan should say so honestly rather than pretend otherwise.** "5
+   most recent documents" out of 20 is a meaningful fraction of a small
+   project; "5 most recent" out of 3,000 can just be whatever a single
+   recent campaign happened to produce — not representative of what the
+   project actually contains. This isn't a new problem this plan
+   introduces (contentGaps already has it today), but it means the real
+   value of automated sampling *degrades* exactly where automation would
+   matter most. This is the concrete reason the "embeddings/semantic
+   search" direction (kept out of this plan — see below) isn't merely a
+   nice-to-have: it's the actual right answer once a project is big
+   enough for "5 recent" to stop meaning anything. Recorded honestly, not
+   solved here.
+
+Also genuinely unverified, and worth checking against a real large
+dataset if one is available during execution (not `test-studio`'s own
+handful of documents): whether `count(*[_type == $type])` and `*[_type ==
+$type] | order(_updatedAt desc)[0...5]` stay fast on a type with tens of
+thousands of documents, or whether either needs its own index/optimization
+Sanity's query engine may or may not already provide. No evidence either
+way from this session — flagged as a STOP-condition-adjacent check, not
+asserted as either fine or broken.
 
 ## Commands you will need
 
@@ -161,17 +246,20 @@ shorter or longer TTL than what's specified.
   name would actively mislead a future contributor)
 - `src/inbox/contentGapsDigest.test.ts` → renamed
   `src/inbox/projectDigest.test.ts`, extended with new cases
-- `src/inbox/Inbox.tsx` (`handleSummarize`, `handleSuggestTodos`,
-  `handleFindContentGaps`, plus a new shared cache)
+- `src/inbox/Inbox.tsx` (`handleFindContentGaps`, plus a new shared cache
+  used by it and by the `<AskInbox>` render site)
 - `src/inbox/AskInbox.tsx` (`handleSubmit`) — needs the survey passed in
   as a prop from `Inbox.tsx`, the same way `context` already is, since
   `AskInbox` itself has no direct `client`/`schema` access today
 - `README.md` (the existing "Optional: finding content gaps" section, and
-  wherever `context`/Summarize/Suggest todos/Ask are documented — update
-  to state plainly that these reads now also see an automated survey of
-  the project's own content types, not just on-screen rows)
+  wherever `context`/Ask are documented — update to state plainly that
+  these two reads now also see an automated survey of the project's own
+  content types, not just on-screen rows)
 
 **Out of scope** (recorded below as real follow-ups, not forgotten):
+- Wiring the same survey into `handleSummarize`/`handleSuggestTodos` —
+  see "Why only Ask, not Summarize/Suggest todos" above. Revisit only
+  with a real reported gap in their output quality.
 - Adopting Sanity's native `{type: 'groq'}` Agent Actions instruction
   param in place of this plugin's own `client.fetch` + `formatContentGapsDigest`
   text formatting — see "Direction options not undertaken here."
@@ -189,12 +277,12 @@ shorter or longer TTL than what's specified.
 
 ## Git workflow
 
-- Commits land directly on `main`. Message style: `feat: feed the same
-  automated content survey to every AI read, not just content gaps`.
+- Commits land directly on `main`. Message style: `feat: feed Ask the same
+  automated content survey Find content gaps already uses`.
 - The file rename (Step 1) is worth its own commit, separate from the
-  behavior changes in Steps 2-4 — a rename-only diff is trivial to review
-  on its own; bundling it with real logic changes makes both harder to
-  read.
+  behavior changes in later steps — a rename-only diff is trivial to
+  review on its own; bundling it with real logic changes makes both
+  harder to read.
 - Do NOT push unless the operator instructed it.
 
 ## Steps
@@ -297,7 +385,72 @@ export function formatContentGapsDigest(summaries: readonly ContentTypeSummary[]
 unchanged (pure additions to the shape, defaulted/omitted when absent),
 plus new cases from Step 5 below.
 
-### Step 2: A short-TTL cache shared across all four reads
+### Step 1a: Bounded concurrency, not one sequential fetch at a time
+
+See "At scale" above for why this matters: at `MAX_SURVEYED_TYPES = 30`,
+today's sequential loop means up to 60 network round-trips, one after
+another, before the survey resolves — real, user-visible latency on a
+project with a realistic number of content types, independent of how big
+any single type's own document count is.
+
+Replace the sequential `for...of` loop's own per-type work with a small,
+bounded-concurrency batch — not `Promise.all` over all 30 at once
+(a real burst-rate-limit risk against Sanity's own API, which is exactly
+why the original code chose sequential in the first place), a fixed
+concurrency pool instead:
+
+```ts
+/** Parallel fetches in flight at once — enough to cut wall-clock time meaningfully on a project with many real content types, low enough to stay well clear of a burst against Sanity's own API rate limits. */
+const SURVEY_CONCURRENCY = 5
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let nextIndex = 0
+
+  async function worker(): Promise<void> {
+    while (nextIndex < items.length) {
+      const index = nextIndex++
+      results[index] = await fn(items[index])
+    }
+  }
+
+  await Promise.all(Array.from({length: Math.min(concurrency, items.length)}, worker))
+  return results
+}
+```
+
+Replace `surveyContentTypes`'s own `for (const {name, title} of types) {
+... }` loop (with its two `// eslint-disable-next-line no-await-in-loop`
+comments) with `mapWithConcurrency(types, SURVEY_CONCURRENCY, async
+({name, title}) => { ... return summary })` — the per-type body (the
+`count` fetch, the conditional sample fetch, building one
+`ContentTypeSummary`) moves into `fn` unchanged; only the *loop
+structure* changes, from fully sequential to a 5-wide pool. Remove the
+now-unneeded `no-await-in-loop` disable comments — there's no `await` in
+a `for` loop body anymore for that rule to flag.
+
+Do NOT raise `SURVEY_CONCURRENCY` casually to "make it faster" without a
+real reason — 5 is a deliberate, conservative starting point against an
+API whose actual rate limits this plan has not benchmarked. If this
+genuinely needs tuning, that's its own follow-up with real evidence
+(an actual observed rate-limit error, or an actual measured latency
+budget), not a guess baked in here.
+
+**Verify**: `npm test -- projectDigest` → same existing cases still pass
+(the loop restructuring changes *how* the per-type work runs, not what
+each type's own summary contains — assert this with the existing tests
+unchanged, not new ones). Manually confirm via a quick local timing check
+(e.g. `console.time`/`console.timeEnd` around a call to
+`surveyContentTypes` against a schema with close to 30 real types, if
+`test-studio` or a real large dataset is available) that wall-clock time
+drops meaningfully versus the old sequential loop — this is the whole
+point of the step, so confirm it actually did something before moving on.
+
+### Step 2: A short-TTL cache shared between the two reads
 
 In `Inbox.tsx`, add a small cache — a plain module-scope-adjacent
 `useRef`, not `useState` (this never needs to trigger a re-render, only to
@@ -333,57 +486,11 @@ itself already depends on and closes over them).
 
 **Verify**: `npm run typecheck` → exit 0.
 
-### Step 3: Wire the same survey into Summarize and Suggest todos
+### Step 3: Wire the same survey into `AskInbox`'s `handleSubmit`
 
-In both `handleSummarize` and `handleSuggestTodos`, add the same digest
-alongside the existing on-screen-rows digest and the integrator's own
-`context` — as a second, clearly-labeled block, not merged into the
-existing `digest` variable (keep the on-screen list and the project-wide
-survey visually/textually distinct in the prompt, the same way `context`
-and the on-screen digest already stay in their own labeled sections
-today):
-
-```ts
-const handleSummarize = useCallback(async () => {
-  const requestId = ++summarizeRequestRef.current
-  setSummary({status: 'loading'})
-  const digest = openRows
-    .slice(0, 30)
-    .map((row) => `- ${row.item.title}${row.item.subtitle ? ` (${row.item.subtitle})` : ''}`)
-    .join('\n')
-
-  if (!agentClient) {
-    if (requestId === summarizeRequestRef.current) setSummary({status: 'error'})
-    return
-  }
-
-  try {
-    const summaries = await getProjectDigest()
-    const projectDigest = formatContentGapsDigest(summaries)
-
-    const message = await agentClient.agent.action.prompt({
-      instruction:
-        (context ? `About this project: ${context}\n---\n` : '') +
-        (projectDigest ? `What this project's content actually looks like:\n$survey\n---\n` : '') +
-        'Given this list of open inbox items, one per line:\n$items\n---\n' +
-        'In two or three short sentences, say what looks most worth starting with first and why.',
-      instructionParams: {
-        items: digest || 'Nothing is open right now.',
-        ...(projectDigest ? {survey: projectDigest} : {}),
-      },
-    })
-    if (requestId === summarizeRequestRef.current) setSummary({status: 'done', message})
-  } catch (error: unknown) {
-    console.error('[sanity-plugin-structure-inbox] summarize failed', error)
-    if (requestId === summarizeRequestRef.current) setSummary({status: 'error'})
-  }
-}, [agentClient, openRows, context, getProjectDigest])
-```
-
-A survey failure here must not fail the whole read — wrap
-`getProjectDigest()` in its own try/catch (or rely on the outer one, but
-then explicitly fall back to no survey rather than surfacing an error for
-what is genuinely optional enrichment):
+A survey failure must not fail the whole read — wrap `getProjectDigest()`
+in its own try/catch and fall back to no survey rather than surfacing an
+error for what is genuinely optional enrichment:
 
 ```ts
 let projectDigest = ''
@@ -393,14 +500,6 @@ try {
   // Optional enrichment — a failed survey should not fail the whole read.
 }
 ```
-
-Apply the identical pattern to `handleSuggestTodos` (its own instruction
-string gets the same `projectDigest` block, same `instructionParams`
-merge, same dependency array addition).
-
-**Verify**: `npm run typecheck` → exit 0.
-
-### Step 4: Wire the same survey into `AskInbox`'s `handleSubmit`
 
 `AskInbox` has no direct `client`/`schema` access — pass the already-
 formatted digest down as a new, optional prop from `Inbox.tsx` (computed
@@ -412,7 +511,7 @@ interface AskInboxProps {
   rows: readonly MergedRow[]
   onSelect: (keys: string[]) => void
   context?: string
-  /** The same automated project survey Summarize/Suggest todos/Find content gaps use — see `Inbox.tsx`'s own `getProjectDigest`. Optional: a failed or not-yet-loaded survey just means this question gets asked without it. */
+  /** The same automated project survey `handleFindContentGaps` uses — see `Inbox.tsx`'s own `getProjectDigest`. Optional: a failed or not-yet-loaded survey just means this question gets asked without it. */
   projectDigest?: string
   result: AskState
   onResultChange: (state: AskState) => void
@@ -420,7 +519,8 @@ interface AskInboxProps {
 ```
 
 In `handleSubmit`, prepend the same labeled block ahead of the existing
-`context`/items sections, same pattern as Step 3. In `Inbox.tsx`'s own
+`context`/items sections (same shape `handleFindContentGaps` already uses
+for its own `context`/survey ordering). In `Inbox.tsx`'s own
 `<AskInbox .../>` render site, pass `projectDigest` — resolved once,
 lazily, the first time any read needs it (do not force a survey merely
 because `ask` is enabled; only compute it when `handleSubmit` actually
@@ -433,7 +533,7 @@ asked.
 
 **Verify**: `npm run typecheck` → exit 0.
 
-### Step 5: Tests
+### Step 4: Tests
 
 In `projectDigest.test.ts`:
 - `findReferencedTypes`: a type with one reference field → returns that
@@ -462,31 +562,35 @@ cache rather than replaying the same rejection on the next call.
 **Verify**: `npm test -- projectDigest` and `npm test -- Inbox` → all new
 cases pass.
 
-### Step 6: Update `README.md`
+### Step 5: Update `README.md`
 
-Update whichever sections currently describe Summarize/Suggest todos/Ask
-and "Optional: finding content gaps" to state plainly that all four reads
-now ground themselves in the same automated survey of the project's real
-content types (counts, samples, schema descriptions, reference graph),
-not just on-screen rows and the integrator's own `context` prose. Keep
-the existing `context` explanation as-is — it's still accurate, just no
-longer the *only* automated signal.
+Update whichever sections currently describe Ask and "Optional: finding
+content gaps" to state plainly that both reads now ground themselves in
+the same automated survey of the project's real content types (counts,
+samples, schema descriptions, reference graph), not just on-screen rows
+and the integrator's own `context` prose. Keep the existing `context`
+explanation as-is — it's still accurate, just no longer the *only*
+automated signal for these two reads. Do not change how Summarize/Suggest
+todos are documented — their own behavior is unchanged by this plan.
 
 **Verify**: manually re-read the updated section(s) against this plan's
-own Step 3/4 behavior — every claim must trace to real code, not be
+own Step 3 behavior — every claim must trace to real code, not be
 aspirational.
 
-### Step 7: Full sweep
+### Step 6: Full sweep
 
 **Verify**: `npm run typecheck && npm run lint && npm test && npm run
 build` → all exit 0.
 
 ## Test plan
 
-- New cases in `projectDigest.test.ts` (Step 5): `findReferencedTypes`
+- New cases in `projectDigest.test.ts` (Step 4): `findReferencedTypes`
   (4 cases), `description` propagation (2 cases), `formatContentGapsDigest`
   additions (2 cases, including the no-op regression case).
-- New cases in `Inbox.test.tsx` (Step 5): cache hit within TTL (1 fetch,
+- Existing cases in `projectDigest.test.ts` re-verified unchanged after
+  Step 1a's own loop restructuring (same summaries, different fetch
+  shape).
+- New cases in `Inbox.test.tsx` (Step 4): cache hit within TTL (1 fetch,
   not 2), cache cleared on rejection.
 - Verification: `npm test` → all pass, including every new case.
 
@@ -494,20 +598,23 @@ build` → all exit 0.
 
 - [ ] `npm run typecheck` exits 0
 - [ ] `npm run lint` exits 0
-- [ ] `npm test` exits 0; every new case from Step 5 exists and passes
+- [ ] `npm test` exits 0; every new case from Step 4 exists and passes
 - [ ] `npm run build` exits 0
 - [ ] `src/inbox/contentGapsDigest.ts`/`.test.ts` no longer exist;
       `src/inbox/projectDigest.ts`/`.test.ts` do, with git history
       preserved (`git log --follow` on the new path shows the old file's
       history)
-- [ ] `handleSummarize`, `handleSuggestTodos`, `handleFindContentGaps`,
-      and `AskInbox`'s `handleSubmit` all use the same shared,
-      TTL-cached survey — not four independent fetches
-- [ ] A failed survey never fails the whole read for any of the four
-      handlers — each degrades to "no project digest this time," same as
-      a missing `context` already does
+- [ ] `surveyContentTypes`'s own per-type loop uses bounded concurrency
+      (Step 1a), not a fully sequential `for` loop — confirmed via a real
+      timing check, not just code review
+- [ ] `handleFindContentGaps` and `AskInbox`'s `handleSubmit` both use the
+      same shared, TTL-cached survey — not two independent fetches
+- [ ] `handleSummarize`/`handleSuggestTodos` are unmodified by this plan
+- [ ] A failed survey never fails the whole read for either consumer —
+      each degrades to "no project digest this time," same as a missing
+      `context` already does
 - [ ] `README.md` accurately describes the new automated-survey behavior
-      for all four reads
+      for Ask and Find content gaps only
 - [ ] No files outside the "Scope" list are modified (`git status`)
 - [ ] `plans/README.md` status row for 042 updated
 
@@ -518,9 +625,16 @@ build` → all exit 0.
   codebase's own `liveQuery$`-everywhere-else convention (every *other*
   read in this pane is live/reactive, never time-cached) — this is a
   real, deliberate exception to that pattern for a good reason (avoiding
-  4x the dataset reads per click), but it's worth flagging rather than
+  2x the dataset reads per click), but it's worth flagging rather than
   silently accepting if it reads as inconsistent with the rest of the
   codebase's own stated conventions.
+- The "At scale" section's own open question — whether `count()` and
+  `order(_updatedAt desc)[0...5]` stay fast on a type with tens of
+  thousands of documents — turns out to be a real problem once tested
+  against an actual large dataset. If so, this needs its own fix
+  (a cheaper count strategy, or dropping the sample query for very large
+  types) before this plan's done criteria can be considered met for a big
+  project, not just for `test-studio`'s own small one.
 - `client`/`schema` (`Inbox.tsx:344-345`) turn out to NOT be stable across
   renders within one mounted Studio session in some case this plan didn't
   anticipate (e.g. a workspace switch remounting `Inbox` with a new
@@ -545,10 +659,12 @@ build` → all exit 0.
   retrieval, real relevance-ranked results instead of "N most recent per
   type"). Confirmed via `list_embeddings_indices` that this plugin's own
   `test-studio` project has none configured — most real integrator
-  projects likely don't either, by default. A genuine, real upgrade path
-  *if* a project has one, but conditionally available, not universal —
-  worth its own future plan once there's a real project to test it
-  against, not built speculatively here.
+  projects likely don't either, by default. Not merely a nice-to-have,
+  though: see "At scale" above — "5 most recent per type" is a
+  progressively worse proxy for "what this project actually contains" the
+  bigger a project gets, which is exactly when automation matters most.
+  Worth its own future plan once there's a real project (and a real
+  index) to test it against, not built speculatively here.
 - **`context` accepting a file or URL, not just an inline string** —
   already recorded separately (this session's own
   `project_context_config_external_source_idea` memory); unrelated to the
@@ -558,10 +674,15 @@ build` → all exit 0.
 
 ## Maintenance notes
 
-Any future AI read added to this pane should call `getProjectDigest()`
-from the start, the same way it should use the request-generation-ref
-guard from Plan 032 — both are now the established pattern for a
-pane-wide AI read in this file. If the TTL trade-off ever proves wrong in
-practice (a real report of stale content-gap suggestions during active
-editing), the fix is a shorter TTL or a manual refresh affordance, not
-reverting to four independent fetches.
+Any future AI read added to this pane that reasons about the whole
+project (not just the current open queue) should call
+`getProjectDigest()` from the start, the same way it should use the
+request-generation-ref guard from Plan 032 — both are now the established
+pattern here. A read about the current queue (like Summarize/Suggest
+todos) should not reach for it by default — see "Why only Ask, not
+Summarize/Suggest todos" above before adding it to a third read. If the
+TTL trade-off ever proves wrong in practice (a real report of stale
+content-gap suggestions during active editing), the fix is a shorter TTL
+or a manual refresh affordance, not reverting to independent fetches per
+read. If `SURVEY_CONCURRENCY` (Step 1a) ever needs tuning, do it from a
+real observed rate-limit error or measured latency budget, not a guess.
