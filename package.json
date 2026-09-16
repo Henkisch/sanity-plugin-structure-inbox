@@ -83,7 +83,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "sanity": "^6.12.0",
-    "sanity-plugin-link-checker": "^0.3.3",
+    "sanity-plugin-link-checker": "^0.4.0",
     "semantic-release": "^25.0.9",
     "styled-components": "^6.5.3",
     "typescript": "^6.0.3",
@@ -92,7 +92,7 @@
   "peerDependencies": {
     "react": "^19.2",
     "sanity": "^6.0.0-0",
-    "sanity-plugin-link-checker": "^0.3.3",
+    "sanity-plugin-link-checker": "^0.4.0",
     "styled-components": "^6.1"
   },
   "peerDependenciesMeta": {

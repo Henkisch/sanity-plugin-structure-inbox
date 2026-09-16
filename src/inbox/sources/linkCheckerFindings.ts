@@ -1,9 +1,8 @@
-import {type SanityClient} from '@sanity/client'
 import {LinkRemovedIcon} from '@sanity/icons/LinkRemoved'
 import {SearchIcon} from '@sanity/icons/Search'
 import {useCallback, useMemo} from 'react'
 import {useObservable} from 'react-rx'
-import {defer, from, of} from 'rxjs'
+import {Observable, of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
 // `useUserListWithPermissions` stays out of this named import — see
 // `optionalHook` in `capability.ts`.
@@ -16,8 +15,8 @@ import {
 } from 'sanity'
 import {
   getFindingKey,
-  readReport,
-  REPORT_DOC_ID,
+  isProblemFinding,
+  observeReport,
   runScan,
   summarizeResult,
   type LinkCheckerPluginConfig,
@@ -40,7 +39,6 @@ import {
 } from '../types'
 import {useAssignmentStore} from './assignmentStore'
 import {optionalHook} from './capability'
-import {liveQuery$} from './liveQuery'
 
 /** Stands in for `useUserListWithPermissions` when Sanity does not export it — see `unpublishedDrafts.ts`. */
 function useUnavailableUserList(): UserListWithPermissionsHookValue {
@@ -222,20 +220,6 @@ function toItem(finding: ScanFinding, fallbackChangedAt: string, schema: ReturnT
   }
 }
 
-/**
- * `sanity-plugin-link-checker` bundles its own `@sanity/client` dependency
- * rather than treating it as a peer, so its `SanityClient` type and this
- * package's are two structurally-identical but nominally distinct classes
- * (mismatched private fields) — a TypeScript-only conflict; the actual
- * client instance from `useClient` is fully wire-compatible with what
- * `readReport`/`runScan`/`writeReport` expect. Centralised here so every
- * call site casts the same way, once.
- */
-function toLinkCheckerClient(client: SanityClient): Parameters<typeof readReport>[0] {
-  // eslint-disable-next-line no-unsafe-type-assertion -- see comment above: cross-package `SanityClient` type mismatch, same runtime object.
-  return client as unknown as Parameters<typeof readReport>[0]
-}
-
 /** Exported only for `linkCheckerFindings.test.ts` — the pure part of this source, same reasoning as `InboxRow.tsx`'s own `initials`. */
 export function toItems(
   report: ScanResult | null,
@@ -245,14 +229,12 @@ export function toItems(
 ): InboxItem[] {
   if (!report) return []
 
-  const findings = report.findings.filter((finding) => {
-    // Every reference finding is broken by construction — the plugin only
-    // ever reports a reference once it has confirmed the target document is
-    // gone (see `summarizeResult`'s own reasoning in that package).
-    if (finding.kind === 'reference') return true
-    if (finding.result.status === 'broken') return true
-    return includeUnverifiable && finding.result.status === 'unverifiable'
-  })
+  // `isProblemFinding` is `sanity-plugin-link-checker`'s own "does this
+  // count as a real issue" definition — routed through it rather than
+  // re-checking `.kind`/`.result.status` here, so this never quietly
+  // drifts from what that package's own CLI gate (`summarizeResult`) means
+  // by "broken".
+  const findings = report.findings.filter((finding) => isProblemFinding(finding, {includeUnverifiable}))
 
   return findings.slice(0, limit).map((finding) => toItem(finding, report.ranAt, schema))
 }
@@ -292,13 +274,14 @@ export function toItems(
  *
  * Deliberately ignores the report's own `acknowledgedKeys` — that is
  * `sanity-plugin-link-checker`'s *own* shared, project-wide "reviewed" mark
- * (its own Studio tool reads and writes it independently), a different
- * concept from this plugin's per-editor `dismissals`. Mixing the two would
- * mean one editor acknowledging a finding here silently changes what every
- * other editor sees in the link-checker tool itself, or vice versa. This
- * source's items are acknowledged the same way any other no-`resolve`
- * source's are: through this plugin's own dismissal store, visible only to
- * the editor who ticked it.
+ * (its own Studio tool reads and writes it independently, via that
+ * package's own `isAcknowledged`/`toggleAcknowledged`), a different concept
+ * from this plugin's per-editor `dismissals`. Mixing the two would mean one
+ * editor acknowledging a finding here silently changes what every other
+ * editor sees in the link-checker tool itself, or vice versa. This source's
+ * items are acknowledged the same way any other no-`resolve` source's are:
+ * through this plugin's own dismissal store, visible only to the editor who
+ * ticked it.
  *
  * Also offers `assess` — the same Sanity Agent Actions call
  * `unpublishedDrafts.ts` uses for its own "Ask AI", applied to a finding
@@ -315,10 +298,11 @@ export function toItems(
  * that. `assess` here only ever explains/suggests, on top of a finding
  * `runScan` already produced.
  *
- * Live rather than fetched once: `sanity-plugin-link-checker`'s report is
- * one always-overwritten document (`REPORT_DOC_ID`), so a re-scan run by
- * anyone — the in-Studio tool, the CLI, the Document Function — updates
- * this source without the editor navigating away and back.
+ * Live rather than fetched once: `sanity-plugin-link-checker`'s own
+ * `observeReport` (its report is one always-overwritten document) re-emits
+ * whenever a re-scan writes a fresher one — run by anyone, the in-Studio
+ * tool, the CLI, or the Document Function — so this updates without the
+ * editor navigating away and back.
  */
 export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): InboxSource {
   const {
@@ -346,21 +330,18 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
     const schema = useSchema()
 
     const fetch$ = useMemo(() => {
-      const linkCheckerClient = toLinkCheckerClient(client)
+      // `observeReport` is a plain subscribe-callback API (not an
+      // Observable of its own) - bridged into one here so this source
+      // composes with the rest of this codebase's rxjs-based sources the
+      // same way. Its own return value is already the teardown/unsubscribe
+      // function `Observable`'s subscriber callback expects. Re-emits
+      // whenever a re-scan writes a fresher report — run by anyone, the
+      // in-Studio tool, the CLI, or the Document Function.
+      const report$ = new Observable<ScanResult | null>((subscriber) =>
+        observeReport(client, (report) => subscriber.next(report)),
+      )
 
-      // `defer` so each re-subscription (one per listen event, via
-      // `liveQuery$`'s own `switchMap`) calls `readReport` again instead of
-      // replaying one cached Promise resolution forever — `readReport`
-      // itself has no live-query form of its own, only this one-shot read.
-      const readReport$ = defer(() => from(readReport(linkCheckerClient)))
-
-      // The listen query only has to match the one report document closely
-      // enough to fire on a re-scan — `liveQuery$` discards whatever this
-      // returns and always refetches via `readReport$` above.
-      const listenQuery = `*[_id == $id]`
-      const params = {id: REPORT_DOC_ID}
-
-      return liveQuery$(client, listenQuery, params, readReport$).pipe(
+      return report$.pipe(
         map((report): FindingsFetch => ({
           report,
           result: {items: toItems(report, schema, includeUnverifiable, limit)},
@@ -421,9 +402,8 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
       // click on Summarize/Suggest todos already produces — a scan used to
       // give no feedback at all beyond the button's own pending state.
       const runFromInbox = useCallback(async () => {
-        const linkCheckerClient = toLinkCheckerClient(client)
-        const scanResult = await runScan(linkCheckerClient, scanConfig ?? {}, 'browser')
-        await writeReport(linkCheckerClient, scanResult)
+        const scanResult = await runScan(client, scanConfig ?? {}, 'browser')
+        await writeReport(client, scanResult)
 
         const {issueCount, brokenLinks, brokenRefs} = summarizeResult(scanResult)
         if (issueCount === 0) return 'No issues found.'
