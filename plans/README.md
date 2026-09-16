@@ -39,9 +39,24 @@ behaviour here, fix the comment in the same commit.
 | 017 | A live badge on the Studio navbar, for real | P2 | S | 016 | REJECTED (built, verified working, then pulled by the maintainer — see plan file) |
 | 018 | Ship the team-wide "who's sitting on what" view as a real Studio tool | P2 | L | — | DONE (merged) |
 | 019 | "Cleared" means Sanity said so — split resolution from acknowledgement | P1 | XL | — | DONE |
+| 020 | Catch poor-quality alt text, and the "wrapper object" schema pattern | P2 | M | — | DONE — merged to main `400e7e1` (executor commit `a52c2de`). One gap: Step 4's live click-through in test-studio was never actually done (executor had no browser tool; reviewer chose not to run it against the shared dataset either). Code/tests/typecheck/lint/build all pass; recommend a quick manual pass next time you're in Studio. |
+| 029 | Fix the README's stale "Develop & test" workspace table | P1 | S | — | DONE — merged to main `aeffa6d` (executor commit `5660e79`) |
+| 030 | Extract the duplicated `useAssignableUsers` lookup into one shared hook | P2 | S | — | DONE — merged to main `7fd9817` (executor commit `f148755`) |
+| 031 | Add tests for `matchesInboxFilters` | P2 | S | — | DONE — merged to main `eab2407` (executor commit `1440a48`) |
+| 032 | Guard the pane-wide AI reads against a stale response race | P2 | S | — | DONE — merged to main `1dc0f64` (executor commit `746a72c`). Reviewer independently reverted the fix and confirmed the new test fails without it, then restored. |
+| 033 | Document the `ask` config option | P2 | S | — | DONE — merged to main `0f7a878` (executor commit `d7be1c4`) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale)
+
+**Numbering note (2026-09-16 run):** plans 021–028 were used by 8 real,
+shipped commits (`git log --oneline --all | grep -iE "plan 0(2[1-9])"`)
+whose own plan files were never written — this run's audit flagged that gap
+(see "Standard `/improve` run, 2026-09-16" below). To avoid colliding with
+those already-used numbers, this run's own new plans start at 029, skipping
+021–028 entirely. Those numbers should stay reserved/unused rather than
+retroactively backfilled, unless a future session deliberately chooses to
+reconstruct them from commit history.
 
 Plans 014–015 came from a lifecycle-focused `/improve` run (2026-09-13,
 against commit `32e028c`) — the maintainer asked specifically how the plugin
@@ -77,6 +92,70 @@ commit `2218e06`), scoped to the direction category only — see "Direction
 options, 2026-09-13 run" below for the findings behind them. All four were
 approved by the maintainer in one batch ("All 4 sounds good"); none depend on
 each other or on 001–009.
+
+Plan 020 came from a direct `plan <description>` invocation (2026-09-16,
+against commit `e33fb29`), not from an audit — the maintainer already knew
+what they wanted (catch poor-quality/placeholder alt text, and recognize a
+second, common "wrapper object" schema convention `assetIssues` couldn't see
+yet). Independent of every other plan.
+
+## Standard `/improve` run, 2026-09-16 (against commit `e33fb29`)
+
+Bare invocation, standard effort — full audit, all nine categories, four
+parallel subagents (correctness+security; performance+tests; tech-debt+deps;
+DX+docs+direction). Run non-interactively: the maintainer invoked `/improve`
+and stepped away, so per this skill's own non-interactive fallback, plans
+were written for the top 5 findings by leverage without waiting for a
+selection — see "Numbering note" above for why they start at 029.
+
+**Selected and planned (029–033)**: see the table above. Picked for being
+S-effort, HIGH-confidence, and independent of each other — no dependency
+ordering needed between them.
+
+**Vetting correction — a reported finding was rejected, not planned.** The
+correctness/security subagent reported `useTodos.ts`'s `transferTo` (added
+this same session) as having no error handling, with rejections propagating
+uncaught to its callers. Read directly to confirm: both real call sites
+(`MergedList.tsx`'s bulk `confirmTransfer`, and its own per-row `onReassign`
+branch) already wrap every `transfer.toUser(...)` call in `.then()`/`.catch()`
+with the standard `console.error('[sanity-plugin-structure-inbox] ...')`
+logging — the subagent only checked `todos.ts`'s own thin wrapper and
+`useTodos.ts` itself, not their actual UI call sites. Local state also only
+clears *after* a successful `await`, so a failed transfer does not lose the
+todo either. The real, narrower fact underneath (no user-facing toast on a
+failed mutation, only a console log) is not specific to `transfer` — every
+other mutation in this codebase (`assign`, `unassign`, resolve, etc.) has
+the exact same shape. Not planned as its own fix; if silent-failure UX is
+ever worth improving, it's a codebase-wide decision, not a `transfer`-specific
+bug. Recorded so a future audit doesn't re-flag `transferTo` specifically.
+
+**Findings read and confirmed, not selected for this batch's 5 plans** (real,
+just lower leverage or bigger than this run's picks) — moved to "Known
+findings with no plan yet" below, categorized: `PERF-01` (redundant
+`mergeRows` calls across `Inbox.tsx`/`MergedList.tsx`), `PERF-02` (`MergedList`
+row rebuilding/no memoization), `PERF-03` (`RelativeTime` fresh `Date` per
+render), `TEST-01` (6 of 13 `src/inbox/sources/*.ts` files untested, two
+high-churn), `TEST-03` (real-timer waits in `MergedList.test.tsx`),
+`CORRECTNESS-03` (GROQ field-name interpolation in `assetIssues.ts` lacks
+the allow-list guard `linkCheckerFindings.ts` already has for the identical
+hazard shape), `CORRECTNESS-04` (`assignmentDocId`'s hash-collision handling),
+`CORRECTNESS-05` (persist-effect `dirtyRef` cleared before commit succeeds,
+across `useDismissals`/`useSnoozes`/`useTodos`/`useAssessments`), `DEBT-01`
+(the plans/ numbering gap — partially actioned above by starting at 029;
+backfilling 021–028 themselves not done), `DEBT-02` (stale `get-it` entry in
+`package.json`'s `inlinedDependencies`), `DX-02` (no `CLAUDE.md`/`AGENTS.md`
+— note this duplicates, and should supersede, the "No `AGENTS.md`/`CLAUDE.md`"
+entry already recorded below from the very first `/improve` run — still not
+planned, two runs later), `DIRECTION-01` (extend `unpublishedDrafts.ts`'s
+`suggestAssignee`/`authoredBy.ts` mechanism to `documentValidation`/
+`assetIssues`, both already have real `assign` wired to the same entity
+shape), `DIRECTION-02` (`placement` configurable on 5 of 9 sources,
+hardcoded on the other 4 with no documented reason for the split).
+
+**Not audited this run**: no monorepo packages beyond `src/`/`test-studio/`
+exist to scope out. `test-studio/` itself was read for context (dependency
+drift, workspace count) but not audited to the same depth as `src/` — it's
+a local dev-only sandbox, never published.
 
 ## Reviewed by `/improve execute`, awaiting merge
 
@@ -438,6 +517,15 @@ Note that `npm run typecheck` does not exist until plan 005 adds it.
 - **Sanity Workflows as an inbox source**: raised and deferred (not this
   session) — there is no stable Workflows schema to build a source against
   yet. Revisit once Workflows' document shape is stable enough to query.
+- **`useTodos.ts`'s `transferTo` has no error handling** (flagged by the
+  2026-09-16 audit run): read directly to check — both real call sites
+  (`MergedList.tsx`'s bulk `confirmTransfer` and its per-row `onReassign`
+  branch) already `.catch()` every `transfer.toUser(...)` call with the
+  standard logging convention, and local state only clears after a
+  successful `await`, so nothing is lost on failure either. The narrower
+  real fact (no user-facing toast on any failed mutation, only a console
+  log) isn't specific to `transfer` — every mutation in this codebase has
+  the same shape. Not a `transfer`-specific bug; don't re-flag it as one.
 
 ## Known findings with no plan yet
 
@@ -477,6 +565,67 @@ not re-audited from scratch:
   for semantic-release; `test-studio` consumes `dist/`, not `src/`;
   `structureInbox()` must come after `structureTool()`; the dismissals type must
   stay unregistered. Worth one file.
+  **Re-confirmed, 2026-09-16: still open, two `/improve` runs later** —
+  independently re-found by this run's DX/docs subagent, still no file at
+  the repo root. Genuinely high-leverage (this repo's own workflow is
+  agent-executed plans) but not selected for this run's 5 plans; a real
+  candidate for the next batch.
+- **`mergeRows` computed redundantly per render** (`Inbox.tsx:481-486,
+  581-584, 589-592` and `MergedList.tsx:185-188`): the same merge for the
+  active view runs in both components, and `'open'`/`'snoozed'` run three
+  times total across both on every `reports`/`dismissals.state` change —
+  not just on interaction. Fix: thread `Inbox.tsx`'s own already-computed
+  merges down as a prop instead of raw `reports`/`order`/`dismissals`.
+  Effort S, LOW risk (existing test coverage in `mergeItems.test.ts`/
+  `MergedList.test.tsx` guards it).
+- **`MergedList` rebuilds every row's props on any single interaction**
+  (`MergedList.tsx:797-906`'s `renderRow`, `InboxRow.tsx:216` has no
+  `React.memo`): ticking one checkbox re-renders and rebuilds every visible
+  row's menu array, not just the one that changed. Cost scales with total
+  row count per click. Effort M, MED risk (several inline closures passed
+  to `InboxRow` today would need stabilizing first).
+- **`RelativeTime` allocates a fresh `Date` every render**
+  (`RelativeTime.tsx:8`), compounding the above — likely resets whatever
+  refresh-interval `useRelativeTime` (Sanity core) keys on its argument's
+  identity. Effort S, one-line `useMemo` fix.
+- **6 of 13 `src/inbox/sources/*.ts` files have zero test coverage** —
+  `needsAttention.ts`, `openTasks.ts`, `openTaskDetail.ts`, `todos.ts`,
+  `unpublishedDrafts.ts`, `upcomingReleases.ts`. `unpublishedDrafts.ts` and
+  `openTasks.ts` are tied for most-churned non-`Inbox.tsx`/`MergedList.tsx`
+  files in the last 90 days (16 commits each) — exactly the "characterization
+  tests first" candidates. `documentValidation.test.ts`/`assetIssues.test.ts`
+  already show the stub-client pattern to reuse. Effort L (6 files).
+- **Real-timer waits in `MergedList.test.tsx`** (`:762`, `:850`): both use
+  a fixed `setTimeout(..., 10)` before a negative assertion instead of fake
+  timers (already used elsewhere in this suite, e.g. `liveQuery.test.ts:78`)
+  — a race against the real scheduler on a slow CI runner, for exactly the
+  regression these two tests exist to catch. Effort S.
+- **`assetIssues.ts`'s GROQ field-name interpolation has no allow-list
+  guard** (`assetIssues.ts:226-229`), unlike `linkCheckerFindings.ts`'s own
+  `SIMPLE_FIELD_PATH` regex check before an identical-shape interpolation.
+  Not exploitable today (both interpolated values come from schema/config,
+  not request data), but an asymmetry in defense-in-depth worth closing for
+  consistency. Effort S.
+- **`assignmentDocId`'s two-hash target-id collision has no detection**
+  (`assignmentStore.ts:31-65`): an accepted, documented trade-off for scale,
+  but the store already has the real `targetId` on hand (`byTarget` map) and
+  never verifies a write against it before trusting a lookup. Effort M.
+- **Persist-effect `dirtyRef` cleared before the write actually succeeds**,
+  across `useDismissals.ts:143-160`, `useSnoozes.ts:86-101`,
+  `useTodos.ts:92-107`, `useAssessments.ts:95-110`: a failed commit is
+  logged but never re-marks state dirty, so a persistent failure with no
+  further local edits silently never retries for the rest of the session.
+  Effort S per file.
+- **`package.json`'s `inlinedDependencies.get-it` is stale build metadata**
+  — not present in the actual built `dist/` bundle (confirmed by string
+  search across every built file); the sibling `rxjs`/`react-rx`/`tslib`
+  entries are all independently confirmed present. Re-running the build
+  should regenerate this field correctly; if it doesn't, that's a separate
+  bug in the pipeline's own field-sync step. Effort S.
+- **`engines.node` advertises a range (`>=20.19 <22`) its own dependencies
+  already refuse** — `sanity`/`@sanity/client` at the versions this repo
+  depends on both declare `>=22.12`. Node 20 ("Iron") LTS also ended
+  2026-04-30. Effort S: narrow to `>=22.12`.
 
 ## Direction options (maintainer's call, not queued work)
 
@@ -603,3 +752,39 @@ inconsistent or missing, not for a lifecycle story from scratch.
   90-day dismissal TTL; what's left is only a UI nicety (hiding very old done
   items), not an unbounded-growth problem. The original "not obviously worth
   doing" verdict stands.
+
+## Direction options, 2026-09-16 run
+
+From the standard `/improve` run's own direction category (against commit
+`e33fb29`) — presented separately per this skill's own convention, options
+for the maintainer to weigh, not queued work. Neither turned into a plan
+this batch (direction items are the maintainer's call, not auto-selected
+non-interactively the way the 5 bug/debt/docs plans above were).
+
+- **I. Extend the already-built `suggestAssignee`/`authoredBy.ts`
+  "who last touched this" mechanism to more sources.**
+  `unpublishedDrafts.ts` is the only one of three eligible sources that
+  imports `authoredBy.ts`'s `fetchDocumentAuthors`/`filterAuthoredBy` to
+  power a `suggestAssignee`. `documentValidation.ts` and `assetIssues.ts`
+  both already have full `assign`/`unassign` wired to real document ids
+  (confirmed: `unassign` at `documentValidation.ts:390`,
+  `assetIssues.ts:331`) and operate on the same real-document-by-`_id`
+  shape `unpublishedDrafts` does — the signal "who probably fixes this" is
+  exactly as answerable for a validation error or an oversized asset as
+  for an unfinished draft, with zero new mechanism needed. Effort S/M per
+  source (import + wire + tests), confidence HIGH.
+- **J. `placement` is configurable on 5 of 9 built-in sources, silently
+  hardcoded on the other 4, with no documented reason for the split.**
+  `openTasks`, `unpublishedDrafts`, `upcomingReleases`, `todos`,
+  `linkCheckerFindings` all expose `placement` as an option;
+  `assetIssues`, `documentValidation`, `needsAttention`,
+  `unresolvedComments` hardcode `placement: 'main'` with no override and
+  no comment explaining why — and the split isn't explained by "actionable
+  problems must be main" either, since `linkCheckerFindings` (also an
+  actionable problem) exposes it while the other three, equally actionable,
+  don't. A Studio wanting to demote one of the four to the ambient `aside`
+  column (the same way `upcomingReleases` defaults there) currently can't,
+  for no apparent design reason. Effort S (mechanical) but worth a
+  deliberate pass first — confidence MED on whether this is oversight vs.
+  an intentional-but-undocumented distinction; confirm with the maintainer
+  before assuming it's pure oversight.
