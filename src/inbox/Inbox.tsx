@@ -116,6 +116,33 @@ const AnimateIn = styled.div`
   animation: ${fadeSlideIn} 180ms ease-out;
 `
 
+/**
+ * A menu item's own label plus a one-line description underneath —
+ * grouping Summarize/Suggest todos/Find content gaps behind one "AI
+ * insights" trigger left each item with only its own short label and no
+ * room to explain itself the way a standalone toolbar button (with its
+ * own tooltip) once did. Shown inline, not behind a hover tooltip: a menu
+ * that's already open is a worse place to ask for a second hover just to
+ * learn what an option does.
+ */
+function InsightMenuItemLabel(props: {label: string; hint: string}) {
+  return (
+    // Capped, not left to size the whole menu to its widest hint's own
+    // unwrapped length — confirmed live: without this, "Find content
+    // gaps"' own hint (the longest of the three) stretched the menu wide
+    // enough to run off its own edge instead of wrapping. `whiteSpace:
+    // 'normal'` is required on the `Text` itself, not just its container —
+    // `Text` defaults to `nowrap` (confirmed live via computed style), so
+    // the `maxWidth` alone did nothing until this was added too.
+    <Stack gap={2} style={{maxWidth: 280}}>
+      <Text size={1}>{props.label}</Text>
+      <Text muted size={1} style={{whiteSpace: 'normal'}}>
+        {props.hint}
+      </Text>
+    </Stack>
+  )
+}
+
 // Leaves exactly one slot for the "+N" overflow chip within the same
 // visual budget `AvatarStack`'s own `maxLength={8}` used to claim.
 const AVATAR_VISIBLE_LIMIT = 7
@@ -979,22 +1006,30 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
           are tied to one source, so they group together here rather than
           living inside any one source's own controls. */}
       <MenuButton
-        button={<Button fontSize={1} icon={SparklesIcon} mode="ghost" text={t('inbox.aiReadsMenu')} />}
-        id="structure-inbox-ai-reads-menu"
+        button={<Button fontSize={1} icon={SparklesIcon} mode="ghost" text={t('inbox.aiInsightsMenu')} />}
+        id="structure-inbox-ai-insights-menu"
         menu={
           <Menu>
             <MenuItem
               disabled={summary.status === 'loading'}
-              icon={SparklesIcon}
               onClick={handleSummarize}
-              text={summary.status === 'loading' ? t('summarize.loading') : t('summarize.ask')}
+              text={
+                <InsightMenuItemLabel
+                  hint={t('summarize.menuHint')}
+                  label={summary.status === 'loading' ? t('summarize.loading') : t('summarize.ask')}
+                />
+              }
             />
             {addTodo && (
               <MenuItem
                 disabled={suggestions.status === 'loading'}
-                icon={SparklesIcon}
                 onClick={handleSuggestTodos}
-                text={suggestions.status === 'loading' ? t('todoSuggest.loading') : t('todoSuggest.ask')}
+                text={
+                  <InsightMenuItemLabel
+                    hint={t('todoSuggest.menuHint')}
+                    label={suggestions.status === 'loading' ? t('todoSuggest.loading') : t('todoSuggest.ask')}
+                  />
+                }
               />
             )}
             {/* Only rendered when `contentGaps` is configured: unlike
@@ -1005,9 +1040,15 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
             {contentGaps && (
               <MenuItem
                 disabled={contentGapsResult.status === 'loading'}
-                icon={SparklesIcon}
                 onClick={handleFindContentGaps}
-                text={contentGapsResult.status === 'loading' ? t('contentGaps.loading') : t('contentGaps.ask')}
+                text={
+                  <InsightMenuItemLabel
+                    hint={t('contentGaps.menuHint')}
+                    label={
+                      contentGapsResult.status === 'loading' ? t('contentGaps.loading') : t('contentGaps.ask')
+                    }
+                  />
+                }
               />
             )}
           </Menu>

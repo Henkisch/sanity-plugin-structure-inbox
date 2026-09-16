@@ -168,11 +168,16 @@ const enUS = {
   // Suggest todos, Find content gaps) behind one trigger — see
   // `Inbox.tsx`'s own `mainColumnActions` doc comment for why these three
   // no longer sit as separate, same-tier buttons.
-  'inbox.aiReadsMenu': 'AI reads',
+  'inbox.aiInsightsMenu': 'AI insights',
 
   // The pane-level counterpart to `assess.*` above — same Agent Actions
   // call, applied to everything currently open instead of one item.
   'summarize.ask': 'Summarize',
+  // Shown directly under the menu item's own label — grouped behind one
+  // "AI insights" trigger, these three no longer have room to explain
+  // themselves the way a standalone toolbar button (with its own tooltip)
+  // once did, so the description moves inline instead.
+  'summarize.menuHint': 'What looks most worth starting with, across everything open right now.',
   'summarize.loading': 'Summarizing…',
   'summarize.error': 'Could not reach AI.',
   // The result card's own title — same reasoning as `todoSuggest.title`:
@@ -193,6 +198,8 @@ const enUS = {
   // comment for why this is opt-in, unlike every other read in this pane:
   // its output is a judgment call, not a fact.
   'contentGaps.ask': 'Find content gaps',
+  // See `summarize.menuHint`'s own doc comment for why this exists.
+  'contentGaps.menuHint': "A judgment call on what's missing across the project's own content, not just what's open right now.",
   'contentGaps.loading': 'Reading your content…',
   'contentGaps.title': 'Content gaps',
   'contentGaps.none': 'Nothing looks like a clear gap right now.',
@@ -206,6 +213,8 @@ const enUS = {
   // "insight, then action" shape `fix.*` uses for a fix proposal: never
   // added on its own, only ever via an explicit `todoSuggest.add` click.
   'todoSuggest.ask': 'Suggest todos',
+  // See `summarize.menuHint`'s own doc comment for why this exists.
+  'todoSuggest.menuHint': 'AI-suggested personal todos worth adding to your own list.',
   // The result card's own title, once it actually has items — the error/
   // nothing-found states name themselves in their own sentence, but a bare
   // list of suggestions had nothing on its own left edge, next to
