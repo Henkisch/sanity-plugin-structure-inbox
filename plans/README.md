@@ -45,6 +45,14 @@ behaviour here, fix the comment in the same commit.
 | 031 | Add tests for `matchesInboxFilters` | P2 | S | — | DONE — merged to main `eab2407` (executor commit `1440a48`) |
 | 032 | Guard the pane-wide AI reads against a stale response race | P2 | S | — | DONE — merged to main `1dc0f64` (executor commit `746a72c`). Reviewer independently reverted the fix and confirmed the new test fails without it, then restored. |
 | 033 | Document the `ask` config option | P2 | S | — | DONE — merged to main `0f7a878` (executor commit `d7be1c4`) |
+| 034 | Remove the "Try again" button — it is a permanent no-op | P2 | S | — | TODO |
+| 035 | `onlyMine` filters after the query's own limit | P2 | M | — | TODO |
+| 036 | A failed persist write never retries (4 stores) | P1 | S | — | TODO |
+| 037 | `RelativeTime` allocates a fresh `Date` every render | P2 | S | — | TODO |
+| 038 | Dedupe `Inbox.tsx`'s own redundant `mergeRows` calls | P2 | S | — | TODO |
+| 039 | Allow-list guard for `assetIssues.ts`'s GROQ field-name interpolation | P2 | S | — | TODO |
+| 040 | Make source titles (and openTasks' Overdue/Due) actually translatable | P2 | M | — | TODO |
+| 041 | Add `AGENTS.md` | P2 | S | — | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale)
@@ -156,6 +164,53 @@ hardcoded on the other 4 with no documented reason for the split).
 exist to scope out. `test-studio/` itself was read for context (dependency
 drift, workspace count) but not audited to the same depth as `src/` — it's
 a local dev-only sandbox, never published.
+
+## Second 2026-09-16 batch (against commit `9c0b227`) — security/bugs/perf/i18n
+
+After plans 020 and 029–033 shipped, the maintainer asked directly to
+prioritize what was left: "performance and bugs and security... also
+i18n, nice to ship with it so users of the plugin can translate it if
+they want to." This batch does not come from a fresh audit — it's drawn
+from findings already vetted and recorded in "Known findings with no plan
+yet" below (from the very first `/improve` run and the 2026-09-16
+standard run above), each **independently re-verified against the current
+code** (not copied from the old finding's own possibly-stale line numbers
+or description) before being turned into a plan. A user-directed backlog
+item (feeding richer, external context to the pane's AI reads) was
+explicitly deferred to "its own little session later" — not part of this
+batch, and not recorded as a rejected finding, just not now.
+
+Eight plans, by category:
+
+- **Security** (1): 039 — `assetIssues.ts`'s GROQ field-name interpolation
+  gets the same allow-list guard `linkCheckerFindings.ts` already has.
+  Defense-in-depth only; re-confirmed not exploitable today (both
+  interpolated values are schema/config-derived, never request data).
+- **Bugs** (3): 034 (the "Try again" button is a literal no-op — on
+  re-reading the actual code, the original finding's own description
+  turned out to be slightly wrong: it's not a stale-`caughtError` bug, the
+  handler is just `() => {}`; fixed by removing the dead button, not
+  patching a handler that was never trying to do anything), 035 (`onlyMine`
+  filters after the query's own limit), 036 (a failed persist write never
+  retries, across all four per-editor stores).
+- **Performance** (2): 037 (`RelativeTime`'s fresh `Date` per render), 038
+  (`Inbox.tsx`'s own five-times-for-three-views `mergeRows` redundancy,
+  deliberately scoped to just that file — `MergedList.tsx`'s own separate,
+  larger redundancy is recorded as a follow-up in 038's Maintenance notes,
+  not fixed here, since it changes a public component's prop contract).
+  A third perf finding (`MergedList` rebuilds every row's props with no
+  memoization) was **not** turned into a plan this batch — it needs prep
+  work (stabilizing several inline closures) before it's safe to plan on
+  its own; still recorded below.
+- **i18n** (1): 040 — makes all 9 built-in sources' default titles, plus
+  `openTasks.ts`'s inline `'Overdue'`/`'Due'` literal, real, overridable
+  i18n keys. This is the one that actually makes the README's own
+  "override any of them" localization claim true for the plugin's own
+  built-in strings, not just for whatever an integrator types into `t()`
+  themselves.
+- **Docs** (1): 041 — `AGENTS.md`, finally. Third time this specific
+  finding has been re-confirmed across three separate `/improve`-style
+  passes without landing a plan.
 
 ## Reviewed by `/improve execute`, awaiting merge
 
@@ -532,19 +587,16 @@ Note that `npm run typecheck` does not exist until plan 005 adds it.
 Real, vetted, and deliberately not planned in this batch — recorded so they are
 not re-audited from scratch:
 
-- **`onlyMine` filters after the query limit** (`unpublishedDrafts.ts:102-116`):
-  authorship filtering runs on the newest `limit` drafts dataset-wide, so "your
-  drafts" is routinely empty on a busy dataset — indistinguishable from
-  all-clear. Fix is over-fetch-then-slice, or page until `limit` matches.
-  Effort S/M, MED risk (more requests per refresh).
-- **"Try again" is inert** (`SectionCard.tsx:38-40`): sources report errors
-  through `result.error`, but the handler clears `caughtError`, which is already
-  null. Either hide the button for reported errors (S), or add
-  `refresh?: () => void` to `InboxSourceResult` and wire it through (M) — the
-  latter is also direction item A below, and is cheaper before 1.0.
-- **Source titles cannot be localized** while the README says every string can
-  (`openTasks.ts:65`, `unpublishedDrafts.ts:67`, `upcomingReleases.ts:27`, plus
-  `'Overdue'`/`'Due'`). Needs `InboxSource['title']` to accept `{key, ns}`.
+- **`onlyMine` filters after the query limit** — **→ Plan 035** (2026-09-16
+  batch).
+- **"Try again" is inert** — **→ Plan 034** (2026-09-16 batch): confirmed on
+  re-check the handler is a literal `() => {}`, not a stale-`caughtError`
+  bug as first described; the fix is to remove the dead button, not patch
+  the handler (a real retry needs Direction A's refreshable-sources
+  mechanism instead).
+- **Source titles cannot be localized** — **→ Plan 040** (2026-09-16
+  batch): also folds in `openTasks.ts`'s inline `'Overdue'`/`'Due'`
+  literal from this same list.
 - **Duplicate source `name` collides** in counts, React keys and the dismissal
   namespace (`Inbox.tsx:46`), so `sources: [unpublishedDrafts({types: ['post']}),
   unpublishedDrafts({types: ['page']})]` misbehaves. Accept a `name` override.
@@ -560,34 +612,27 @@ not re-audited from scratch:
   read access and appears in exports. The storage choice is sound (the
   `/users/me/keyvalue` endpoint rejects plugin keys); consumers should just be
   told in the README.
-- **No `AGENTS.md`/`CLAUDE.md`**, and several release- and build-breaking
-  invariants live only in prose comments: conventional commits are load-bearing
-  for semantic-release; `test-studio` consumes `dist/`, not `src/`;
-  `structureInbox()` must come after `structureTool()`; the dismissals type must
-  stay unregistered. Worth one file.
-  **Re-confirmed, 2026-09-16: still open, two `/improve` runs later** —
-  independently re-found by this run's DX/docs subagent, still no file at
-  the repo root. Genuinely high-leverage (this repo's own workflow is
-  agent-executed plans) but not selected for this run's 5 plans; a real
-  candidate for the next batch.
-- **`mergeRows` computed redundantly per render** (`Inbox.tsx:481-486,
-  581-584, 589-592` and `MergedList.tsx:185-188`): the same merge for the
-  active view runs in both components, and `'open'`/`'snoozed'` run three
-  times total across both on every `reports`/`dismissals.state` change —
-  not just on interaction. Fix: thread `Inbox.tsx`'s own already-computed
-  merges down as a prop instead of raw `reports`/`order`/`dismissals`.
-  Effort S, LOW risk (existing test coverage in `mergeItems.test.ts`/
-  `MergedList.test.tsx` guards it).
+- **No `AGENTS.md`/`CLAUDE.md`** — **→ Plan 041** (2026-09-16 batch).
+  Re-confirmed still open across three `/improve`-style passes now before
+  finally getting a plan.
+- **`mergeRows` computed redundantly per render** — **→ Plan 038**
+  (2026-09-16 batch), scoped to `Inbox.tsx`'s own internal redundancy only
+  (five calls down to one, for three views). `MergedList.tsx:185-188`'s
+  own independent sixth call from raw `reports`/`order`/`dismissals` props
+  is a real, separate follow-up recorded in Plan 038's own Maintenance
+  notes — not fixed by that plan, since it changes `MergedList`'s prop
+  contract and its standalone test suite.
 - **`MergedList` rebuilds every row's props on any single interaction**
   (`MergedList.tsx:797-906`'s `renderRow`, `InboxRow.tsx:216` has no
   `React.memo`): ticking one checkbox re-renders and rebuilds every visible
   row's menu array, not just the one that changed. Cost scales with total
   row count per click. Effort M, MED risk (several inline closures passed
-  to `InboxRow` today would need stabilizing first).
-- **`RelativeTime` allocates a fresh `Date` every render**
-  (`RelativeTime.tsx:8`), compounding the above — likely resets whatever
-  refresh-interval `useRelativeTime` (Sanity core) keys on its argument's
-  identity. Effort S, one-line `useMemo` fix.
+  to `InboxRow` today would need stabilizing first) — **still not
+  planned**: needs the closures stabilized as prep work before a plan can
+  be written safely, unlike the other 2026-09-16 findings, which were
+  self-contained.
+- **`RelativeTime` allocates a fresh `Date` every render** — **→ Plan 037**
+  (2026-09-16 batch).
 - **6 of 13 `src/inbox/sources/*.ts` files have zero test coverage** —
   `needsAttention.ts`, `openTasks.ts`, `openTaskDetail.ts`, `todos.ts`,
   `unpublishedDrafts.ts`, `upcomingReleases.ts`. `unpublishedDrafts.ts` and
@@ -601,21 +646,16 @@ not re-audited from scratch:
   — a race against the real scheduler on a slow CI runner, for exactly the
   regression these two tests exist to catch. Effort S.
 - **`assetIssues.ts`'s GROQ field-name interpolation has no allow-list
-  guard** (`assetIssues.ts:226-229`), unlike `linkCheckerFindings.ts`'s own
-  `SIMPLE_FIELD_PATH` regex check before an identical-shape interpolation.
-  Not exploitable today (both interpolated values come from schema/config,
-  not request data), but an asymmetry in defense-in-depth worth closing for
-  consistency. Effort S.
+  guard** — **→ Plan 039** (2026-09-16 batch). Line numbers moved since
+  first found (Plan 020 added a second interpolation site in the same
+  function) — Plan 039 re-verified both current sites before being
+  written.
 - **`assignmentDocId`'s two-hash target-id collision has no detection**
   (`assignmentStore.ts:31-65`): an accepted, documented trade-off for scale,
   but the store already has the real `targetId` on hand (`byTarget` map) and
   never verifies a write against it before trusting a lookup. Effort M.
-- **Persist-effect `dirtyRef` cleared before the write actually succeeds**,
-  across `useDismissals.ts:143-160`, `useSnoozes.ts:86-101`,
-  `useTodos.ts:92-107`, `useAssessments.ts:95-110`: a failed commit is
-  logged but never re-marks state dirty, so a persistent failure with no
-  further local edits silently never retries for the rest of the session.
-  Effort S per file.
+- **Persist-effect `dirtyRef` cleared before the write actually succeeds**
+  — **→ Plan 036** (2026-09-16 batch).
 - **`package.json`'s `inlinedDependencies.get-it` is stale build metadata**
   — not present in the actual built `dist/` bundle (confirmed by string
   search across every built file); the sibling `rxjs`/`react-rx`/`tslib`
