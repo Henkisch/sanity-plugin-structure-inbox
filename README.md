@@ -920,13 +920,8 @@ The test Studio consumes the plugin's `dist/`, not `src/`, so **a source change 
 you rebuild**. For a tighter loop, run `npm run link-watch` in one terminal and `npm run dev` in
 another.
 
-It ships three workspaces, one per behaviour worth checking by hand:
-
-| Workspace | Path       | What it covers                                                                                        |
-| --------- | ---------- | ----------------------------------------------------------------------------------------------------- |
-| `default` | `/default` | The happy path, plus a second plugin overriding `activeToolLayout` to prove the chain still composes. |
-| `noList`  | `/no-list` | A structure whose root is a document list rather than a list — the Inbox still resolves.              |
-| `multi`   | `/multi`   | Two structure tools with the Inbox attached to only one of them.                                      |
+It ships one workspace (`default`, at `/default`) with every built-in
+source configured, so every behaviour is exercised in one place.
 
 Other scripts: `npm test`, `npm run lint`, `npm run format`, `npm run typecheck`.
 
