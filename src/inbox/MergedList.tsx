@@ -4,6 +4,7 @@ import {Menu, MenuButton, MenuDivider, MenuItem} from '@sanity/ui/menu'
 import {Tooltip} from '@sanity/ui/tooltip'
 import {type ReactNode, useCallback, useEffect, useMemo, useState} from 'react'
 import {useTranslation} from 'sanity'
+import {styled} from 'styled-components'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {resolveSnoozeUntil, type SnoozePreset} from '../store/snoozePresets'
@@ -23,6 +24,45 @@ import {EXIT_ANIMATION_MS, useUndoToast} from './useUndoToast'
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
+
+/**
+ * The checkbox/filter row and Ask, sharing one CSS Grid instead of two
+ * stacked rows — narrow (mobile) keeps Ask on its own full-width row below
+ * the checkbox cluster, exactly as before; wide screens fold it inline,
+ * in the gap between the checkbox cluster and the filter/selection
+ * cluster, cutting a whole row of chrome. Pure CSS: the same `AskInbox`
+ * element just gets reassigned to a different named `grid-area` at the
+ * container breakpoint, so there's no second instance to lose state (its
+ * own typed question, in-flight answer) if the pane resizes mid-use — a
+ * real risk the obvious alternative (render it twice, toggle visibility)
+ * would have. `container-type: inline-size` lives on this row's own
+ * `Card` (below), not a separate wrapper, since nested `@container`
+ * scopes are fine and this row's own available width is what actually
+ * decides whether Ask fits — not the viewport, and not the pane's own
+ * two-column breakpoint (`Inbox.tsx`'s `ColumnsBoundary`), which answers
+ * a different question (does the aside column fit at all).
+ *
+ * `640px` is a first estimate (roughly: checkbox cluster ~150px + a
+ * usable Ask input ~250px + the filter/selection cluster's own widest
+ * state), not a measured-live constant the way `minHeight: 54` below is —
+ * revisit by eye if Ask ever looks cramped or the two side clusters ever
+ * collide with it at a width just past this breakpoint.
+ */
+const HeaderGrid = styled.div<{$hasAsk: boolean}>`
+  display: grid;
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 12px;
+  grid-template-areas: ${(p) => (p.$hasAsk ? '"left right" "ask ask"' : '"left right"')};
+  grid-template-columns: auto auto;
+  justify-content: space-between;
+  width: 100%;
+
+  @container (min-width: 640px) {
+    grid-template-areas: ${(p) => (p.$hasAsk ? '"left ask right"' : '"left right"')};
+    grid-template-columns: ${(p) => (p.$hasAsk ? 'auto 1fr auto' : 'auto auto')};
+  }
+`
 
 /** The one snooze duration "Snooze" actually applies — see `snoozeRows`'s own doc comment for why there's no picker. */
 const SNOOZE_DEFAULT_PRESET: SnoozePreset = 'tomorrow'
@@ -841,48 +881,37 @@ export function MergedList(props: MergedListProps) {
             list, but it's still one section, and it looked like an
             afterthought without a header of its own to say so. `minHeight`
             (measured live: the filter bar's own row rendered at 54px, the
-            selection bar's at 50px) keeps this header a fixed height across
-            both, so switching between them never shifts the row list
-            beneath it by those few pixels. No `tone="transparent"` (unlike
-            the actions toolbar above) — this row selects/filters the exact
-            rows below it, tied to the list the same way `results`/Ask are,
-            so it gets the list's own plain background instead of the
-            toolbar's boxed one; only the toolbar is generic enough to
-            earn that distinct "header" treatment. */}
+            selection bar's at 50px) is a floor, not a fixed height — Ask's
+            own row (narrow) or its own answer text (either width) can still
+            grow this taller. No `tone="transparent"` (unlike the actions
+            toolbar above) — this row selects/filters the exact rows below
+            it, tied to the list the same way `results`/Ask are, so it gets
+            the list's own plain background instead of the toolbar's boxed
+            one; only the toolbar is generic enough to earn that distinct
+            "header" treatment. `container-type: inline-size` here (not a
+            separate wrapper) is what `HeaderGrid`'s own `@container` query
+            measures against — see its doc comment for why this row's own
+            width, not the viewport or the pane's two-column breakpoint. */}
         <Card
           borderBottom
           paddingX={3}
           paddingY={3}
           radius={0}
-          style={{alignItems: 'center', display: 'flex', minHeight: 54}}
+          style={{containerType: 'inline-size', minHeight: 54}}
         >
-          {/* Extra `paddingLeft={1}` beyond the Card's own `padding={3}` —
-              matches `InboxRow.tsx`'s own checkbox wrapper exactly (also
-              `paddingLeft={1}`), confirmed live: without it this header's
-              checkbox sat 4px right of every row's own, the one step's
-              difference between the two paddings. */}
-          {/* `flex={1}`: the parent Card became a flex container of its own
-              (see its `minHeight` comment above), which shrank this Flex to
-              its own content width by default instead of the full header —
-              and a shrunk container has no extra room left for
-              `justify="space-between"` to push `SelectionActions`/`filterBar`
-              into, so they landed right next to the left-hand group instead
-              of flush against the far edge. */}
-          <Flex align="center" flex={1} gap={3} justify="space-between" paddingLeft={1} wrap="wrap">
+          <HeaderGrid $hasAsk={ask && view === 'open'}>
+            {/* Extra `paddingLeft={1}` beyond the Card's own `padding={3}` —
+                matches `InboxRow.tsx`'s own checkbox wrapper exactly (also
+                `paddingLeft={1}`), confirmed live: without it this header's
+                checkbox sat 4px right of every row's own, the one step's
+                difference between the two paddings. */}
             {/* Replaces the icon+"Inbox" label this header used to open
                 with — that text was purely decorative (the left nav's own
                 "Inbox" item, and the pane's own heading above this card,
                 already say it), while the select-all checkbox is a real
                 control that deserves the header's own prominent spot more
-                than a repeated label does. Still rendered (just disabled)
-                when the list is empty, rather than omitted outright: an
-                empty `Flex` on this side would leave `filterBar` on the
-                right as this row's only child, and `justify="space-between"`
-                aligns a lone child to the start rather than the end it
-                actually belongs at — keeping this side occupied, even
-                grayed out, is what keeps `filterBar` pinned to the right
-                regardless of whether there's anything to select yet. */}
-            <Flex align="center" gap={1}>
+                than a repeated label does. */}
+            <Flex align="center" gap={1} paddingLeft={1} style={{gridArea: 'left'}}>
               <Tooltip
                 content={
                   <Box padding={2}>
@@ -961,60 +990,56 @@ export function MergedList(props: MergedListProps) {
               )}
             </Flex>
 
-            {showSelectionBar ? (
-              <SelectionActions
-                assigneeSuggestion={view === 'open' ? (assigneeSuggestion ?? undefined) : undefined}
-                assignableUsers={view === 'open' ? assignableSource?.users : undefined}
-                busy={busy}
-                count={displayCount}
-                onAssign={view === 'open' && assignableSource ? confirmAssign : undefined}
-                onCancel={clearSelection}
-                onConfirm={confirmSelection}
-                onDelete={deletableTargets.length > 0 ? confirmDelete : undefined}
-                onSnooze={view === 'open' ? confirmSnooze : undefined}
-                onSnoozeUntil={view === 'open' ? confirmSnoozeUntil : undefined}
-                snoozeSuggestion={view === 'open' ? (snoozeSuggestion ?? undefined) : undefined}
-                resolvableCount={
-                  selected.filter((row) => Boolean(reports[row.sourceName]?.resolve)).length
-                }
-                showConfirm={
-                  view !== 'open' ||
-                  selected.some((row) => {
-                    const report = reports[row.sourceName]
-                    return Boolean(report?.resolve) || report?.acknowledgable !== false
-                  })
-                }
-                view={view}
-              />
-            ) : (
-              filterBar
+            {/* Only in the Open view — asking "what can I ignore" of the
+                Done tab has no meaning, and the Snoozed tab's rows are
+                already deferred. Its only effect is `setSelectedKeys`: see
+                `AskInbox`'s own doc comment for why that is the whole
+                safety argument for this feature — a selection it makes
+                flips the `left` cluster above/beside it into showing a
+                count, and the `right` cluster into `SelectionActions`, the
+                same feedback a manual tick already gives. */}
+            {/* Capped, not stretched to fill the whole flexible middle
+                track — a single-line question input spanning the entire
+                gap between the two side clusters reads as an oversized
+                empty box, not an intentional width. */}
+            {ask && view === 'open' && (
+              <Box style={{gridArea: 'ask', maxWidth: 480}}>
+                <AskInbox onSelect={setSelectedKeys} rows={rows} />
+              </Box>
             )}
-          </Flex>
-        </Card>
 
-        {/* Directly above the row list, not above this whole card's own
-            toolbar — what an editor asks is about these rows specifically,
-            so it belongs right next to them, not floating above unrelated
-            chrome (the actions row, the checkbox/filter row). Only in the
-            Open view — asking "what can I ignore" of the Done tab has no
-            meaning, and the Snoozed tab's rows are already deferred. Its
-            only effect is `setSelectedKeys`: see `AskInbox`'s own doc
-            comment for why that is the whole safety argument for this
-            feature — a selection it makes flips the checkbox row directly
-            above into `SelectionActions`, the same feedback a manual tick
-            already gives. Deliberately NOT the same boxed
-            `tone="transparent"` treatment the actions/checkbox rows above
-            get — a first pass gave it that same wrapper and the result was
-            three identical dark bars stacked with no priority between them.
-            A single input doesn't need its own "header" framing the way an
-            actual toolbar does; this matches the row list's own plain
-            background instead, reading as a lead-in to the rows rather than
-            a third competing section. */}
-        {ask && view === 'open' && (
-          <Box paddingX={3} paddingY={3}>
-            <AskInbox onSelect={setSelectedKeys} rows={rows} />
-          </Box>
-        )}
+            <Box style={{gridArea: 'right'}}>
+              {showSelectionBar ? (
+                <SelectionActions
+                  assigneeSuggestion={view === 'open' ? (assigneeSuggestion ?? undefined) : undefined}
+                  assignableUsers={view === 'open' ? assignableSource?.users : undefined}
+                  busy={busy}
+                  count={displayCount}
+                  onAssign={view === 'open' && assignableSource ? confirmAssign : undefined}
+                  onCancel={clearSelection}
+                  onConfirm={confirmSelection}
+                  onDelete={deletableTargets.length > 0 ? confirmDelete : undefined}
+                  onSnooze={view === 'open' ? confirmSnooze : undefined}
+                  onSnoozeUntil={view === 'open' ? confirmSnoozeUntil : undefined}
+                  snoozeSuggestion={view === 'open' ? (snoozeSuggestion ?? undefined) : undefined}
+                  resolvableCount={
+                    selected.filter((row) => Boolean(reports[row.sourceName]?.resolve)).length
+                  }
+                  showConfirm={
+                    view !== 'open' ||
+                    selected.some((row) => {
+                      const report = reports[row.sourceName]
+                      return Boolean(report?.resolve) || report?.acknowledgable !== false
+                    })
+                  }
+                  view={view}
+                />
+              ) : (
+                filterBar
+              )}
+            </Box>
+          </HeaderGrid>
+        </Card>
 
         {anyLoading && isEmpty ? (
           <Box padding={3}>

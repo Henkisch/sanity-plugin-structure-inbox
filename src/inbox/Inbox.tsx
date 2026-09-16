@@ -1342,7 +1342,14 @@ export function Inbox({sources, ask = false, contentGaps}: InboxProps) {
        * already draws that boundary, so this header stays edge-to-edge but
        * open beneath it.
        */}
-      <Card padding={[3, 3, 4]}>
+      {/* `paddingX={4}` always, not the responsive `[3, 3, 4]` this used to
+          be — that made this header's own horizontal inset 12px on mobile
+          while the content below (`paddingX={4}` on the `Box` wrapping
+          `MergedList`, never responsive) stayed at 20px, so the header
+          read as narrower than the card beneath it instead of lining up
+          with it. `paddingY` still scales down on mobile — only the
+          horizontal mismatch was the actual bug. */}
+      <Card paddingX={4} paddingY={[3, 3, 4]}>
         <Stack gap={4}>
           <Flex align="center" gap={3}>
             {/* Pulsing amber while something needs a look; a calm, static
