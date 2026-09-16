@@ -120,9 +120,22 @@ interface MergedListProps {
    * rendered height (`Inbox.tsx` measures it live), so this column never
    * grows taller than its neighbour. `undefined` before that measurement
    * exists yet (the very first render), in which case a fixed fallback is
-   * used instead — see where this is read below.
+   * used instead — see where this is read below. Only takes effect while
+   * `scrollable` is true.
    */
   maxHeight?: number
+  /**
+   * Whether the list should be height-capped with its own inner
+   * scrollbar at all — true whenever the sidebar it's capped against sits
+   * beside it. Once `Inbox.tsx`'s `ResponsiveColumns` stacks the two
+   * columns (narrow screens), the sidebar has already dropped below the
+   * list, so a cap here just produced a second, redundant scrollbar
+   * inside the page's own; passing `false` lets the list grow to its full
+   * height instead.
+   *
+   * @defaultValue true
+   */
+  scrollable?: boolean
 }
 
 /**
@@ -151,6 +164,7 @@ export function MergedList(props: MergedListProps) {
     ask = false,
     context,
     maxHeight,
+    scrollable = true,
     actions,
     results,
   } = props
@@ -1078,8 +1092,16 @@ export function MergedList(props: MergedListProps) {
                 afterthought. `maxHeight` is the sidebar's own live rendered
                 height (`Inbox.tsx` measures it with a `ResizeObserver`);
                 `560` (~9 rows) is only a placeholder for the one render
-                before that measurement exists. */}
-            <Box style={{maxHeight: maxHeight ?? 560, overflowY: 'auto'}}>
+                before that measurement exists. Only while `scrollable`,
+                though — once the columns stack (see that prop's own doc
+                comment), there is no neighbour to match height with, and
+                capping it here just gave the list a second, inner
+                scrollbar on top of the page's own. */}
+            <Box
+              style={
+                scrollable ? {maxHeight: maxHeight ?? 560, overflowY: 'auto'} : undefined
+              }
+            >
               <Stack gap={1} padding={1}>
                 {showGroupHeaders ? (
                   <>

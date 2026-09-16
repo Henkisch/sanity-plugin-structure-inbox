@@ -46,7 +46,7 @@ import {mergeRows} from './mergeItems'
 import {MergedList} from './MergedList'
 import {SourceFeed, type SourceReport} from './SourceFeed'
 import {type InboxSource, type InboxView, type SuggestTodosState} from './types'
-import {useElementHeight} from './useElementHeight'
+import {useElementHeight, useElementWidth} from './useElementHeight'
 
 interface InboxProps {
   sources: InboxSource[]
@@ -323,6 +323,20 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
   // back to a sane default for that one render.
   const sidebarRef = useRef<HTMLDivElement>(null)
   const sidebarHeight = useElementHeight(sidebarRef)
+
+  // Whether `ResponsiveColumns` has stacked the two columns below its own
+  // 1024px threshold (see that component's own doc comment) — measured on
+  // the same `ColumnsBoundary` element it queries, so this always agrees
+  // with the CSS. Capping the list to `sidebarHeight` (and giving it its
+  // own inner scrollbar) only makes sense while the sidebar sits beside it;
+  // once stacked, the sidebar has already dropped below the list, so
+  // capping there just produced a second, redundant scrollbar inside the
+  // page's own. `undefined` (unmeasured) defaults to "not stacked", the
+  // same as this cap's own prior behaviour, so there is nothing to
+  // reconcile once the first measurement lands.
+  const boundaryRef = useRef<HTMLDivElement>(null)
+  const boundaryWidth = useElementWidth(boundaryRef)
+  const isStacked = (boundaryWidth ?? Infinity) < 1024
 
   // A snoozed item wakes on its own once `until` passes — see the identical
   // reasoning `InboxSection` used to carry itself, now shared by every main
@@ -1583,7 +1597,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
             }
             id={PANEL_ID}
           >
-            <ColumnsBoundary>
+            <ColumnsBoundary ref={boundaryRef}>
               <ResponsiveColumns>
                 <Box>
                   <MergedList
@@ -1594,10 +1608,11 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
                     context={context}
                     dismissals={dismissals}
                     filterBar={filterBar}
-                    maxHeight={sidebarHeight}
+                    maxHeight={isStacked ? undefined : sidebarHeight}
                     order={mainOrder}
                     reports={reports}
                     results={hasMainColumnResults ? mainColumnResults : undefined}
+                    scrollable={!isStacked}
                     snoozes={snoozes}
                     typeFilter={typeFilter}
                     view={view}

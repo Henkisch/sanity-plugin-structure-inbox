@@ -32,3 +32,31 @@ export function useElementHeight(ref: RefObject<HTMLElement | null>): number | u
 
   return height
 }
+
+/**
+ * Same measurement, own axis — `ResponsiveColumns`' own `@container` query
+ * (see its doc comment) stacks the two columns below 1024px of the pane's
+ * *own* width, not the viewport's. `Inbox` mirrors that same threshold in
+ * JS (see its `isStacked`) to know when capping the list's height to the
+ * sidebar's is even meaningful — capped-with-its-own-scrollbar makes sense
+ * only while the sidebar sits beside the list, not once it's stacked below.
+ */
+export function useElementWidth(ref: RefObject<HTMLElement | null>): number | undefined {
+  const [width, setWidth] = useState<number>()
+
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (!element) return undefined
+
+    setWidth(element.getBoundingClientRect().width)
+
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setWidth(entry.contentRect.width)
+    })
+    observer.observe(element)
+
+    return () => observer.disconnect()
+  }, [ref])
+
+  return width
+}
