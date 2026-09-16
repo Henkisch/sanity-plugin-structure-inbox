@@ -466,7 +466,15 @@ export function InboxRow(props: InboxRowProps) {
           // itself didn't already show a placeholder was the actual report:
           // the only sign it could be assigned at all was the bulk selection
           // bar's own "Assign to…" picker.
-          size={compact ? 0 : 1}
+          //
+          // Deliberately NOT `compact ? 0 : 1`: a face is the one piece of
+          // this row an editor actually reads at a glance, in an aside card
+          // as much as a main one — shrinking it just because the row
+          // around it is denser made an aside release's own assignee look
+          // like a different, lesser fact than a main row's, which it
+          // isn't. Confirmed live: aside rendered at 19px against a main
+          // row's 25px before this fix.
+          size={1}
           src={assignee?.imageUrl}
           style={
             canReassign
@@ -494,7 +502,9 @@ export function InboxRow(props: InboxRowProps) {
             justify="center"
             style={{inset: 0, pointerEvents: 'none', position: 'absolute'}}
           >
-            <Text muted size={compact ? 0 : 1}>
+            {/* Matches the `Avatar` above always being `size={1}` now,
+                regardless of `compact` — see that prop's own comment. */}
+            <Text muted size={1}>
               <UserIcon />
             </Text>
           </Flex>
