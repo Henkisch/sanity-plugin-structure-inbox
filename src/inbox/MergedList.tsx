@@ -11,7 +11,7 @@ import {resolveSnoozeUntil, type SnoozePreset} from '../store/snoozePresets'
 import {type Assessments} from '../store/useAssessments'
 import {type Dismissals} from '../store/useDismissals'
 import {type Snoozes} from '../store/useSnoozes'
-import {AskInbox} from './AskInbox'
+import {AskInbox, type AskState} from './AskInbox'
 import {CreateItemRow} from './CreateItemRow'
 import {matchesInboxFilters} from './inboxFilterSentinels'
 import {InboxRow} from './InboxRow'
@@ -95,6 +95,16 @@ interface MergedListProps {
   /** See `StructureInboxConfig.context`'s own doc comment — passed straight through to `AskInbox`. */
   context?: string
   /**
+   * `AskInbox`'s own answer, owned by `Inbox.tsx` (same reasoning as
+   * `actions`/`results` below) so it can render as another dismissible
+   * card in `mainColumnResults` instead of squeezed into this row's own
+   * header — see `AskInbox`'s own `result` prop doc comment. Optional
+   * (defaults to idle/a no-op setter) the same way `ask` itself is —
+   * only meaningful while `ask` is actually on.
+   */
+  askResult?: AskState
+  onAskResultChange?: (state: AskState) => void
+  /**
    * Summarize / Suggest todos / a source's own `action` (Scan for issues) /
    * Add — every control that only ever affects this column, never the aside
    * beside it. Built in `Inbox.tsx` (the state they drive lives there), but
@@ -163,6 +173,8 @@ export function MergedList(props: MergedListProps) {
     filterBar,
     ask = false,
     context,
+    askResult = {status: 'idle'},
+    onAskResultChange = () => {},
     maxHeight,
     scrollable = true,
     actions,
@@ -1030,7 +1042,13 @@ export function MergedList(props: MergedListProps) {
                 empty box, not an intentional width. */}
             {ask && view === 'open' && (
               <Box style={{gridArea: 'ask', maxWidth: 480}}>
-                <AskInbox context={context} onSelect={setSelectedKeys} rows={rows} />
+                <AskInbox
+                  context={context}
+                  onResultChange={onAskResultChange}
+                  onSelect={setSelectedKeys}
+                  result={askResult}
+                  rows={rows}
+                />
               </Box>
             )}
 

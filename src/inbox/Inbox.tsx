@@ -36,6 +36,7 @@ import {SectionCard} from '../ui/SectionCard'
 import {SectionErrorBoundary} from '../ui/SectionErrorBoundary'
 import {StatusDot} from '../ui/StatusDot'
 import {AddMenu} from './AddMenu'
+import {type AskState} from './AskInbox'
 import {formatContentGapsDigest, surveyContentTypes} from './contentGapsDigest'
 import {CreateItemRow} from './CreateItemRow'
 import {ASSIGNEE_UNASSIGNED, matchesInboxFilters} from './inboxFilterSentinels'
@@ -135,7 +136,9 @@ function InsightMenuItemLabel(props: {label: string; hint: string}) {
     // `Text` defaults to `nowrap` (confirmed live via computed style), so
     // the `maxWidth` alone did nothing until this was added too.
     <Stack gap={2} style={{maxWidth: 280}}>
-      <Text size={1}>{props.label}</Text>
+      <Text size={1} weight="semibold">
+        {props.label}
+      </Text>
       <Text muted size={1} style={{whiteSpace: 'normal'}}>
         {props.hint}
       </Text>
@@ -595,6 +598,16 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
   // at 30 rows so a large inbox doesn't turn one click into an unbounded
   // prompt.
   const agentClient = useAgentClient()
+
+  // Owned here, not inside `AskInbox` itself — its answer renders as
+  // another dismissible card in `mainColumnResults`, the same shape every
+  // other AI read in this pane already uses, instead of squeezed into its
+  // own input's row inside the checkbox/filter header (flagged live:
+  // "not where it does now... doesn't look good"). `AskInbox` still owns
+  // the actual fetch (it needs `rows`, which only `MergedList` has after
+  // filtering), just not this state.
+  const [askResult, setAskResult] = useState<AskState>({status: 'idle'})
+
   const [summary, setSummary] = useState<
     {status: 'idle'} | {status: 'loading'} | {status: 'done'; message: string} | {status: 'error'}
   >({status: 'idle'})
@@ -1053,7 +1066,7 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
             )}
           </Menu>
         }
-        popover={{placement: 'bottom-start', portal: true}}
+        popover={{constrainSize: true, placement: 'bottom-start', portal: true}}
       />
 
       {/* Ahead of the creators control, not after: that one stays the
@@ -1160,6 +1173,59 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
     // already supplies its own top padding — see `MergedList.tsx`'s own
     // `results` wrapper doc comment).
     <Stack gap={4}>
+      {/* `AskInbox`'s own answer — same dismissible-card shape every
+          other AI read here uses, not the bespoke inline row it used to
+          be squeezed into right under its own input (flagged live: "not
+          where it does now... doesn't look good"). Placed first: this is
+          the read whose input sits closest to the top of this whole
+          area. */}
+      {(askResult.status === 'done' ||
+        askResult.status === 'unparseable' ||
+        askResult.status === 'error') && (
+        <Box>
+          <AnimateIn>
+            <Card
+              border
+              paddingBottom={5}
+              paddingTop={3}
+              paddingX={4}
+              radius={2}
+              tone={askResult.status === 'error' ? 'critical' : 'primary'}
+            >
+              <Flex align="flex-start" gap={3} justify="space-between">
+                <Flex align="center" gap={2}>
+                  {askResult.status === 'done' && (
+                    // Marks this line as AI-sourced at a glance — same
+                    // treatment `InboxRow.tsx`'s own `assessRow` already
+                    // gives a per-item AI read.
+                    <Text muted size={0}>
+                      <SparklesIcon />
+                    </Text>
+                  )}
+                  <Text muted size={1}>
+                    {askResult.status === 'done'
+                      ? askResult.matched
+                        ? askResult.reason
+                        : askResult.reason || t('ask.nothingMatched')
+                      : askResult.status === 'unparseable'
+                        ? t('ask.unparseable')
+                        : t('ask.error')}
+                  </Text>
+                </Flex>
+                <Button
+                  fontSize={1}
+                  mode="bleed"
+                  onClick={() => setAskResult({status: 'idle'})}
+                  padding={2}
+                  style={{marginRight: -8, marginTop: -6}}
+                  text={t('ask.dismiss')}
+                />
+              </Flex>
+            </Card>
+          </AnimateIn>
+        </Box>
+      )}
+
       {/* Same loading/done/error shape as `InboxRow.tsx`'s own
           `assessRow` — this is the pane-level version of the same
           capability, not a different pattern. Dismissible rather than
@@ -1489,6 +1555,9 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
   // `MergedList` gets `undefined` (not just an empty `Stack`) when there's
   // genuinely nothing to render.
   const hasMainColumnResults =
+    askResult.status === 'done' ||
+    askResult.status === 'unparseable' ||
+    askResult.status === 'error' ||
     summary.status === 'done' ||
     summary.status === 'error' ||
     (Boolean(addTodo) && (suggestions.status === 'done' || suggestions.status === 'error')) ||
@@ -1527,15 +1596,18 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
        * already draws that boundary, so this header stays edge-to-edge but
        * open beneath it.
        */}
-      {/* Responsive on both axes, matching the content `Box` below (also
-          `[3, 3, 4]` now) — the two used to disagree (this header stayed
+      {/* Horizontal inset matches the content `Box` below (also
+          `[3, 3, 4]`) — the two used to disagree (this header stayed
           at a fixed 20px while the content dropped to 12px on mobile, or
           vice versa depending which was "fixed"), reading as misaligned
           edges. 12px on mobile isn't just cosmetic parity: narrow screens
           are the ones actually short on width, so the smaller inset is the
           one that should win everywhere, not 20px stretched down to every
-          breakpoint. */}
-      <Card padding={[3, 3, 4]}>
+          breakpoint. `paddingTop` alone steps up one notch further: this is
+          the very first thing in the whole pane, sitting right under the
+          Studio's own top bar with nothing else to match against, and
+          flagged live as sitting too close to it. */}
+      <Card paddingBottom={[3, 3, 4]} paddingTop={[4, 4, 5]} paddingX={[3, 3, 4]}>
         <Stack gap={4}>
           <Flex align="flex-start" gap={3}>
             {/* Pulsing amber while something needs a look; a calm, static
@@ -1640,12 +1712,14 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
                   <MergedList
                     actions={mainColumnActions}
                     ask={ask}
+                    askResult={askResult}
                     assessments={assessments}
                     assigneeFilter={assigneeFilter}
                     context={context}
                     dismissals={dismissals}
                     filterBar={filterBar}
                     maxHeight={isStacked ? undefined : sidebarHeight}
+                    onAskResultChange={setAskResult}
                     order={mainOrder}
                     reports={reports}
                     results={hasMainColumnResults ? mainColumnResults : undefined}

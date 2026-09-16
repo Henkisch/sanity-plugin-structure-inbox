@@ -1,4 +1,5 @@
 import {cleanup, fireEvent, screen} from '@testing-library/react'
+import {useState} from 'react'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {EMPTY_DISMISSALS, withDismissal} from '../store/dismissals'
@@ -6,6 +7,7 @@ import {EMPTY_SNOOZES} from '../store/snoozes'
 import {type Dismissals} from '../store/useDismissals'
 import {type Snoozes} from '../store/useSnoozes'
 import {renderWithTheme} from '../test/renderWithTheme'
+import {type AskState} from './AskInbox'
 import {MergedList} from './MergedList'
 import {type SourceReport} from './SourceFeed'
 import {type InboxItem, type InboxSource} from './types'
@@ -67,6 +69,51 @@ function openRowMenu() {
   fireEvent.click(screen.getByRole('button', {name: 'row.menu'}))
 }
 
+/**
+ * Stands in for `Inbox.tsx`'s own `askResult` state + `mainColumnResults`
+ * rendering — `AskInbox`'s answer isn't rendered by `MergedList` itself
+ * any more (it renders as another card in `results`, owned by whatever
+ * mounts this list), so a test exercising the ask-the-inbox flow needs a
+ * small harness playing that same role, not a full `Inbox.tsx`.
+ */
+function TestHarness(props: {
+  reports: Record<string, SourceReport>
+  order: string[]
+  view: 'open' | 'cleared' | 'snoozed'
+  dismissals: Dismissals
+  snoozes: Snoozes
+  ask?: boolean
+}) {
+  const [askResult, setAskResult] = useState<AskState>({status: 'idle'})
+
+  const results =
+    askResult.status === 'done' || askResult.status === 'unparseable' || askResult.status === 'error' ? (
+      <div>
+        {askResult.status === 'done'
+          ? askResult.reason
+          : askResult.status === 'unparseable'
+            ? 'ask.unparseable'
+            : 'ask.error'}
+      </div>
+    ) : undefined
+
+  return (
+    <MergedList
+      ask={props.ask}
+      askResult={askResult}
+      assigneeFilter={new Set()}
+      dismissals={props.dismissals}
+      onAskResultChange={setAskResult}
+      order={props.order}
+      reports={props.reports}
+      results={results}
+      snoozes={props.snoozes}
+      typeFilter={new Set()}
+      view={props.view}
+    />
+  )
+}
+
 function renderList(props: {
   reports: Record<string, SourceReport>
   order: string[]
@@ -79,14 +126,12 @@ function renderList(props: {
   const snoozes = props.snoozes ?? fakeSnoozes()
 
   renderWithTheme(
-    <MergedList
+    <TestHarness
       ask={props.ask}
-      assigneeFilter={new Set()}
       dismissals={dismissals}
       order={props.order}
       reports={props.reports}
       snoozes={snoozes}
-      typeFilter={new Set()}
       view={props.view ?? 'open'}
     />,
   )

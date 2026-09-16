@@ -1,5 +1,4 @@
-import {SparklesIcon} from '@sanity/icons/Sparkles'
-import {Box, Button, Flex, Text, TextInput} from '@sanity/ui'
+import {Box, Button, Flex, TextInput} from '@sanity/ui'
 import {useCallback, useState} from 'react'
 import {useTranslation} from 'sanity'
 
@@ -9,20 +8,31 @@ import {useAgentClient} from '../ai/useAgentClient'
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {type MergedRow} from './mergeItems'
 
+/** @public */
+export type AskState =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'done'; reason: string; matched: boolean}
+  | {status: 'unparseable'}
+  | {status: 'error'}
+
 interface AskInboxProps {
   /** Only rows currently on screen (already view- and filter-scoped) — the only candidates a question can select from. */
   rows: readonly MergedRow[]
   onSelect: (keys: string[]) => void
   /** See `StructureInboxConfig.context`'s own doc comment. */
   context?: string
+  /**
+   * Owned by `Inbox.tsx`, not this component — its answer renders as
+   * another dismissible card in `mainColumnResults`, the same shape
+   * Summarize/Suggest todos/Find content gaps already use, rather than
+   * squeezed into this input's own row inside the checkbox/filter
+   * header. See `Inbox.tsx`'s own `askResult` for where this state
+   * actually lives and renders.
+   */
+  result: AskState
+  onResultChange: (state: AskState) => void
 }
-
-type AskState =
-  | {status: 'idle'}
-  | {status: 'loading'}
-  | {status: 'done'; reason: string; matched: boolean}
-  | {status: 'unparseable'}
-  | {status: 'error'}
 
 /**
  * A single-line "ask about these items" input for the Open view's own
@@ -32,17 +42,16 @@ type AskState =
  * the selection so it stays reviewable rather than authoritative.
  */
 export function AskInbox(props: AskInboxProps) {
-  const {rows, onSelect, context} = props
+  const {rows, onSelect, context, result, onResultChange} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const agentClient = useAgentClient()
   const [question, setQuestion] = useState('')
-  const [state, setState] = useState<AskState>({status: 'idle'})
 
   const handleSubmit = useCallback(async () => {
     const trimmed = question.trim()
     if (!trimmed || !agentClient) return
 
-    setState({status: 'loading'})
+    onResultChange({status: 'loading'})
 
     try {
       const described = describeRows(rows)
@@ -62,17 +71,17 @@ export function AskInbox(props: AskInboxProps) {
 
       const selection = selectionFromResponse(raw, rows)
       if (!selection) {
-        setState({status: 'unparseable'})
+        onResultChange({status: 'unparseable'})
         return
       }
 
       onSelect(selection.keys)
-      setState({status: 'done', reason: selection.reason, matched: selection.keys.length > 0})
+      onResultChange({status: 'done', reason: selection.reason, matched: selection.keys.length > 0})
     } catch (error: unknown) {
       console.error('[sanity-plugin-structure-inbox] ask-the-inbox failed', error)
-      setState({status: 'error'})
+      onResultChange({status: 'error'})
     }
-  }, [question, agentClient, rows, onSelect, context])
+  }, [question, agentClient, rows, onSelect, context, onResultChange])
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -86,7 +95,7 @@ export function AskInbox(props: AskInboxProps) {
       <Flex align="center" gap={2}>
         <Box flex={1}>
           <TextInput
-            disabled={state.status === 'loading'}
+            disabled={result.status === 'loading'}
             fontSize={1}
             onChange={(event) => setQuestion(event.currentTarget.value)}
             onKeyDown={handleKeyDown}
@@ -95,73 +104,13 @@ export function AskInbox(props: AskInboxProps) {
           />
         </Box>
         <Button
-          disabled={state.status === 'loading' || !question.trim()}
+          disabled={result.status === 'loading' || !question.trim()}
           fontSize={1}
           mode="ghost"
           onClick={() => void handleSubmit()}
-          text={state.status === 'loading' ? t('ask.loading') : t('ask.submit')}
+          text={result.status === 'loading' ? t('ask.loading') : t('ask.submit')}
         />
       </Flex>
-
-      {/* Every other read in this pane (Summarize, Suggest todos, Find
-          content gaps, Scan for issues) is dismissible — this one wasn't,
-          so its answer just sat there until a new question replaced it or
-          the editor left the tab. Same plain-text "Dismiss" the rest use. */}
-      {state.status === 'done' && (
-        <Flex align="flex-start" gap={3} justify="space-between" paddingTop={2}>
-          <Flex align="center" gap={2}>
-            {/* Marks this line as AI-sourced at a glance — same treatment
-                `InboxRow.tsx`'s own `assessRow` already gives a per-item
-                AI read. */}
-            <Text muted size={0}>
-              <SparklesIcon />
-            </Text>
-            <Text muted size={1}>
-              {state.matched ? state.reason : state.reason || t('ask.nothingMatched')}
-            </Text>
-          </Flex>
-          <Button
-            fontSize={1}
-            mode="bleed"
-            onClick={() => setState({status: 'idle'})}
-            padding={2}
-            style={{marginRight: -8, marginTop: -6}}
-            text={t('ask.dismiss')}
-          />
-        </Flex>
-      )}
-
-      {state.status === 'unparseable' && (
-        <Flex align="flex-start" gap={3} justify="space-between" paddingTop={2}>
-          <Text muted size={1}>
-            {t('ask.unparseable')}
-          </Text>
-          <Button
-            fontSize={1}
-            mode="bleed"
-            onClick={() => setState({status: 'idle'})}
-            padding={2}
-            style={{marginRight: -8, marginTop: -6}}
-            text={t('ask.dismiss')}
-          />
-        </Flex>
-      )}
-
-      {state.status === 'error' && (
-        <Flex align="flex-start" gap={3} justify="space-between" paddingTop={2}>
-          <Text muted size={1}>
-            {t('ask.error')}
-          </Text>
-          <Button
-            fontSize={1}
-            mode="bleed"
-            onClick={() => setState({status: 'idle'})}
-            padding={2}
-            style={{marginRight: -8, marginTop: -6}}
-            text={t('ask.dismiss')}
-          />
-        </Flex>
-      )}
     </Box>
   )
 }
