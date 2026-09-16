@@ -1,4 +1,4 @@
-import {cleanup, fireEvent, screen} from '@testing-library/react'
+import {cleanup, screen} from '@testing-library/react'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {type SnoozeState} from '../store/snoozes'
@@ -150,7 +150,7 @@ vi.mock('sanity', async (importOriginal) => {
 })
 
 describe('InboxStats', () => {
-  it('renders nothing at all below the row threshold, with nothing else configured', () => {
+  it('renders nothing at all below the row threshold', () => {
     const {container} = renderWithTheme(
       <InboxStats assignableRows={[]} now={NOW} openRows={[]} snoozed={EMPTY_SNOOZED} snoozedRows={[]} />,
     )
@@ -189,25 +189,6 @@ describe('InboxStats', () => {
     expect(screen.getByText('stats.nextWake')).toBeTruthy()
   })
 
-  it('keeps the AI suggest-todos trigger even below the row threshold', () => {
-    const onSuggestTodos = vi.fn()
-    renderWithTheme(
-      <InboxStats
-        assignableRows={[]}
-        now={NOW}
-        onSuggestTodos={onSuggestTodos}
-        openRows={[]}
-        snoozed={EMPTY_SNOOZED}
-        snoozedRows={[]}
-      />,
-    )
-    expect(screen.getByText('overview.askAi')).toBeTruthy()
-    // The stat breakdowns stay hidden even though the card itself renders
-    // for the AI trigger — a short list is still a mirror, regardless of
-    // whether an unrelated action also lives in this card.
-    expect(screen.queryByText('stats.load.title')).toBeNull()
-  })
-
   it('renders the assignee label once above the row threshold', () => {
     const rows = [
       ...manyRows(11),
@@ -231,91 +212,5 @@ describe('InboxStats', () => {
 
     expect(screen.getByText('stats.load.title')).toBeTruthy()
     expect(screen.getByText('assignee.unassigned')).toBeTruthy()
-  })
-
-  it('shows the trigger while idle, and calls onSuggestTodos on click', () => {
-    const onSuggestTodos = vi.fn()
-    renderWithTheme(
-      <InboxStats
-        assignableRows={[]}
-        now={NOW}
-        onSuggestTodos={onSuggestTodos}
-        openRows={[]}
-        snoozed={EMPTY_SNOOZED}
-        snoozedRows={[]}
-        suggestions={{status: 'idle'}}
-      />,
-    )
-
-    expect(screen.getByText('overview.askAi')).toBeTruthy()
-    fireEvent.click(screen.getByText('overview.askAi'))
-    expect(onSuggestTodos).toHaveBeenCalledTimes(1)
-  })
-
-  it('hides the trigger once a suggestion list has come back, showing the suggestions instead', () => {
-    renderWithTheme(
-      <InboxStats
-        assignableRows={[]}
-        now={NOW}
-        onSuggestTodos={vi.fn()}
-        openRows={[]}
-        snoozed={EMPTY_SNOOZED}
-        snoozedRows={[]}
-        suggestions={{status: 'done', items: [{title: 'Write a hero image brief', reason: 'Three posts are missing one.'}]}}
-      />,
-    )
-
-    expect(screen.queryByText('overview.askAi')).toBeNull()
-    expect(screen.getByText('Write a hero image brief')).toBeTruthy()
-    expect(screen.getByText('Three posts are missing one.')).toBeTruthy()
-  })
-
-  it('says so when nothing looks worth a new todo, rather than showing an empty list', () => {
-    renderWithTheme(
-      <InboxStats
-        assignableRows={[]}
-        now={NOW}
-        onSuggestTodos={vi.fn()}
-        openRows={[]}
-        snoozed={EMPTY_SNOOZED}
-        snoozedRows={[]}
-        suggestions={{status: 'done', items: []}}
-      />,
-    )
-
-    expect(screen.getByText('todoSuggest.none')).toBeTruthy()
-  })
-
-  it('adds a suggestion by its own index, and dismisses another without touching it', () => {
-    const onAddSuggestion = vi.fn()
-    const onDismissSuggestion = vi.fn()
-
-    renderWithTheme(
-      <InboxStats
-        assignableRows={[]}
-        now={NOW}
-        onAddSuggestion={onAddSuggestion}
-        onDismissSuggestion={onDismissSuggestion}
-        onSuggestTodos={vi.fn()}
-        openRows={[]}
-        snoozed={EMPTY_SNOOZED}
-        snoozedRows={[]}
-        suggestions={{
-          status: 'done',
-          items: [
-            {title: 'First suggestion', reason: 'Reason one.'},
-            {title: 'Second suggestion', reason: 'Reason two.'},
-          ],
-        }}
-      />,
-    )
-
-    const addButtons = screen.getAllByText('todoSuggest.add')
-    fireEvent.click(addButtons[1])
-    expect(onAddSuggestion).toHaveBeenCalledWith(1)
-
-    const dismissButtons = screen.getAllByText('todoSuggest.dismiss')
-    fireEvent.click(dismissButtons[0])
-    expect(onDismissSuggestion).toHaveBeenCalledWith(0)
   })
 })

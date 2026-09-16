@@ -1,6 +1,7 @@
 import {visionTool} from '@sanity/vision'
 import {defineConfig} from 'sanity'
 import {
+  documentValidation,
   needsAttention,
   openTasks,
   structureInbox,
@@ -18,7 +19,7 @@ import {clusterSpike} from './plugins/clusterSpike'
 import {navBadgeSpike} from './plugins/navBadgeSpike'
 import {navbarBadgeSpike} from './plugins/navbarBadgeSpike'
 import {proposalsSpike} from './plugins/proposalsSpike'
-import {schemaTypes} from './schemaTypes'
+import {imageAltProposal, schemaTypes} from './schemaTypes'
 
 const projectId = process.env.SANITY_STUDIO_PROJECT_ID!
 const dataset = process.env.SANITY_STUDIO_DATASET || 'production'
@@ -72,6 +73,7 @@ export default defineConfig([
           // Zero days, so a draft made seconds ago shows up — a seven-day
           // default would make this workspace look broken while testing.
           unpublishedDrafts({olderThanDays: 0}),
+          documentValidation(),
           needsAttention(),
           upcomingReleases(),
           todos(),
@@ -209,6 +211,6 @@ export default defineConfig([
     projectId,
     dataset,
     plugins: [structureTool({structure}), structureInbox({sources: [proposalsSpike()]})],
-    schema: {types: schemaTypes},
+    schema: {types: [...schemaTypes, imageAltProposal]},
   },
 ])

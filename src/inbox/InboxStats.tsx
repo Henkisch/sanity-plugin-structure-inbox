@@ -1,5 +1,4 @@
-import {SparklesIcon} from '@sanity/icons/Sparkles'
-import {Avatar, Button, Card, Flex, Stack, Text} from '@sanity/ui'
+import {Avatar, Card, Flex, Stack, Text} from '@sanity/ui'
 import {useMemo} from 'react'
 import {useTranslation} from 'sanity'
 
@@ -7,7 +6,6 @@ import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {type SnoozeState} from '../store/snoozes'
 import {initials, UnassignedAvatar} from './InboxRow'
 import {type MergedRow} from './mergeItems'
-import {type SuggestTodosState} from './types'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -129,20 +127,6 @@ interface InboxStatsProps {
   now: number
   /** `openRows`, restricted to sources that offer `assign` — the only ones "unassigned" means anything for. */
   assignableRows: MergedRow[]
-  /**
-   * Runs `Inbox.tsx`'s own pane-level suggestion read and renders the result
-   * right here, unlike "Summarize" (a full paragraph, shown in its own card
-   * above the list — too wide for this column's own comfort). A short list
-   * of concrete todos with an Add each fits this card's own glanceable
-   * rhythm instead. Omit (when no `todos` source is configured to add one
-   * into) to leave this card stats-only.
-   */
-  onSuggestTodos?: () => void
-  /** Adds one suggestion (by index into `suggestions.items`) to the editor's own todo list. */
-  onAddSuggestion?: (index: number) => void
-  /** Drops one suggestion (by index) without adding it — nothing is persisted either way. */
-  onDismissSuggestion?: (index: number) => void
-  suggestions?: SuggestTodosState
 }
 
 /**
@@ -156,17 +140,7 @@ interface InboxStatsProps {
  * the whole-team picture underneath that, so the two stay independent.
  */
 export function InboxStats(props: InboxStatsProps) {
-  const {
-    openRows,
-    snoozedRows,
-    snoozed,
-    now,
-    assignableRows,
-    onSuggestTodos,
-    onAddSuggestion,
-    onDismissSuggestion,
-    suggestions = {status: 'idle'},
-  } = props
+  const {openRows, snoozedRows, snoozed, now, assignableRows} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
   const unassignedCount = useMemo(() => countUnassigned(assignableRows), [assignableRows])
@@ -181,14 +155,8 @@ export function InboxStats(props: InboxStatsProps) {
   // about it. The one exception is something about to wake: that's the
   // pane's only genuinely invisible state, worth saying even on a two-row
   // inbox, so it earns the card's space regardless of size.
-  //
-  // Gates only the stat breakdowns below, not the whole card: the AI
-  // suggest-todos trigger (`onSuggestTodos`) is a real action, not a
-  // restatement of the visible list, so a short inbox still gets the card
-  // for that if it's configured — this plan predates that feature and only
-  // ever reasoned about the stats themselves being redundant on a short list.
   const showStats = openRows.length >= STATS_MIN_ROWS || wakesSoon
-  if (!showStats && !onSuggestTodos) return null
+  if (!showStats) return null
 
   return (
     <Card border overflow="hidden" radius={3} shadow={0}>
@@ -213,7 +181,7 @@ export function InboxStats(props: InboxStatsProps) {
       </Card>
 
       <Stack gap={4} padding={4}>
-        {showStats && (oldestAgeDays !== null || wakesAt !== null || overdueCount > 0) && (
+        {(oldestAgeDays !== null || wakesAt !== null || overdueCount > 0) && (
           <Stack gap={2}>
             {oldestAgeDays !== null && (
               <Flex align="center" gap={2} justify="space-between">
@@ -246,7 +214,7 @@ export function InboxStats(props: InboxStatsProps) {
           </Stack>
         )}
 
-        {showStats && (assigneeLoad.length > 0 || unassignedCount > 0) && (
+        {(assigneeLoad.length > 0 || unassignedCount > 0) && (
           <Stack gap={2}>
             <Text muted size={0} weight="semibold">
               {t('stats.load.title')}
@@ -279,82 +247,6 @@ export function InboxStats(props: InboxStatsProps) {
                 </Flex>
               ))}
             </Stack>
-          </Stack>
-        )}
-
-        {onSuggestTodos && (
-          <Stack gap={3}>
-            {suggestions.status !== 'done' && (
-              // `justify="flex-start"`, not left to the `Stack`'s own
-              // default: a bare `Button` here rendered centered under the
-              // stats above it, reading as its own disconnected element
-              // rather than one more row in this card. `marginLeft` alone
-              // (an earlier attempt) offset the button's own padding but did
-              // nothing about the centering itself.
-              <Flex justify="flex-start" style={{marginLeft: -8}}>
-                <Button
-                  disabled={suggestions.status === 'loading'}
-                  fontSize={1}
-                  icon={SparklesIcon}
-                  mode="bleed"
-                  onClick={onSuggestTodos}
-                  padding={2}
-                  text={suggestions.status === 'loading' ? t('todoSuggest.loading') : t('overview.askAi')}
-                />
-              </Flex>
-            )}
-
-            {suggestions.status === 'error' && (
-              <Text muted size={1}>
-                {t('todoSuggest.error')}
-              </Text>
-            )}
-
-            {suggestions.status === 'done' && suggestions.items.length === 0 && (
-              <Text muted size={1}>
-                {t('todoSuggest.none')}
-              </Text>
-            )}
-
-            {suggestions.status === 'done' && suggestions.items.length > 0 && (
-              <Stack gap={3}>
-                {suggestions.items.map((suggestion, index) => (
-                  // eslint-disable-next-line react/no-array-index-key -- stable per render: a suggestion is only ever added or dismissed, both of which remove it from `items` outright rather than reordering around it.
-                  <Stack gap={2} key={index}>
-                    <Flex align="flex-start" gap={2}>
-                      <Text muted size={0}>
-                        <SparklesIcon />
-                      </Text>
-                      <Stack flex={1} gap={1}>
-                        <Text size={1} weight="semibold">
-                          {suggestion.title}
-                        </Text>
-                        <Text muted size={1}>
-                          {suggestion.reason}
-                        </Text>
-                      </Stack>
-                    </Flex>
-                    <Flex gap={2} paddingLeft={4}>
-                      <Button
-                        fontSize={0}
-                        mode="bleed"
-                        onClick={() => onAddSuggestion?.(index)}
-                        padding={1}
-                        text={t('todoSuggest.add')}
-                        tone="primary"
-                      />
-                      <Button
-                        fontSize={0}
-                        mode="bleed"
-                        onClick={() => onDismissSuggestion?.(index)}
-                        padding={1}
-                        text={t('todoSuggest.dismiss')}
-                      />
-                    </Flex>
-                  </Stack>
-                ))}
-              </Stack>
-            )}
           </Stack>
         )}
       </Stack>

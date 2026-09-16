@@ -298,7 +298,17 @@ export function InboxRow(props: InboxRowProps) {
   }
 
   const checkbox = onSelectedChange && (
-    <Flex align="center" onClick={stopPropagation} paddingLeft={1} paddingRight={compact ? 1 : 2}>
+    <Flex
+      align="center"
+      onClick={stopPropagation}
+      paddingLeft={1}
+      paddingRight={compact ? 1 : 2}
+      // Lines the checkbox's own visual centre up with the title text's
+      // line, now that the row's outer `Flex` is always `flex-start` —
+      // without this, `flex-start` puts the checkbox's own top edge level
+      // with the title's top edge, not its centre.
+      paddingTop={1}
+    >
       <Checkbox
         aria-labelledby={labelId}
         checked={selected}
@@ -570,7 +580,7 @@ export function InboxRow(props: InboxRowProps) {
     // minimum than the row actually has room for, so `textOverflow`
     // "ellipsis" below never got a chance to kick in — the row just forced
     // the whole card wider, past its own container, instead of truncating.
-    <Stack flex={1} gap={2} style={{minWidth: 0}}>
+    <Stack flex={1} gap={compact ? 3 : 2} style={{minWidth: 0}}>
       <Flex align="center" gap={2} style={{minWidth: 0}}>
         <Text
           id={labelId}
@@ -606,12 +616,12 @@ export function InboxRow(props: InboxRowProps) {
       <Card
         aria-hidden={leaving}
         onClick={leaving ? undefined : handleRowClick}
-        padding={2}
+        padding={3}
         radius={2}
         style={exitStyle}
         tone={selected ? 'primary' : tone}
       >
-        <Flex align="center" gap={1}>
+        <Flex align="center" gap={2}>
           {checkbox}
           <Box flex={1} style={{minWidth: 0}}>
           {label}
@@ -632,13 +642,15 @@ export function InboxRow(props: InboxRowProps) {
       style={exitStyle}
       tone={selected ? 'primary' : tone}
     >
-      {/* Centered normally — the common case is just a title and a
-          subtitle line, and a top-aligned checkbox there floated away from
-          the row's actual visual center. `flex-start` only once the assess
-          row/remove link actually make this row taller than that (the same
-          condition gating that block below): a vertically-centered checkbox
-          on a taller row floats away from the title it labels instead. */}
-      <Flex align={hasExtraRow ? 'flex-start' : 'center'} gap={2}>
+      {/* Always `flex-start`, never centered against the whole row: a
+          vertically-centered checkbox sits between the title and subtitle
+          lines rather than against the title itself, which reads as
+          misaligned regardless of whether the row also has an assess/fix
+          line beneath (confirmed live — centering looked wrong even for the
+          plain two-line case, not just the taller one). The checkbox's own
+          wrapper gets a small `paddingTop` instead, to line its own visual
+          centre up with the title text's line, not the row's own top edge. */}
+      <Flex align="flex-start" gap={2}>
         {checkbox}
 
         <Box flex={1} style={{minWidth: 0}}>

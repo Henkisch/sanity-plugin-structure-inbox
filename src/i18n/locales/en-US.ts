@@ -151,25 +151,32 @@ const enUS = {
   'summarize.loading': 'Summarizing…',
   'summarize.error': 'Could not reach AI.',
   'summarize.hint': 'Asks AI what looks most worth starting with, across everything open right now.',
+  // The result card's own title — same reasoning as `todoSuggest.title`:
+  // a bare paragraph next to Dismiss had no context of its own on the card.
+  'summarize.title': 'Where to start',
   // Not "Cancel" — nothing is in progress at this point, the read already
   // happened; this closes it, same as dismissing any other read-only card.
   'summarize.dismiss': 'Dismiss',
 
   'stats.title': 'Overview',
-  // Triggers `todoSuggest.*` below, not `summarize.*` — a distinct read
-  // (concrete todos to add, not a paragraph) with its own trigger, rather
-  // than a second door to the same Summarize action. Names what it's
-  // actually asking, not just "Ask AI" — that alone left even someone who
-  // knows this plugin well with no idea what the question even was.
-  'overview.askAi': 'Ask AI: what to work on first →',
-  // AI-suggested personal todos — the "action" half of `overview.askAi`,
-  // same "insight, then action" shape `fix.*` uses for a fix proposal: never
+  // AI-suggested personal todos — a distinct read (concrete todos to add,
+  // not a paragraph) with its own trigger next to Summarize's, same
+  // "insight, then action" shape `fix.*` uses for a fix proposal: never
   // added on its own, only ever via an explicit `todoSuggest.add` click.
+  'todoSuggest.ask': 'Suggest todos',
+  // The result card's own title, once it actually has items — the error/
+  // nothing-found states name themselves in their own sentence, but a bare
+  // list of suggestions had nothing on its own left edge, next to
+  // `dismissAll` on the right.
+  'todoSuggest.title': 'Suggested todos',
   'todoSuggest.loading': 'Thinking…',
   'todoSuggest.none': 'Nothing looks worth a new todo right now.',
   'todoSuggest.error': 'Could not reach AI.',
-  'todoSuggest.add': 'Add',
+  'todoSuggest.add': 'Add todo',
   'todoSuggest.dismiss': 'Dismiss',
+  // The whole-card dismiss, distinct from the per-item one right above it —
+  // same word would read as one of them not doing what it says.
+  'todoSuggest.dismissAll': 'Dismiss all',
   'stats.load.title': 'Open items by assignee',
   // The three lines `InboxStats.tsx` shows only above `STATS_MIN_ROWS` (or
   // when something wakes soon) — each says something the visible list

@@ -168,7 +168,7 @@ export function InboxSection(props: InboxSectionProps) {
         </Box>
       ) : (
         <Stack>
-          <Stack gap={1} padding={1}>
+          <Stack gap={2} padding={1}>
             {visible.map((item) => (
               <InboxRow
                 assignableUsers={assign?.users}

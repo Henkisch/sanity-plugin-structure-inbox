@@ -21,7 +21,7 @@ import {Menu, MenuButton, MenuItem} from '@sanity/ui/menu'
 import {Tooltip} from '@sanity/ui/tooltip'
 import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {useCurrentUser, useTranslation} from 'sanity'
-import {styled} from 'styled-components'
+import {keyframes, styled} from 'styled-components'
 
 import {promptJson} from '../ai/promptJson'
 import {useAgentClient} from '../ai/useAgentClient'
@@ -86,6 +86,27 @@ const ResponsiveColumns = styled.div`
   @container (min-width: 1024px) {
     grid-template-columns: 2fr 1fr;
   }
+`
+
+const fadeSlideIn = keyframes`
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+`
+
+/**
+ * Summarize's and the AI-suggested-todos' own result cards both use this —
+ * appearing in place with no transition at all, right where an editor is
+ * already looking (just below the button they clicked), read as a jump
+ * rather than a response to that click.
+ */
+const AnimateIn = styled.div`
+  animation: ${fadeSlideIn} 180ms ease-out;
 `
 
 const OPEN_TAB_ID = 'structure-inbox-open'
@@ -842,6 +863,24 @@ export function Inbox({sources, ask = false}: InboxProps) {
                 />
               </Tooltip>
 
+              {/* Same tier as Summarize, not the aside — both are pane-wide
+                  AI reads triggered from the same header, the same reasoning
+                  Summarize itself already gets this spot for. Used to live as
+                  a plain link inside the Overview stats card; moved here once
+                  a short inbox (the common case) made that card render as
+                  almost nothing but this one link, which read as its own
+                  kind of misplaced. */}
+              {addTodo && (
+                <Button
+                  disabled={suggestions.status === 'loading'}
+                  fontSize={1}
+                  icon={SparklesIcon}
+                  mode="ghost"
+                  onClick={handleSuggestTodos}
+                  text={suggestions.status === 'loading' ? t('todoSuggest.loading') : t('todoSuggest.ask')}
+                />
+              )}
+
               {/* Ahead of `AddMenu`, not after: `AddMenu` stays the
                   right-most, primary action a returning editor already
                   knows, and a source-level action is the newer, less
@@ -900,39 +939,6 @@ export function Inbox({sources, ask = false}: InboxProps) {
         </Stack>
       </Card>
 
-      {/* Same loading/done/error shape as `InboxRow.tsx`'s own `assessRow`
-          — this is the pane-level version of the same capability, not a
-          different pattern. Dismissible rather than tied to `summary.status`
-          alone: a stale read from before the list changed shouldn't linger
-          silently forever, but the editor decides when they're done with it,
-          not the next render. */}
-      {(summary.status === 'done' || summary.status === 'error') && (
-        <Box paddingX={4} paddingTop={4}>
-          <Container width={4}>
-            <Card border padding={3} radius={2} tone={summary.status === 'error' ? 'critical' : 'primary'}>
-              <Flex align="flex-start" gap={3} justify="space-between">
-                {/* Capped, not the full width of a 1600px-wide `Container`:
-                    a paragraph read that wide is uncomfortable to read —
-                    body text wants roughly 60-75 characters per line, not
-                    the same edge-to-edge width a data-dense row list uses. */}
-                <Box style={{maxWidth: '640px'}}>
-                  <Text size={1}>
-                    {summary.status === 'error' ? t('summarize.error') : summary.message}
-                  </Text>
-                </Box>
-                <Button
-                  fontSize={1}
-                  mode="bleed"
-                  onClick={() => setSummary({status: 'idle'})}
-                  padding={2}
-                  text={t('summarize.dismiss')}
-                />
-              </Flex>
-            </Card>
-          </Container>
-        </Box>
-      )}
-
       {main.map((source) => (
         <BoundedSourceFeed
           key={source.name}
@@ -960,6 +966,168 @@ export function Inbox({sources, ask = false}: InboxProps) {
             <ColumnsBoundary>
               <ResponsiveColumns>
                 <Box>
+                  {/* Same loading/done/error shape as `InboxRow.tsx`'s own
+                      `assessRow` — this is the pane-level version of the
+                      same capability, not a different pattern. Dismissible
+                      rather than tied to `summary.status` alone: a stale
+                      read from before the list changed shouldn't linger
+                      silently forever, but the editor decides when they're
+                      done with it, not the next render. Scoped to this
+                      column specifically, not the whole pane width — it's a
+                      response to a header click, and reads as connected to
+                      the list right below it only once it's exactly as wide
+                      as that list, not stretched across the aside too. */}
+                  {(summary.status === 'done' || summary.status === 'error') && (
+                    <Box marginBottom={4}>
+                      <AnimateIn>
+                        <Card border padding={4} radius={2} tone={summary.status === 'error' ? 'critical' : 'primary'}>
+                          <Stack gap={3}>
+                            <Flex align="center" justify="space-between">
+                              <Text size={1} weight="semibold">
+                                {t('summarize.title')}
+                              </Text>
+                              <Button
+                                fontSize={1}
+                                mode="bleed"
+                                onClick={() => setSummary({status: 'idle'})}
+                                padding={2}
+                                text={t('summarize.dismiss')}
+                              />
+                            </Flex>
+                            {/* Capped, not the column's own full width: body
+                                text wants roughly 60-75 characters per line,
+                                not the same edge-to-edge width a data-dense
+                                row list uses. */}
+                            <Box style={{maxWidth: '640px'}}>
+                              <Text size={1}>
+                                {summary.status === 'error' ? t('summarize.error') : summary.message}
+                              </Text>
+                            </Box>
+                          </Stack>
+                        </Card>
+                      </AnimateIn>
+                    </Box>
+                  )}
+
+                  {/* The "action" half of `todoSuggest.ask`'s trigger in the
+                      header above — same dismissible-card shape Summarize's
+                      own result already uses, same column-scoping reasoning.
+                      Not tied to `suggestions.status === 'done'` alone: an
+                      error or an empty result both need the same explicit
+                      "Dismiss" a done-with-items result gets, rather than
+                      silently blocking the trigger from ever showing again
+                      (its own header button hides once `suggestions.status
+                      === 'done'`, the same gate `summarize.ask` never
+                      needed since it can always re-run). */}
+                  {addTodo && (suggestions.status === 'done' || suggestions.status === 'error') && (
+                    <Box marginBottom={4}>
+                      <AnimateIn>
+                        <Card
+                          border
+                          padding={4}
+                          radius={2}
+                          tone={suggestions.status === 'error' ? 'critical' : 'primary'}
+                        >
+                          <Stack gap={3}>
+                            {suggestions.status === 'error' && (
+                              <Flex align="flex-start" gap={3} justify="space-between">
+                                <Text size={1}>{t('todoSuggest.error')}</Text>
+                                <Button
+                                  fontSize={1}
+                                  mode="bleed"
+                                  onClick={() => setSuggestions({status: 'idle'})}
+                                  padding={2}
+                                  text={t('todoSuggest.dismiss')}
+                                />
+                              </Flex>
+                            )}
+
+                            {suggestions.status === 'done' && suggestions.items.length === 0 && (
+                              <Flex align="flex-start" gap={3} justify="space-between">
+                                <Text size={1}>{t('todoSuggest.none')}</Text>
+                                <Button
+                                  fontSize={1}
+                                  mode="bleed"
+                                  onClick={() => setSuggestions({status: 'idle'})}
+                                  padding={2}
+                                  text={t('todoSuggest.dismiss')}
+                                />
+                              </Flex>
+                            )}
+
+                            {suggestions.status === 'done' && suggestions.items.length > 0 && (
+                              <Stack gap={4}>
+                                {/* Every other state this card can be in
+                                    (error, nothing found) already names
+                                    itself in its own sentence, next to a
+                                    whole-card `Dismiss` — a bare item list
+                                    had neither: no title on its own left
+                                    edge, and (until now) no way to close the
+                                    card without acting on each item first. */}
+                                <Flex align="center" justify="space-between">
+                                  <Text size={1} weight="semibold">
+                                    {t('todoSuggest.title')}
+                                  </Text>
+                                  <Button
+                                    fontSize={1}
+                                    mode="bleed"
+                                    onClick={() => setSuggestions({status: 'idle'})}
+                                    padding={2}
+                                    text={t('todoSuggest.dismissAll')}
+                                  />
+                                </Flex>
+                                <Stack gap={5}>
+                                  {suggestions.items.map((suggestion, index) => (
+                                  // eslint-disable-next-line react/no-array-index-key -- stable per render: a suggestion is only ever added or dismissed, both of which remove it from `items` outright rather than reordering around it.
+                                  <Flex align="flex-start" gap={2} key={index}>
+                                    <Text muted size={0}>
+                                      <SparklesIcon />
+                                    </Text>
+                                    <Stack flex={1} gap={3} style={{maxWidth: '640px'}}>
+                                      <Text size={1} weight="semibold">
+                                        {suggestion.title}
+                                      </Text>
+                                      <Text muted size={1}>
+                                        {suggestion.reason}
+                                      </Text>
+                                      <Flex gap={2}>
+                                        {/* `marginLeft` cancels this button's
+                                            own padding — `tone="primary"`
+                                            gives it a visible background tint
+                                            even at rest (unlike the plain
+                                            `Dismiss` next to it), which
+                                            otherwise pushes its own text out
+                                            of line with the title/description
+                                            above. */}
+                                        <Button
+                                          fontSize={0}
+                                          mode="bleed"
+                                          onClick={() => handleAddSuggestion(index)}
+                                          padding={1}
+                                          style={{marginLeft: -4}}
+                                          text={t('todoSuggest.add')}
+                                          tone="primary"
+                                        />
+                                        <Button
+                                          fontSize={0}
+                                          mode="bleed"
+                                          onClick={() => handleDismissSuggestion(index)}
+                                          padding={1}
+                                          text={t('todoSuggest.dismiss')}
+                                        />
+                                      </Flex>
+                                    </Stack>
+                                  </Flex>
+                                  ))}
+                                </Stack>
+                              </Stack>
+                            )}
+                          </Stack>
+                        </Card>
+                      </AnimateIn>
+                    </Box>
+                  )}
+
                   <MergedList
                     ask={ask}
                     assessments={assessments}
@@ -987,13 +1155,9 @@ export function Inbox({sources, ask = false}: InboxProps) {
                     <InboxStats
                       assignableRows={assignableRows}
                       now={now}
-                      onAddSuggestion={handleAddSuggestion}
-                      onDismissSuggestion={handleDismissSuggestion}
-                      onSuggestTodos={addTodo ? handleSuggestTodos : undefined}
                       openRows={openRows}
                       snoozed={snoozes.state.snoozed}
                       snoozedRows={snoozedRows}
-                      suggestions={suggestions}
                     />
 
                     {/* Always `view="open"`, never the pane's own tab: an

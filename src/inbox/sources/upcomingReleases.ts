@@ -75,7 +75,7 @@ export interface UpcomingReleasesOptions {
  * down with it.
  */
 export function upcomingReleases(options: UpcomingReleasesOptions = {}): InboxSource {
-  const {limit = 5, title = 'Releases', placement = 'aside'} = options
+  const {limit = 5, title = 'Upcoming releases', placement = 'aside'} = options
 
   return {
     name: 'upcomingReleases',
