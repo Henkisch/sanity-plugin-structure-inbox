@@ -809,7 +809,17 @@ export function Inbox({sources, ask = false, contentGaps, context}: InboxProps) 
   // by type would just be one bucket), so they belong in that column's own
   // header rather than spanning the whole pane above both boxes.
   const filterBar = (showAssigneeFilter || availableTypes.length > 1) && (
-    <Flex gap={3} wrap="wrap">
+    // `justify="flex-end"`: this cluster sits in the header grid's own
+    // 'right' area, whose track can end up wider than this content alone
+    // needs — the grid's second row (the Ask input, spanning both columns)
+    // can force that track's `auto` width up to satisfy its own min-width,
+    // independent of what 'right' itself would ask for. Right-justifying
+    // means the visible avatars/filter always hug the true right edge
+    // regardless of why the column ended up that wide, instead of leaving
+    // an unexplained gap after them. Confirmed live: the gap tracked
+    // `gridTemplateColumns`'s second track exactly, not any margin/padding
+    // on this content.
+    <Flex gap={3} justify="flex-end" wrap="wrap">
       {showAssigneeFilter && (
         // A real avatar-stack (Sanity UI's own component: overlapping
         // circles, not a row of separate buttons) — clicking the
