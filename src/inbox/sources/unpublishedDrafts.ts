@@ -74,6 +74,16 @@ const QUERY = `*[
 }`
 
 /**
+ * How many extra candidates to pull before filtering to `onlyMine`, since
+ * `filterAuthoredBy` can only sift a batch GROQ already narrowed — it has
+ * no way to ask the dataset directly for "documents I authored." A fixed
+ * multiplier, not a loop: bounded and predictable, at the cost of still
+ * being able to under-report in an extreme case (see this file's own
+ * Maintenance notes).
+ */
+const ONLY_MINE_OVERFETCH_MULTIPLIER = 5
+
+/**
  * Drafts that have sat unpublished long enough to look forgotten.
  *
  * Deliberately plain GROQ over the Studio's own dataset: no addon dataset, no
@@ -140,7 +150,8 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
       // — not a live clock, just this fetch's own "as of now" cutoff.
       // eslint-disable-next-line react/purity -- see comment above
       const before = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString()
-      const params = {before, limit, types: types ?? null}
+      const rawLimit = onlyMine ? limit * ONLY_MINE_OVERFETCH_MULTIPLIER : limit
+      const params = {before, limit: rawLimit, types: types ?? null}
 
       const toItem = (row: DraftRow): InboxItem => ({
         id: row._id,
@@ -168,7 +179,7 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
               rows.map((row) => row._id),
               userId,
             ),
-          ).pipe(map((mine) => rows.filter((row) => mine.has(row._id))))
+          ).pipe(map((mine) => rows.filter((row) => mine.has(row._id)).slice(0, limit)))
         }),
       )
 
