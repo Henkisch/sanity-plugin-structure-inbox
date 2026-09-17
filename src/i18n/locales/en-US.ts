@@ -36,14 +36,14 @@ const enUS = {
   'inbox.unconfigured.description':
     'Pass sources to structureInbox() to fill this pane — open tasks, upcoming releases, forgotten drafts.',
 
-  'source.empty': 'All clear.',
+  'source.empty': 'Nothing open.',
   'source.noneCleared': 'Nothing cleared yet.',
   'source.noneSnoozed': 'Nothing snoozed.',
   'audience.mine': 'Assigned to you',
   'audience.everyone': 'Everyone',
   'assignee.unassigned': 'Unassigned',
   'assignee.unassign': 'Unassign',
-  'assignee.you': '{{name}} (You)',
+  'assignee.you': '{{name}} (you)',
   // The "+N" overflow chip's own label, once more people are assignable
   // than the avatar stack shows at once.
   'assignee.more_one': '{{count}} more person',
@@ -117,7 +117,7 @@ const enUS = {
   'snooze.suggest.none': 'AI had no time to suggest.',
 
   'action.assign': 'Assign to…',
-  'action.assign.suggested': 'Suggest {{name}}',
+  'action.assign.suggested': '{{name}}',
   'action.assign.reason.lastEditor': 'edited this most recently',
   'action.assign.reason.mentioned': 'was mentioned in this thread',
   'action.transfer': 'Hand off to…',
@@ -171,7 +171,7 @@ const enUS = {
   'ask.submit': 'Ask',
   'ask.loading': 'Looking through your inbox…',
   'ask.nothingMatched': 'Nothing here matches that.',
-  'ask.unparseable': 'AI answered, but not in a way I could use.',
+  'ask.unparseable': "AI answered, but not in a way this pane could use.",
   'ask.error': 'Could not reach AI.',
   'ask.dismiss': 'Dismiss',
 
