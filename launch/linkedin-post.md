@@ -8,7 +8,7 @@ In most of my Sanity projects, the Structure tool is where editors start their d
 
 That bothered me for a while. There's usually plenty worth showing there. A draft someone forgot to publish, a release scheduled for Thursday that's still empty, a task open since last week. Nothing is broken, so nobody gets told.
 
-So I built a plugin that fills it. It opens on its own and says "13 things waiting on you and your team". Everything in one list, most urgent first.
+So I built a plugin that fills it. It opens on its own and says "12 things waiting on you and your team". Everything in one list, most urgent first.
 
 What I like best is that it's all actionable from the list itself. Open the document, hand it to a colleague, snooze it until next week or tick it off. And you can do that to a draft and a task in one go.
 
