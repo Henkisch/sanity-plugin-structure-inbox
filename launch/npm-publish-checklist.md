@@ -45,14 +45,12 @@ going in.
 - [x] GitHub repo topics set (`sanity`, `sanity-plugin`, `sanity-io`, `sanity-studio`, `cms`,
       `headless-cms`, `contentops`, `inbox`) and homepage pointed at the npm page — these are the
       discovery path from GitHub search.
-- [x] **Submitted to the Sanity Exchange** 2026-09-17. Listings are reviewed before they appear, so
-      `sanity.io/plugins/sanity-plugin-structure-inbox` may 404 for a while yet — recheck in a few
-      days rather than resubmitting.
+- [x] **Live on the Sanity Exchange** 2026-09-17:
+      [sanity.io/plugins/sanity-plugin-structure-inbox](https://www.sanity.io/plugins/sanity-plugin-structure-inbox).
+      Submitted and listed the same day — no review wait, contrary to what this file guessed.
 - [x] **Posted `launch/discord-post.md`** 2026-09-17.
-- [x] **Posted `launch/linkedin-post.md`** 2026-09-17.
-
-Launch complete. The only thing still outstanding is the Exchange listing appearing, which is on
-their review, not on us.
+- [ ] **Post `launch/linkedin-post.md`** — planned 2026-09-18. Lead image `media/hero-linkedin.png`
+      (1.91:1), link in the first comment.
 
 <details>
 <summary>Original Exchange submission steps, for reference</summary>
