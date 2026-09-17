@@ -242,6 +242,30 @@ structureTool({
 })
 ```
 
+## AI features, and what they cost
+
+Every source, `assign`/`transfer`, resolve/acknowledge/snooze, and both digest recipes work with
+**zero AI and zero Sanity Agent Actions usage** — the pane is fully useful with no AI configured at
+all. AI is additive on top of that, never required:
+
+| Feature                                 | Where                          | Default | Triggered by            |
+| ---------------------------------------- | ------------------------------- | ------- | ------------------------ |
+| **Ask AI** (`assess`)                    | Per row, on `unpublishedDrafts` | —       | Explicit click            |
+| **Suggest a time** (`suggestSnooze`)     | Per row, on `unpublishedDrafts` | —       | Explicit click            |
+| **Summarize**                            | Pane-wide                      | On      | Explicit click            |
+| **Suggest todos**                        | Pane-wide                      | On      | Explicit click            |
+| **Ask** (`ask: true`)                    | Pane-wide                      | Off     | Explicit click, per question |
+| **Find content gaps** (`contentGaps: {}`)| Pane-wide                      | Off     | Explicit click            |
+
+Every one of these is click-triggered, never automatic — nothing fires just from selecting a row
+or opening the pane, and every handler is guarded against a rapid double-click firing twice.
+
+Sanity bills Agent Actions at a flat **$0.05 per request**, regardless of document or prompt size —
+cost scales with how many times editors click these buttons, not with how many documents or how
+much content you have. `summarize`/`suggestTodos` are on by default since they're cheap and
+low-friction; turn either off (see [Options](#options)) for a config-level guarantee of zero spend
+from that read, regardless of what an editor clicks.
+
 ## Grounding AI reads in your project
 
 ![The AI insights menu: Summarize, Suggest todos, and Find content gaps](./media/ai-insights.png)
@@ -270,9 +294,8 @@ import projectContext from './project-context.md?raw'
 structureInbox({context: projectContext, sources: [/* ... */]})
 ```
 
-**Summarize** and **Suggest todos** are on by default. To keep either read's AI-credit cost at zero
-regardless of what any editor might click, turn it off — this removes the menu item entirely, so
-no request is ever sent:
+Turning off **Summarize** or **Suggest todos** (see [above](#ai-features-and-what-they-cost))
+removes the menu item entirely, so no request is ever sent:
 
 ```ts
 structureInbox({summarize: false, suggestTodos: false, sources: [/* ... */]})
