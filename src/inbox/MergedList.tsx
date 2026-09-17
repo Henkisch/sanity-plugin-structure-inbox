@@ -989,10 +989,12 @@ export function MergedList(props: MergedListProps) {
           </Card>
         )}
         {/* Directly below the toolbar that produced it — see `results`'
-            own doc comment for why. Each individual card (`Inbox.tsx`)
-            already carries its own `marginBottom`/padding; this wrapper
-            only supplies the horizontal inset so a card doesn't sit flush
-            against this outer Card's own rounded border. */}
+            own doc comment for why. Spacing *between* simultaneous result
+            cards is `Inbox.tsx`'s own `mainColumnResults` `Stack`'s `gap`
+            (deliberately not each card's own `marginBottom` — see that
+            Stack's own comment); this wrapper only supplies the
+            horizontal inset so a card doesn't sit flush against this
+            outer Card's own rounded border. */}
         {results && (
           <Box paddingTop={3} paddingX={3}>
             {results}
