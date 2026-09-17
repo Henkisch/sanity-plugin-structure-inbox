@@ -342,17 +342,35 @@ export function InboxRow(props: InboxRowProps) {
       })
   }, [onProposeFix, item])
 
+  // Same reasoning `Inbox.tsx`'s own `handleAddSuggestion` documents: the
+  // real write (`proposal.apply()`) happens here, in the handler body,
+  // never inside a `setFix` updater — React invokes an updater twice under
+  // StrictMode specifically to catch an impure one, and this write is a
+  // real, one-shot mutation, not something safe to run twice. The
+  // in-flight ref is the same synchronous same-tick guard `handleAssess`/
+  // `handleProposeFix` above already use: a plain `fix.status !== 'proposed'`
+  // check alone doesn't close a same-tick double-click (both clicks would
+  // read the same stale, pre-commit `fix` from the same closure).
+  const applyFixInFlightRef = useRef(false)
+
   const handleApplyFix = useCallback(() => {
-    setFix((current) => {
-      if (current.status !== 'proposed') return current
-      const {proposal} = current
-      proposal
-        .apply()
-        .then(() => setFix({status: 'applied'}))
-        .catch(() => setFix({status: 'error'}))
-      return {status: 'applying', proposal}
-    })
-  }, [])
+    if (fix.status !== 'proposed' || applyFixInFlightRef.current) return
+    applyFixInFlightRef.current = true
+    const {proposal} = fix
+    setFix({status: 'applying', proposal})
+    proposal
+      .apply()
+      .then(() => {
+        applyFixInFlightRef.current = false
+        setFix({status: 'applied'})
+        return undefined
+      })
+      .catch(() => {
+        applyFixInFlightRef.current = false
+        setFix({status: 'error'})
+        return undefined
+      })
+  }, [fix])
 
   const handleDismissFix = useCallback(() => setFix({status: 'idle'}), [])
 

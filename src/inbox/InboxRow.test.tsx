@@ -2,7 +2,7 @@ import {ThemeProvider} from '@sanity/ui'
 import {buildTheme} from '@sanity/ui/theme'
 import {ToastProvider} from '@sanity/ui/toast'
 import {act, cleanup, fireEvent, render, screen} from '@testing-library/react'
-import {type ReactElement} from 'react'
+import {StrictMode, type ReactElement} from 'react'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {AssessmentUnavailableError} from '../ai/assessment'
@@ -37,6 +37,21 @@ function renderRow(ui: ReactElement) {
     <ThemeProvider theme={theme}>
       <ToastProvider>{ui}</ToastProvider>
     </ThemeProvider>,
+  )
+}
+
+// `StrictMode` only for the one test that needs it: React double-invokes a
+// `setState` updater function under `StrictMode` specifically to catch an
+// impure one — every other test in this file renders without it, since
+// doubling *their* own mocked callbacks (`onAssess`/`onProposeFix`) would
+// break assertions that have nothing to do with this.
+function renderRowStrict(ui: ReactElement) {
+  return render(
+    <StrictMode>
+      <ThemeProvider theme={theme}>
+        <ToastProvider>{ui}</ToastProvider>
+      </ThemeProvider>
+    </StrictMode>,
   )
 }
 
@@ -330,6 +345,45 @@ describe('InboxRow', () => {
       const card = message.closest('[data-tone="critical"]')
       expect(card).not.toBeNull()
       expect(card?.getAttribute('data-ui')).toBe('Card')
+    })
+
+    it('applies a proposed fix exactly once under StrictMode, instead of once per invocation of an impure setFix updater', async () => {
+      // Regression for the exact bug class `Inbox.tsx`'s own
+      // `handleAddSuggestion` was already fixed for once: React invokes a
+      // `setState` updater function twice under `StrictMode` specifically
+      // to catch one that isn't pure. `proposal.apply()` is a real,
+      // one-shot mutation — if it lived inside the `setFix` updater
+      // (instead of the handler body), StrictMode's double-invocation
+      // would call it twice for a single click, applying the fix twice.
+      let resolveApply!: () => void
+      const apply = vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveApply = resolve
+          }),
+      )
+      const onProposeFix = vi.fn().mockResolvedValue({summary: 'Replace with "Jane Doe"', apply})
+
+      renderRowStrict(
+        <InboxRow
+          item={item({fixable: true})}
+          onProposeFix={onProposeFix}
+          onSelectedChange={vi.fn()}
+          selected={false}
+        />,
+      )
+      askForFix()
+      await screen.findByText('Replace with "Jane Doe"')
+
+      fireEvent.click(screen.getByRole('button', {name: 'fix.apply'}))
+
+      expect(apply).toHaveBeenCalledTimes(1)
+
+      await act(async () => {
+        resolveApply()
+        await Promise.resolve()
+      })
+      expect(await screen.findByText('fix.applied')).toBeTruthy()
     })
   })
 })
