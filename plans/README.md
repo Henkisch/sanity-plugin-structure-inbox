@@ -57,6 +57,14 @@ behaviour here, fix the comment in the same commit.
 | 043 | `suggestSnooze` fires without consent — make it click-triggered like every other AI read | P1 | M | — | DONE — merged to main. APPROVED (worktree `agent-afd16fc0da356a495`, commit `b8b1ad3`). Verified the sibling `suggestAssignee` effect (same shape) is genuinely fact-based, not AI (`lastEditor`/`mentioned` — transaction history + @mention parsing, confirmed against `authoredBy.ts`/`unresolvedComments.ts`), so leaving it untouched was correct. |
 | 044 | Guard every AI handler against a duplicate request on rapid double-click | P2 | M | — | DONE — merged to main (one manual conflict resolution in Inbox.tsx against plan 045, verified clean). APPROVED (worktree `agent-abc51dded91b66211`, commits `03827ce`, `7880d44`, `b026f07` — 2 revision rounds). Real finding along the way, caught by the executor's own test evidence, not assumption: a `status === 'loading'` state-read guard alone does NOT close a same-tick double-click (both clicks read the same stale pre-commit state) — only a synchronous, plain `useRef` boolean does. All 6 handlers now use that pattern; Plan 032's own `handleSuggestTodos` test (whose premise — two real responses racing — no longer holds once duplicate requests can't happen) was correctly rewritten rather than left contradicting the fix. |
 | 045 | Let an integrator opt out of Summarize/Suggest todos individually | P2 | M | — | DONE — merged to main. APPROVED (worktree `agent-a261a6a07aa70e631`, commit `8850baa`). One necessary fallout fix outside the plan's literal scope list, correctly made: `wrapStructure.test.ts`'s existing exact-equality assertion on `home.getOptions()` needed the two new fields added — this is `inboxNode.tsx`'s own only test coverage. |
+| 046 | `SectionCard`'s error state gets the same critical-red tone every other error in this pane already uses | P1 | S | — | TODO |
+| 047 | A source's `action.icon` renders in the main column but is silently dropped in the aside column | P1 | S | — | TODO |
+| 048 | Two stacked sidebar card headers claim to match but render 4px apart | P1 | S | — | TODO |
+| 049 | Result-card "Dismiss" button loses its corner-flush nudge in 4 of 9 identical slots | P1 | S | — | TODO |
+| 050 | The "Overdue" sidebar stat counts rows that aren't actually overdue | P1 | M | — | TODO |
+| 051 | Fix four small, real wording inconsistencies in the pane's user-facing copy | P2 | S | — | TODO |
+| 052 | The assignee-suggestion lookup gives no feedback while loading or on failure, unlike its sibling snooze-suggestion | P2 | S | — | TODO |
+| 053 | Per-row AI-read failures render identically to a normal result, using a treatment this file already has | P2 | S | — | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale)
@@ -989,3 +997,88 @@ left to rot indefinitely.
   rows' worth of props on a checkbox click is very likely imperceptible
   in practice. **Not worth pursuing** without a real, reported perf
   complaint at a scale this plugin doesn't currently target.
+
+## UI/UX consistency audit, 2026-09-17 (against commit `049bb33`)
+
+Requested focus: "UI and UX consistency across this plugin." Four parallel
+read-only audits, each scoped to a different consistency axis (row-level
+visual patterns; spacing/layout tokens; terminology/wording; empty/
+loading/error state patterns), each self-contained with no context from
+this session beyond the file lists handed to it. Every finding was
+independently re-verified by opening the cited code myself before writing
+any plan — line numbers in the plans below reflect my own reads, not the
+raw subagent reports.
+
+One duplicate found and merged: the row-pattern audit's own finding and
+the empty/loading/error-state audit's own finding both independently
+identified `SectionCard.tsx`'s toneless error branch — folded into a
+single plan (046).
+
+One correction made during verification, worth recording so it isn't
+re-flagged: the per-row AI-failure finding (→ Plan 053) was originally
+reported as "assess/fix render errors as plain inline text" in general —
+on closer read, `assessment`'s own `.catch` handler doesn't set a distinct
+`error` status at all; it folds the failure into the *same* `{status:
+'done'}` branch a successful result uses, just without a `tone`. This
+turned out to make the real fix smaller and safer than first estimated
+(reuse the existing tone-card rendering already built for successful
+toned results, rather than add new render branches) — see Plan 053's own
+"Why this matters" for the corrected, verified mechanism.
+
+- **Plan 046** — `SectionCard`'s error state has no color at all, unlike
+  every other error surface in this pane.
+- **Plan 047** — a source's `action.icon` renders in the main column but
+  is silently dropped in the aside column's own action button.
+- **Plan 048** — `InboxStats`'s and `SectionCard`'s sidebar-card headers
+  claim to match each other (both "confirmed live") but render 54px vs
+  58px — confirmed live in a running Studio, not just from source.
+- **Plan 049** — the result-card "Dismiss" button's corner-flush nudge
+  (`marginRight: -8, marginTop: -6`) is present in 5 of 9 identical slots
+  and missing in the other 4 (Suggest todos' and Find content gaps' own
+  error/none states).
+- **Plan 050** — the "Overdue" sidebar stat is computed from the generic
+  `tone === 'critical'` field, which two sources (`documentValidation`,
+  `linkCheckerFindings`) also set for reasons unrelated to any due date —
+  the stat can be entirely made up of non-overdue rows.
+- **Plan 051** — four small wording inconsistencies in
+  `src/i18n/locales/en-US.ts` (an empty-state string breaking its own
+  "Nothing X yet." pattern; an assign-suggestion chip keeping a verb its
+  sibling snooze-suggestion chip dropped; "(You)" capitalized next to
+  names while every sentence-form "you" elsewhere is lowercase; one
+  AI-outcome string slipping into unattributed first-person "I"). All
+  four are string-*value*-only changes on existing i18n keys — confirmed
+  via `README.md`'s own documented `defineLocaleResourceBundle` override
+  mechanism that this is non-breaking (integrator overrides bind to the
+  key id, not the English value).
+- **Plan 052** — the assignee-suggestion lookup (`SelectionActions.tsx`/
+  `MergedList.tsx`) has no loading/error state at all, unlike its sibling
+  snooze-suggestion feature two lines away in the same file, which already
+  models a full `idle|loading|done|none|error` union.
+- **Plan 053** — per-row assess/fix AI-read failures render with the same
+  visual weight as a normal, successful result — this file already has a
+  working tone-card mechanism for exactly this, just not wired to the
+  failure paths.
+
+**Not flagged as findings** (checked directly, genuinely deliberate or
+already consistent — recorded so they aren't re-audited): no retry UI
+anywhere (a documented, deliberate removal — Plan 034); no `Spinner`
+component used anywhere in this pane — loading is uniformly a plain
+`Text muted` line or a button's own `loading` prop; every source converges
+on the same `{items, loading?, error?}` shape; the four pane-level AI-read
+cards (Summarize/Suggest todos/Find content gaps/Ask) are internally
+well-unified (same card shape, same tone rule, same fade-in, same
+"Could not reach AI." copy); `assign` vs `transfer` ("Hand off to…") and
+`openTasks`'s "Task" vs `todos`'s "Todo" are both documented, intentional
+distinctions, not drift; card radius/shadow scale (outer radius 3/shadow
+0, nested radius 2) is consistent everywhere it was checked; checkbox
+padding deltas between `InboxRow`/`MergedList`/`SectionCard` are each
+explicitly justified by their own doc comments.
+
+**Effort/depth note**: standard-depth audit (4 parallel subagents, one per
+consistency axis), not a `deep` pass. Not audited this run:
+`CreateItemRow.tsx`, `AddMenu.tsx` beyond a targeted check, `StatusDot.tsx`
+beyond a skim, and the full body of `Inbox.tsx` beyond the sections needed
+to verify the findings above (its tab row, filter bar, and AI-result
+cards were read in full; its earlier sections were not re-audited for
+this pass). A future `deep` run could extend this same audit into those
+files.
