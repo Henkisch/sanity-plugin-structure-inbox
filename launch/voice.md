@@ -28,6 +28,12 @@ Read the samples at the bottom before writing anything. They matter more than th
 - **Sentence fragments for emphasis.** Deliberately. Like this.
 - **Rule-of-three lists** where two examples would do.
 
+## Length
+
+Short. A LinkedIn post is ~700 characters, a Discord post ~850. One point, not two, and never
+three. Everything else is a follow-up post. Three drafts of these posts were rejected for length
+before this rule got written down.
+
 ## Sample — keep these in view while writing
 
 > My approach to CSS? No approach really. I styled whatever was available (id:s/classes) to style in my main.css file. Naming conventions? As long as I had some sort of idea what I was styling, that was good enough. Needless to say, my CSS became a mess.
