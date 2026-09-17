@@ -14,6 +14,23 @@ row can be opened, handed to a colleague, snoozed or ticked off without leaving 
 
 > **Requires Sanity Studio v6.**
 
+## Contents
+
+- [Installation](#installation)
+- [Usage](#usage)
+- [Sources](#sources)
+- [Selecting and acting](#selecting-and-acting)
+- [Options](#options)
+- [AI features, and what they cost](#ai-features-and-what-they-cost)
+- [Grounding AI reads in your project](#grounding-ai-reads-in-your-project)
+- [Optional: broken links via `sanity-plugin-link-checker`](#optional-broken-links-via-sanity-plugin-link-checker)
+- [Optional: asking about all your items](#optional-asking-about-all-your-items)
+- [Optional: finding content gaps](#optional-finding-content-gaps)
+- [How it works](#how-it-works)
+- [Localization](#localization)
+- [Develop & test](#develop--test)
+- [License](#license)
+
 ## Installation
 
 ```sh
