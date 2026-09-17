@@ -788,6 +788,33 @@ or **Fix with AI**) — those already ground themselves in one concrete
 document, where "what business is this" adds far less than it does for a
 judgment call across the whole project.
 
+**What to put in it.** Concrete beats generic — "B2B accounting software
+for SMEs, case studies matter more than blog volume" gives the model
+something row titles alone can't reveal; "our mission is to serve
+customers" doesn't. Prefer stable facts (business model, terminology, what
+"done" means for your team) over anything that goes stale on its own —
+a current campaign or this quarter's push is exactly the kind of thing
+nobody remembers to update here, and outdated context actively misleads
+rather than just not helping. Keep it short: a few sentences beats a
+page, since it's prepended to every read this pane makes.
+
+**Loading it from a file, instead of an inline string.** `context` is a
+plain `string` — nothing plugin-specific needs to change to keep longer
+prose out of `sanity.config.ts` itself. Sanity Studio runs on Vite, so a
+plain [`?raw` import](https://vite.dev/guide/assets.html#importing-asset-as-string)
+already works:
+
+```ts
+import projectContext from './project-context.md?raw'
+
+structureInbox({
+  context: projectContext,
+  sources: [
+    /* ... */
+  ],
+})
+```
+
 **Summarize** and **Suggest todos** are on by default — they read only
 what's already on screen and have been part of this pane's baseline
 experience since it shipped. If your organization wants a config-level
