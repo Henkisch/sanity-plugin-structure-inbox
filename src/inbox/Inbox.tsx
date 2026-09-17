@@ -1430,6 +1430,7 @@ export function Inbox({
                       mode="bleed"
                       onClick={() => setSuggestions({status: 'idle'})}
                       padding={2}
+                      style={{marginRight: -8, marginTop: -6}}
                       text={t('todoSuggest.dismiss')}
                     />
                   </Flex>
@@ -1443,6 +1444,7 @@ export function Inbox({
                       mode="bleed"
                       onClick={() => setSuggestions({status: 'idle'})}
                       padding={2}
+                      style={{marginRight: -8, marginTop: -6}}
                       text={t('todoSuggest.dismiss')}
                     />
                   </Flex>
@@ -1549,6 +1551,7 @@ export function Inbox({
                         mode="bleed"
                         onClick={() => setContentGapsResult({status: 'idle'})}
                         padding={2}
+                        style={{marginRight: -8, marginTop: -6}}
                         text={t('contentGaps.dismiss')}
                       />
                     </Flex>
@@ -1562,6 +1565,7 @@ export function Inbox({
                         mode="bleed"
                         onClick={() => setContentGapsResult({status: 'idle'})}
                         padding={2}
+                        style={{marginRight: -8, marginTop: -6}}
                         text={t('contentGaps.dismiss')}
                       />
                     </Flex>
