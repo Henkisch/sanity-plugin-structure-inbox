@@ -1,4 +1,17 @@
-/** The document types this plugin ever writes for an editor's own state. */
+/**
+ * The document types this plugin ever writes for an editor's own state.
+ *
+ * Do **not** add `structureInbox.assignment` (`ASSIGNMENT_TYPE` in
+ * `src/inbox/sources/assignmentStore.ts`) here, even though it's grouped
+ * with these in `AGENTS.md` as another "per-editor-store-shaped, never
+ * registered" type — its own `_id` suffix is a hash of the *target* id
+ * (`assignmentDocId`), not a user id, so `findStaleEditorDocuments`' own
+ * `${_type}.${userId}` assumption (see its doc comment below) does not
+ * hold for it. Adding it here would make every real, live assignment
+ * document look orphaned (its id suffix will never match a real user id),
+ * and the README's own documented cleanup recipe shows deleting exactly
+ * the ids this function returns.
+ */
 export const EDITOR_DOC_TYPES = [
   'structureInbox.dismissals',
   'structureInbox.snoozes',

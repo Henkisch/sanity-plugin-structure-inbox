@@ -51,6 +51,11 @@ content — an editor should never meet one in the structure tool, in search,
 or in a reference picker. Writing an unregistered type through the client is
 fully supported; only the Studio's own UI cares about schema registration.
 
+That's the only thing these five share, though: `.assignment` is *not* a
+per-editor document like the other four (its own `_id` suffix is a hash of
+a target id, not a user id — see `EDITOR_DOC_TYPES`'s own doc comment in
+`src/staleEditorDocs.ts` before treating it as a fifth member of that list).
+
 ## This repo plans its own work in `plans/`
 
 In-flight and historical work is tracked as executable plans under
