@@ -5,6 +5,12 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.0.1](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v1.0.0...v1.0.1) (2026-09-17)
+
+### Bug Fixes
+
+- stop unpublishedDrafts showing a raw document id as its row title ([8a5ae21](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/8a5ae21574f972f1befa6e71179f6a101410b373))
+
 ## 1.0.0 (2026-09-17)
 
 ### ⚠ BREAKING CHANGES
