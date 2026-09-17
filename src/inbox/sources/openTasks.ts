@@ -369,11 +369,11 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
           const message = await agentClient.agent.action.prompt({
             instruction: targetId
               ? "Given the following document:\n$document\n---\nThere's an open task about it: " +
-                `"${item.title}". In one short, specific sentence, suggest a concrete next step.`
+                '"$taskTitle". In one short, specific sentence, suggest a concrete next step.'
               : 'Given this task:\n$items\n---\n' +
                 'In one short, specific sentence, suggest a concrete next step.',
             instructionParams: targetId
-              ? {document: {type: 'document', documentId: targetId}}
+              ? {document: {type: 'document', documentId: targetId}, taskTitle: item.title}
               : {items: item.title},
           })
 
