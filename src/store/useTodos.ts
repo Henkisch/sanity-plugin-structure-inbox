@@ -1,3 +1,4 @@
+import {ClientError} from '@sanity/client'
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {useClient, useCurrentUser} from 'sanity'
 
@@ -36,7 +37,10 @@ export interface Todos {
    * identity rather than becoming a new one. Writes the recipient's
    * document *before* clearing this editor's own copy, so a failed write
    * never loses the todo outright — worst case it briefly exists on both
-   * lists, never on neither.
+   * lists, never on neither. The write itself is revision-guarded and
+   * retried on conflict (see the implementation), so two transfers landing
+   * on the same recipient close together can't silently clobber one
+   * another either.
    */
   transferTo: (id: string, toUserId: string) => Promise<void>
 }
@@ -135,17 +139,57 @@ export function useTodos(): Todos {
       if (!item) return
 
       const toDocumentId = todosDocumentId(toUserId)
-      const raw = await client.fetch<string | null>(`*[_id == $id][0].${TODOS_FIELD}`, {
-        id: toDocumentId,
-      })
-      const targetState = parseTodos(typeof raw === 'string' ? JSON.parse(raw) : null)
-      const value = JSON.stringify(withTransferredTodo(targetState, item))
 
-      await client
-        .transaction()
-        .createIfNotExists({_id: toDocumentId, _type: TODOS_TYPE, [TODOS_FIELD]: value})
-        .patch(toDocumentId, (patch) => patch.set({[TODOS_FIELD]: value}))
-        .commit({visibility: 'async'})
+      // Fetch-merge-write, revision-guarded and retried on conflict rather
+      // than a blind `.set()` — two `transferTo` calls landing on the same
+      // recipient close together (two editors handing off to the same
+      // third person, or one editor transferring two todos back-to-back)
+      // would otherwise race: the second call's own fetch can read a state
+      // that doesn't yet reflect the first call's still-in-flight write,
+      // and a blind overwrite would silently discard it. A handful of
+      // attempts is enough for that realistic contention; failing after
+      // that is a real, surfaced error rather than an undetectable loss.
+      const MAX_ATTEMPTS = 5
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+        // This loop IS a fetch-merge-write retry: each attempt must see
+        // whatever the *previous* attempt (or someone else's concurrent
+        // write) actually committed before deciding what to write next, so
+        // the three awaits below are inherently sequential, not a burst to
+        // parallelize — see `mapWithConcurrency` in `projectDigest.ts` for
+        // the same reasoning applied to a different loop.
+        // eslint-disable-next-line no-await-in-loop -- see comment above
+        const existing = await client.fetch<{_rev: string; value: string | null} | null>(
+          `*[_id == $id][0]{_rev, "value": ${TODOS_FIELD}}`,
+          {id: toDocumentId},
+        )
+        const targetState = parseTodos(
+          typeof existing?.value === 'string' ? JSON.parse(existing.value) : null,
+        )
+        const value = JSON.stringify(withTransferredTodo(targetState, item))
+
+        try {
+          if (existing) {
+            // eslint-disable-next-line no-await-in-loop -- see the comment above the fetch, same reasoning
+            await client
+              .patch(toDocumentId)
+              .ifRevisionId(existing._rev)
+              .set({[TODOS_FIELD]: value})
+              .commit({visibility: 'async'})
+          } else {
+            // eslint-disable-next-line no-await-in-loop -- see the comment above the fetch, same reasoning
+            await client.create(
+              {_id: toDocumentId, _type: TODOS_TYPE, [TODOS_FIELD]: value},
+              {visibility: 'async'},
+            )
+          }
+          break
+        } catch (error) {
+          const isConflict = error instanceof ClientError && error.statusCode === 409
+          if (!isConflict || attempt === MAX_ATTEMPTS) throw error
+          // Otherwise: someone else's write landed first — loop and retry
+          // against a fresh fetch of whatever they just wrote.
+        }
+      }
 
       dirtyRef.current = true
       hasLocalEditRef.current = true

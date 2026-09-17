@@ -1,3 +1,4 @@
+import {ClientError} from '@sanity/client'
 import {act, cleanup, renderHook, waitFor} from '@testing-library/react'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
@@ -135,5 +136,115 @@ describe('useTodos', () => {
 
     act(() => result.current.remove(id))
     expect(result.current.state.items).toEqual([])
+  })
+})
+
+/**
+ * A minimal, stateful stand-in for the *recipient's* real document —
+ * tracks its own revision and rejects a write against a stale one, the
+ * same way Sanity's real API does. Used to prove `transferTo` survives
+ * two overlapping transfers to the same recipient without silently
+ * dropping one of them.
+ */
+function fakeRecipientDocument() {
+  let doc: {rev: string; items: string} | null = null
+  let revCounter = 0
+
+  function conflict(): ClientError {
+    return new ClientError({statusCode: 409, body: {}, url: 'test://conflict', method: 'PATCH', headers: {}})
+  }
+
+  return {
+    getItems: (): unknown[] => (doc ? (JSON.parse(doc.items) as {items: unknown[]}).items : []),
+    fetch: async () => (doc ? {_rev: doc.rev, value: doc.items} : null),
+    create: async (items: string) => {
+      if (doc) throw conflict()
+      revCounter += 1
+      doc = {rev: `rev-${revCounter}`, items}
+    },
+    patchIfRevisionMatches: async (expectedRev: string, items: string) => {
+      if (!doc || doc.rev !== expectedRev) throw conflict()
+      revCounter += 1
+      doc = {rev: `rev-${revCounter}`, items}
+    },
+  }
+}
+
+describe('useTodos transferTo', () => {
+  afterEach(() => {
+    cleanup()
+    useClientMock.mockReset()
+  })
+
+  it('does not silently lose a todo when two transfers land on the same recipient close together', async () => {
+    const recipientDocId = 'structureInbox.todos.recipient-1'
+    const myDocId = 'structureInbox.todos.user-1'
+    const recipient = fakeRecipientDocument()
+
+    const fetch = vi.fn(async (_query: string, params: {id: string}) => {
+      if (params.id === recipientDocId) return recipient.fetch()
+      if (params.id === myDocId) return null // this editor's own, empty initial load
+      return null
+    })
+
+    function patchBuilder(id: string) {
+      let expectedRev: string | undefined
+      let pendingItems: string | undefined
+      const builder = {
+        ifRevisionId: (rev: string) => {
+          expectedRev = rev
+          return builder
+        },
+        set: (fields: {items: string}) => {
+          pendingItems = fields.items
+          return builder
+        },
+        commit: vi.fn(async () => {
+          if (id !== recipientDocId || expectedRev === undefined || pendingItems === undefined) {
+            throw new Error('test stub: unexpected patch call shape')
+          }
+          await recipient.patchIfRevisionMatches(expectedRev, pendingItems)
+        }),
+      }
+      return builder
+    }
+
+    const create = vi.fn(async (input: {_id: string; items: string}) => {
+      if (input._id !== recipientDocId) throw new Error('test stub: unexpected create target')
+      await recipient.create(input.items)
+    })
+    const patch = vi.fn(patchBuilder)
+
+    const client = {
+      fetch,
+      transaction: vi.fn(() => fakeTransaction()), // this editor's own persist effect, unrelated to transferTo
+      patch,
+      create,
+    }
+    useClientMock.mockReturnValue(client)
+
+    const {result} = renderHook(() => useTodos())
+    await waitFor(() => expect(client.fetch).toHaveBeenCalled())
+
+    act(() => result.current.add({title: 'Task A'}))
+    act(() => result.current.add({title: 'Task B'}))
+    const [idA, idB] = result.current.state.items.map((item) => item.id)
+
+    // The race this regresses: both transfers read the recipient's
+    // (currently empty) document before either has written anything back,
+    // the same way two editors handing off to the same third person, or
+    // one editor transferring two todos back-to-back, would.
+    await act(async () => {
+      await Promise.all([
+        result.current.transferTo(idA, 'recipient-1'),
+        result.current.transferTo(idB, 'recipient-1'),
+      ])
+    })
+
+    expect(recipient.getItems()).toHaveLength(2)
+    // Proves the retry path actually ran, not that the two calls happened
+    // to land sequentially by accident: one of the two writes to the
+    // recipient's document must have hit a real conflict and retried.
+    expect(create.mock.calls.length + patch.mock.calls.length).toBeGreaterThan(2)
   })
 })
