@@ -4,7 +4,7 @@ import {of, Subject} from 'rxjs'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {EMPTY_SNOOZES} from '../../store/snoozes'
-import {unpublishedDrafts} from './unpublishedDrafts'
+import {typeDisplayName, unpublishedDrafts} from './unpublishedDrafts'
 
 interface DraftRow {
   _id: string
@@ -140,5 +140,23 @@ describe('unpublishedDrafts onlyMine over-fetch', () => {
     renderHook(() => source.useOpenCount!(EMPTY_SNOOZES, Date.now()))
 
     expect(observableFetch).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({limit: 4}))
+  })
+})
+
+// A draft with no title/name/label field at all used to show its raw `_id`
+// as the row title (the query's own `coalesce()` fell back to `_id` before
+// `toItem` ever saw a falsy value to catch). `typeDisplayName` is the
+// friendlier fallback `toItem` now uses instead — see openTasks.test.ts's
+// `dueSubtitleKey` for why this is tested as a pure function rather than
+// through a full `useItems()` render.
+describe('typeDisplayName', () => {
+  it('uses the schema type\'s own title when one is registered', () => {
+    const schema = {get: () => ({title: 'Blog post'})}
+    expect(typeDisplayName(schema, 'post')).toBe('Blog post')
+  })
+
+  it('falls back to the raw type name when the schema has none, never the document id', () => {
+    const schema = {get: () => undefined}
+    expect(typeDisplayName(schema, 'post')).toBe('post')
   })
 })

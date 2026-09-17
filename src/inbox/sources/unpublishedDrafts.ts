@@ -62,7 +62,20 @@ interface DraftRow {
   _id: string
   _type: string
   _updatedAt: string
-  title?: string
+  // `null`, not just possibly absent: the query's own `coalesce()` returns
+  // `null` for a document with no title/name/label field, never `_id`.
+  title?: string | null
+}
+
+/**
+ * A schema type's own display name, falling back to its raw `_type` when the
+ * schema has no friendlier `title` for it (or the type isn't registered at
+ * all). Exported so the title-fallback behavior below is testable without a
+ * full `useItems()` render harness — see `openTasks.ts`'s `dueSubtitleKey`
+ * for the same reasoning.
+ */
+export function typeDisplayName(schema: {get: (type: string) => {title?: string} | undefined}, type: string): string {
+  return schema.get(type)?.title || type
 }
 
 const QUERY = `*[
@@ -71,7 +84,11 @@ const QUERY = `*[
   _updatedAt < $before
 ] | order(_updatedAt desc)[0...$limit]{
   _id, _type, _updatedAt,
-  "title": coalesce(title, name, label, _id)
+  // No \`_id\` in this chain on purpose: falling all the way back to the raw
+  // document id here would make \`row.title\` always truthy, which would
+  // silently defeat \`toItem\`'s own friendlier "no title at all" fallback
+  // below — this needs to come back \`null\`, not a technical-looking id.
+  "title": coalesce(title, name, label)
 }`
 
 /**
@@ -154,19 +171,26 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
       const rawLimit = onlyMine ? limit * ONLY_MINE_OVERFETCH_MULTIPLIER : limit
       const params = {before, limit: rawLimit, types: types ?? null}
 
-      const toItem = (row: DraftRow): InboxItem => ({
-        id: row._id,
-        title: row.title || row._id,
-        subtitle: schema.get(row._type)?.title || row._type,
-        timestamp: row._updatedAt,
-        changedAt: row._updatedAt,
-        intent: {
-          type: 'edit',
-          // The published id is what an `edit` intent expects; the draft is
-          // what it opens.
-          params: {id: row._id.replace(/^drafts\./, ''), type: row._type},
-        },
-      })
+      const toItem = (row: DraftRow): InboxItem => {
+        // A draft can exist with no title at all (that's exactly what
+        // `documentValidation` flags it for) — the raw `_id` is never a
+        // fair fallback for a row title, so this falls back to the same
+        // friendly type name the subtitle already computes.
+        const typeName = typeDisplayName(schema, row._type)
+        return {
+          id: row._id,
+          title: row.title || typeName,
+          subtitle: typeName,
+          timestamp: row._updatedAt,
+          changedAt: row._updatedAt,
+          intent: {
+            type: 'edit',
+            // The published id is what an `edit` intent expects; the draft is
+            // what it opens.
+            params: {id: row._id.replace(/^drafts\./, ''), type: row._type},
+          },
+        }
+      }
 
       const fetch$ = client.observable.fetch<DraftRow[]>(QUERY, params).pipe(
         switchMap((rows) => {
