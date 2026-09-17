@@ -1,5 +1,5 @@
 import {type SanityClient} from '@sanity/client'
-import {useMemo} from 'react'
+import {useMemo, useRef, useState} from 'react'
 import {useObservable} from 'react-rx'
 import {of} from 'rxjs'
 import {catchError, map} from 'rxjs/operators'
@@ -89,6 +89,23 @@ export interface AssignmentStore {
  *
  * Live rather than fetched once: someone assigning or unassigning elsewhere
  * should update every open tab without a navigate-away-and-back.
+ *
+ * The acting editor's own write is applied to `overrides` immediately,
+ * rather than waiting on `client.listen`'s round trip through `byTarget$` —
+ * a real, reported bug: without this, assigning sometimes silently needed a
+ * manual reload before the row showed it, since everything depended on the
+ * realtime listener firing promptly (or at all) for that exact mutation.
+ * `useDismissals`/`useSnoozes`/`useTodos` already apply this same
+ * optimistic-local-write-first principle for the acting editor's own
+ * changes; this was the one piece of per-item state in the plugin that
+ * didn't. `null` in `overrides` means "unassigned locally, awaiting the
+ * live query's own confirmation" — without it, a still-stale remote row
+ * would reappear the instant `unassign` resolves, before the listener
+ * catches up. Each entry stops taking effect the moment `remoteByTarget`
+ * itself agrees with what was written (see `byTarget`'s own comment below)
+ * — not on any remote emission, which could stop overriding before the
+ * specific write it's tracking is actually reflected — or immediately, if
+ * the write itself rejects.
  */
 export function useAssignmentStore(client: SanityClient, docType: string): AssignmentStore {
   const query = `*[_type == "${docType}" && defined(assignedTo)]{targetId, assignedTo}`
@@ -101,21 +118,87 @@ export function useAssignmentStore(client: SanityClient, docType: string): Assig
     )
   }, [client, query])
 
-  const byTarget = useObservable(byTarget$, new Map<string, string>())
+  const remoteByTarget = useObservable(byTarget$, new Map<string, string>())
+
+  const [overrides, setOverrides] = useState(new Map<string, string | null>())
+
+  // Pruned during render, not via a `setState`-in-effect — React's own
+  // documented pattern for adjusting state in response to a changed value
+  // (compare against a ref, and if it moved, call `setState` directly in
+  // the render body; React discards this in-progress render and redoes it
+  // with the new state before anything paints, rather than committing a
+  // stale one first and correcting it in a second pass the way an effect
+  // would). A `useEffect` here was tried and rejected: it only fires after
+  // commit, so `byTarget` briefly renders including an override that
+  // `remoteByTarget` had already resolved for one extra frame, and — the
+  // real reason it matters, not merely cosmetic — an override left
+  // unpruned indefinitely would keep masking a *later*, unrelated change
+  // to the same key from someone else, since only an exact-match check
+  // without ever removing the entry can't tell "remote hasn't caught up
+  // yet" apart from "remote moved past this override to something new."
+  const prevRemoteRef = useRef(remoteByTarget)
+  // Reading/writing a ref during render (both flagged below) is exactly
+  // React's own documented "adjusting state when a value changes" pattern
+  // (compare against a ref, write it, conditionally call setState in the
+  // same render), not the stale-closure hazard this rule is built to catch
+  // — see the comment above for why an effect doesn't work here.
+  // eslint-disable-next-line refs -- see comment above
+  if (prevRemoteRef.current !== remoteByTarget) {
+    // eslint-disable-next-line refs -- see comment above
+    prevRemoteRef.current = remoteByTarget
+    let pruned: typeof overrides | undefined
+    for (const [targetId, expected] of overrides) {
+      if ((remoteByTarget.get(targetId) ?? null) === expected) {
+        pruned = pruned ?? new Map(overrides)
+        pruned.delete(targetId)
+      }
+    }
+    if (pruned) setOverrides(pruned)
+  }
+
+  const byTarget = useMemo(() => {
+    if (overrides.size === 0) return remoteByTarget
+    const merged = new Map(remoteByTarget)
+    for (const [targetId, assignedTo] of overrides) {
+      if (assignedTo === null) merged.delete(targetId)
+      else merged.set(targetId, assignedTo)
+    }
+    return merged
+  }, [remoteByTarget, overrides])
 
   return useMemo(
     () => ({
       byTarget,
       assign: async (targetId: string, assignedTo: string) => {
+        setOverrides((current) => new Map(current).set(targetId, assignedTo))
         const docId = assignmentDocId(docType, targetId)
-        await client
-          .transaction()
-          .createIfNotExists({_id: docId, _type: docType, targetId, assignedTo})
-          .patch(docId, (patch) => patch.set({assignedTo}))
-          .commit()
+        try {
+          await client
+            .transaction()
+            .createIfNotExists({_id: docId, _type: docType, targetId, assignedTo})
+            .patch(docId, (patch) => patch.set({assignedTo}))
+            .commit()
+        } catch (error) {
+          setOverrides((current) => {
+            const next = new Map(current)
+            next.delete(targetId)
+            return next
+          })
+          throw error
+        }
       },
       unassign: async (targetId: string) => {
-        await client.delete(assignmentDocId(docType, targetId))
+        setOverrides((current) => new Map(current).set(targetId, null))
+        try {
+          await client.delete(assignmentDocId(docType, targetId))
+        } catch (error) {
+          setOverrides((current) => {
+            const next = new Map(current)
+            next.delete(targetId)
+            return next
+          })
+          throw error
+        }
       },
     }),
     [client, docType, byTarget],
