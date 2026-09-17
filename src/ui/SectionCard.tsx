@@ -99,7 +99,7 @@ export function SectionCard(props: SectionCardProps) {
       {toolbar}
 
       {error ? (
-        <Box padding={3}>
+        <Card padding={3} radius={2} tone="critical">
           <Stack gap={3}>
             <Text size={1} weight="medium">
               {t('source.error.title')}
@@ -108,7 +108,7 @@ export function SectionCard(props: SectionCardProps) {
               {error.message}
             </Text>
           </Stack>
-        </Box>
+        </Card>
       ) : (
         children
       )}
