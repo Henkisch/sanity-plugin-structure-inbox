@@ -7,6 +7,20 @@ import {isHiddenType} from './AddMenu'
 const SAMPLES_PER_TYPE = 5
 
 /**
+ * How far back `surveyContentTypes` looks before stride-sampling
+ * `SAMPLES_PER_TYPE` values out of that window, instead of taking the
+ * literal `SAMPLES_PER_TYPE` most-recently-updated documents. A type with
+ * thousands of documents but only its last few days of edits touching one
+ * campaign/topic would otherwise hand the AI read 5 samples that all look
+ * alike — a wider window spread evenly gives a more representative slice
+ * of what the type actually contains. Bounded the same way every other
+ * cap in this file is: one extra query still runs per type either way, this
+ * only changes that query's own `$limit` (bytes on the wire), not the
+ * request count this digest is built to keep flat.
+ */
+const SAMPLE_WINDOW_SIZE = 100
+
+/**
  * Total document types surveyed, capped the same way `openRows.slice(0, 30)`
  * caps Summarize's own digest — an explicit, named constant, not implicit
  * truncation. A project with more real content types than this only has its
@@ -18,7 +32,7 @@ export interface ContentTypeSummary {
   type: string
   title: string
   count: number
-  /** Up to `SAMPLES_PER_TYPE` short text values, most-recently-changed documents first — the only real-content signal this digest carries, since a field name alone never reveals what a project actually promotes. */
+  /** Up to `SAMPLES_PER_TYPE` short text values, stride-sampled across the most-recently-changed `SAMPLE_WINDOW_SIZE` documents — the only real-content signal this digest carries, since a field name alone never reveals what a project actually promotes. */
   samples: string[]
   /** This type's own schema `description`, when the integrator wrote one — real, already-authored editorial intent free for the reading. `undefined` when none exists. */
   description?: string
@@ -90,6 +104,18 @@ export function findReferencedTypes(
   return [...titles]
 }
 
+/**
+ * Picks `sampleSize` items evenly spread across `items`, in order, rather
+ * than just the first `sampleSize` — e.g. `strideSample([a,b,c,d,e,f,g,h,i,j], 5)`
+ * returns `[a,c,e,g,i]`ish (index `Math.floor(i * items.length / sampleSize)`),
+ * not `[a,b,c,d,e]`. Returns `items` unchanged (in one array, not sliced by
+ * reference) when there are already `sampleSize` or fewer.
+ */
+export function strideSample<T>(items: readonly T[], sampleSize: number): T[] {
+  if (items.length <= sampleSize) return [...items]
+  return Array.from({length: sampleSize}, (_, i) => items[Math.floor((i * items.length) / sampleSize)])
+}
+
 /** Parallel fetches in flight at once — enough to cut wall-clock time meaningfully on a project with many real content types, low enough to stay well clear of a burst against Sanity's own API rate limits. */
 const SURVEY_CONCURRENCY = 5
 
@@ -114,15 +140,17 @@ async function mapWithConcurrency<T, R>(
 }
 
 /**
- * One cheap `count()` plus a small text sample per real content type — the
- * whole-project survey `Inbox.tsx`'s "Find content gaps" and "Ask" reads are
- * built on. Every fetch is capped (`SAMPLES_PER_TYPE` documents,
+ * One cheap `count()` plus a small, stride-sampled text sample per real
+ * content type — the whole-project survey `Inbox.tsx`'s "Find content gaps"
+ * and "Ask" reads are built on. Every fetch is capped (`SAMPLE_WINDOW_SIZE`
+ * documents fetched, `SAMPLES_PER_TYPE` of those actually kept,
  * `MAX_SURVEYED_TYPES` types) — this is already the heaviest read in this
- * pane; letting either cap grow with dataset size would make it slower the
- * more it has to say. The per-type fetches themselves run with bounded
- * concurrency (`SURVEY_CONCURRENCY`), not fully sequentially and not all at
- * once — see this plan's own "At scale" note for why a fully sequential
- * loop stopped being fine once `MAX_SURVEYED_TYPES` is actually hit.
+ * pane; letting any of these caps grow with dataset size would make it
+ * slower the more it has to say. The per-type fetches themselves run with
+ * bounded concurrency (`SURVEY_CONCURRENCY`), not fully sequentially and not
+ * all at once — see this plan's own "At scale" note for why a fully
+ * sequential loop stopped being fine once `MAX_SURVEYED_TYPES` is actually
+ * hit.
  */
 export async function surveyContentTypes(
   client: Pick<SanityClient, 'fetch'>,
@@ -139,11 +167,13 @@ export async function surveyContentTypes(
     let samples: string[] = []
     const sampleField = count > 0 ? findSampleFieldName(schema, name) : undefined
     if (sampleField) {
+      const windowLimit = Math.min(count, SAMPLE_WINDOW_SIZE)
       const raw = await client.fetch<(string | null)[]>(
         `*[_type == $type] | order(_updatedAt desc)[0...$limit].${sampleField}`,
-        {type: name, limit: SAMPLES_PER_TYPE},
+        {type: name, limit: windowLimit},
       )
-      samples = raw.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      const nonEmpty = raw.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      samples = strideSample(nonEmpty, SAMPLES_PER_TYPE)
     }
 
     const objectType = schema.get(name)

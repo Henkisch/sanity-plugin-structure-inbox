@@ -5,6 +5,7 @@ import {
   findSampleFieldName,
   formatContentGapsDigest,
   getRealDocumentTypeNames,
+  strideSample,
   surveyContentTypes,
   type ContentTypeSummary,
 } from './projectDigest'
@@ -149,6 +150,23 @@ describe('findReferencedTypes', () => {
   })
 })
 
+describe('strideSample', () => {
+  it('returns items unchanged when there are already sampleSize or fewer', () => {
+    expect(strideSample(['a', 'b'], 5)).toEqual(['a', 'b'])
+    expect(strideSample(['a', 'b', 'c'], 3)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('spreads sampleSize picks evenly across a larger window, in order', () => {
+    const window = Array.from({length: 10}, (_, i) => String.fromCharCode(97 + i)) // a..j
+    expect(strideSample(window, 5)).toEqual(['a', 'c', 'e', 'g', 'i'])
+  })
+
+  it('never returns more than sampleSize items even for an uneven window size', () => {
+    const window = Array.from({length: 97}, (_, i) => i)
+    expect(strideSample(window, 5)).toHaveLength(5)
+  })
+})
+
 describe('surveyContentTypes', () => {
   it('samples only types that have documents and an eligible field', async () => {
     const schema = schemaWith([
@@ -177,6 +195,28 @@ describe('surveyContentTypes', () => {
     await expect(surveyContentTypes({fetch}, schema)).resolves.toEqual([
       {type: 'post', title: 'Post', count: 2, samples: ['Real title'], referencesTypes: []},
     ])
+  })
+
+  it('stride-samples across the survey window instead of taking only the first SAMPLES_PER_TYPE', async () => {
+    const schema = schemaWith([{name: 'post', title: 'Post', fields: [{name: 'title', type: {jsonType: 'string'}}]}])
+    const window = Array.from({length: 10}, (_, i) => `Post ${i}`)
+    const fetch = vi.fn().mockResolvedValueOnce(10).mockResolvedValueOnce(window)
+
+    const [summary] = await surveyContentTypes({fetch}, schema)
+    expect(summary.samples).toEqual(['Post 0', 'Post 2', 'Post 4', 'Post 6', 'Post 8'])
+    // second call is the sample query — its own `limit` param carries the survey window size, not SAMPLES_PER_TYPE
+    expect(fetch.mock.calls[1][1]).toEqual({type: 'post', limit: 10})
+  })
+
+  it('caps the sample window at SAMPLE_WINDOW_SIZE even when a type has far more documents', async () => {
+    const schema = schemaWith([{name: 'post', title: 'Post', fields: [{name: 'title', type: {jsonType: 'string'}}]}])
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(5000)
+      .mockResolvedValueOnce(Array.from({length: 100}, (_, i) => `Post ${i}`))
+
+    await surveyContentTypes({fetch}, schema)
+    expect(fetch.mock.calls[1][1]).toEqual({type: 'post', limit: 100})
   })
 
   it('carries a type\'s own schema description when one is authored', async () => {

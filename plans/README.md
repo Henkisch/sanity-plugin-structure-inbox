@@ -719,6 +719,23 @@ not re-audited from scratch:
   already refuse** — `sanity`/`@sanity/client` at the versions this repo
   depends on both declare `>=22.12`. Node 20 ("Iron") LTS also ended
   2026-04-30. Effort S: narrow to `>=22.12`.
+- **"Findings as rows"** (from `project_toolbar_buttons_rethink` memory,
+  2026-09-16) — only unbuilt piece of that track. Not scoped: what a
+  "finding" row would look like, which sources would emit them, and how
+  they'd interleave with existing rows all still open questions.
+- **Sanity Workflows as an inbox source** — raised and deferred (see line
+  ~625 above). Blocked on Workflows not having a stable, queryable
+  document schema yet. Revisit once it does.
+- **`context` config: derive from an org's Context Knowledge Base** —
+  raised 2026-09-17 after the user set up Sanity's new (beta) Knowledge
+  Base feature for this project. Confirmed via docs it's a separate
+  surface from Agent Actions (what this plugin uses) — served only
+  through Context MCP to MCP-connected agents, no documented path into
+  `client.agent.action.prompt`. No code integration point exists today.
+  Real, low-effort manual win in the meantime: a KB's own "purpose"
+  statement (1-2 sentences, same shape this plugin's README already
+  recommends) is a ready-made source to hand-copy into `context` —
+  not something to automate.
 
 ## Direction options (maintainer's call, not queued work)
 
@@ -935,17 +952,25 @@ left to rot indefinitely.
     search by) if Ask's own survey ever needed dataset-wide retrieval
     rather than on-screen-only candidates — a bigger design change Ask
     doesn't currently need.
-  - **Real, cheap, evidence-based alternative found instead**: no native
-    GROQ random-sampling primitive was found (unconfirmed via docs due to
-    a tool outage this session — worth a direct check before assuming),
-    so a stride-pick — over-fetch a larger recency-ordered window (e.g.
-    `[0...50]`) and take every Nth row client-side, rather than the
-    literal top 5 — would reduce (not eliminate) the same recency bias at
-    near-zero cost, with no dataset-embeddings dependency at all. Not
-    written as a plan yet — genuinely minor, and the actual value of a
-    slightly-more-diverse sample for `contentGaps`'s own judgment call is
-    unconfirmed without real user feedback that "5 most recent" is
-    actually producing bad suggestions in practice.
+  - **Real, cheap, evidence-based alternative found — shipped 2026-09-17,
+    no plan number needed (small, self-contained, single file + test).**
+    No native GROQ random-sampling primitive was found (unconfirmed via
+    docs due to a tool outage that session — worth a direct check before
+    assuming). Implemented instead: `surveyContentTypes` now over-fetches
+    a `SAMPLE_WINDOW_SIZE = 100`-document recency-ordered window (capped
+    at the type's own `count` when smaller) instead of literal `[0...5]`,
+    then a new pure `strideSample()` helper picks `SAMPLES_PER_TYPE = 5`
+    values evenly spread across that window
+    (`src/inbox/projectDigest.ts`). Same request count per type as
+    before (one count + one sample fetch) — only the sample query's own
+    `$limit` grew, which is bytes on the wire, not an extra request, so
+    this doesn't touch the AI-cost work at all; it's a pure digest-quality
+    improvement. 5 new tests in `projectDigest.test.ts` (`strideSample`'s
+    own even-spread behavior, plus `surveyContentTypes` asserting the
+    window-vs-count-capped `$limit` sent to `fetch` and the actual
+    stride-picked sample values, not just the first 5). Verified:
+    typecheck, lint, `projectDigest.test.ts` (24/24), full suite
+    (39 files / 431 tests), build — all clean.
 - **`MergedList` row memoization — investigated, real verdict: not worth
   it at this plugin's own scale.** The actual prep work this needs is
   deeper than the original finding implied: `mergeRows` builds fresh
