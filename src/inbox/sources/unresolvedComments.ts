@@ -27,6 +27,50 @@ function useUnavailableAddonDataset(): AddonDatasetContextValue {
 // `openTasks.ts` gives for its own `useAddonDataset` resolution.
 const useAddonDataset = optionalHook('useAddonDataset', useUnavailableAddonDataset)
 
+/**
+ * How many extra threads to pull before filtering to `onlyMine`, same
+ * reasoning and same value `unpublishedDrafts.ts`'s own
+ * `ONLY_MINE_OVERFETCH_MULTIPLIER` uses for the identical problem: `QUERY`
+ * can only ask the dataset for "the newest N open threads team-wide," never
+ * "the newest N that mention me," so without over-fetching first, a real
+ * `@mention` of the current editor sitting outside the newest `limit`
+ * threads team-wide was silently invisible to them — confirmed live, not
+ * theoretical: on any team with `limit` or more open threads, this was the
+ * one thing this source exists for (an editor asking "what's on me right
+ * now") quietly not working.
+ */
+const ONLY_MINE_OVERFETCH_MULTIPLIER = 5
+
+/**
+ * The `$limit` this source's own query actually asks the dataset for —
+ * pulled out as its own pure function, the same reason `openTasks.ts`
+ * extracts `dueSubtitleKey`: this file's `useItems()` calls
+ * `useAddonDataset`/`useClient`/`useCurrentUser`/`useAssignableUsers`, none
+ * of which have an existing render-level mock harness in this test suite,
+ * so the actual fetch-limit and filter logic needs to be testable on its
+ * own, without one.
+ */
+export function commentsFetchLimit(limit: number, onlyMine: boolean): number {
+  return onlyMine ? limit * ONLY_MINE_OVERFETCH_MULTIPLIER : limit
+}
+
+/**
+ * The rows this source actually keeps, once the wider `commentsFetchLimit`
+ * over-fetch has come back — filters to `onlyMine`, then re-caps to the
+ * *configured* `limit` (not the wider one just fetched). Same reasoning as
+ * `commentsFetchLimit` above for why this is its own pure function.
+ */
+export function selectUnresolvedComments(
+  rows: readonly CommentRow[],
+  onlyMine: boolean,
+  currentUserId: string | undefined,
+  limit: number,
+): CommentRow[] {
+  return rows
+    .filter((row) => !onlyMine || (currentUserId && mentionsUser(row.message, currentUserId)))
+    .slice(0, limit)
+}
+
 export interface UnresolvedCommentsOptions {
   /** Cap on rows. Defaults to 20. */
   limit?: number
@@ -104,7 +148,7 @@ export function firstMentionedUser(message: CommentMessageBlock[]): string | und
   return mentioned.size === 1 ? mentionedIds[0] : undefined
 }
 
-interface CommentRow {
+export interface CommentRow {
   _id: string
   _createdAt: string
   message: CommentMessageBlock[]
@@ -207,7 +251,8 @@ export function unresolvedComments(options: UnresolvedCommentsOptions = {}): Inb
         // yet. Either way, nothing to show, not an error.
         if (!ready || !client) return of<CommentsFetch>({rows: [], loading: !ready})
 
-        return defer(() => from(client.fetch<CommentRow[]>(QUERY, {limit}))).pipe(
+        const rawLimit = commentsFetchLimit(limit, onlyMine)
+        return defer(() => from(client.fetch<CommentRow[]>(QUERY, {limit: rawLimit}))).pipe(
           map((rows): CommentsFetch => ({rows})),
           startWith<CommentsFetch>({rows: [], loading: true}),
           catchError((error: Error) => of<CommentsFetch>({rows: [], error})),
@@ -218,8 +263,7 @@ export function unresolvedComments(options: UnresolvedCommentsOptions = {}): Inb
 
       const items = useMemo(() => {
         const currentUserId = currentUser?.id
-        return rows
-          .filter((row) => !onlyMine || (currentUserId && mentionsUser(row.message, currentUserId)))
+        return selectUnresolvedComments(rows, onlyMine, currentUserId, limit)
           .map((row): InboxItem => {
             const assignedTo = assignments.byTarget.get(row._id)
             const assignee = assignedTo ? assigneesById.get(assignedTo) : undefined

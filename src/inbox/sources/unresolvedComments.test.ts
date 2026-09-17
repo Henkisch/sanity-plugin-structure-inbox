@@ -1,6 +1,13 @@
 import {describe, expect, it} from 'vitest'
 
-import {firstLineOfMessage, firstMentionedUser, mentionsUser} from './unresolvedComments'
+import {
+  type CommentRow,
+  commentsFetchLimit,
+  firstLineOfMessage,
+  firstMentionedUser,
+  mentionsUser,
+  selectUnresolvedComments,
+} from './unresolvedComments'
 
 function span(text: string) {
   return {_type: 'span', text}
@@ -69,5 +76,65 @@ describe('firstMentionedUser', () => {
 
   it('returns undefined for a message with no mentions', () => {
     expect(firstMentionedUser([block(span('Just text'))])).toBeUndefined()
+  })
+})
+
+describe('commentsFetchLimit', () => {
+  it('over-fetches when narrowing to mentions of the current editor', () => {
+    // The query can only ask the dataset for "the newest N threads
+    // team-wide," never "the newest N that mention me" — so `onlyMine`
+    // needs a wider raw fetch to filter from, the same reasoning
+    // `unpublishedDrafts.ts`'s own overfetch multiplier uses.
+    expect(commentsFetchLimit(20, true)).toBe(100)
+  })
+
+  it('fetches exactly the configured limit when not narrowing to mentions', () => {
+    expect(commentsFetchLimit(20, false)).toBe(20)
+  })
+})
+
+function commentRow(id: string, message: {_type: string; text?: string; userId?: string}[][]): CommentRow {
+  return {
+    _id: id,
+    _createdAt: '2026-01-01T00:00:00.000Z',
+    message: message.map((children) => ({_type: 'block', children})),
+    target: {document: {_ref: 'post-1'}, documentType: 'post'},
+  }
+}
+
+describe('selectUnresolvedComments', () => {
+  it('finds a real mention of the current editor sitting outside the query result\'s own natural order, once the caller over-fetched for it', () => {
+    // The actual bug this regresses: without `commentsFetchLimit`'s own
+    // overfetch, a real @mention sitting past the newest `limit` threads
+    // team-wide was silently invisible to the mentioned editor — nothing
+    // wrong-looking about the UI, no error, just a missing row. This test
+    // simulates the caller having already over-fetched (as `useItems()`
+    // now does) and proves the mention still surfaces once it does.
+    const rows = [
+      ...Array.from({length: 19}, (_, i) => commentRow(`other-${i}`, [[{_type: 'span', text: 'noise'}]])),
+      commentRow('mentions-me', [[{_type: 'mention', userId: 'user-1'}, {_type: 'span', text: ' check this'}]]),
+    ]
+
+    const result = selectUnresolvedComments(rows, true, 'user-1', 20)
+
+    expect(result.map((row) => row._id)).toEqual(['mentions-me'])
+  })
+
+  it('re-caps to the configured limit after filtering, not the wider over-fetched window', () => {
+    const rows = Array.from({length: 30}, (_, i) =>
+      commentRow(`mine-${i}`, [[{_type: 'mention', userId: 'user-1'}]]),
+    )
+
+    const result = selectUnresolvedComments(rows, true, 'user-1', 20)
+
+    expect(result).toHaveLength(20)
+  })
+
+  it('does not filter at all when onlyMine is off', () => {
+    const rows = [commentRow('a', [[{_type: 'span', text: 'x'}]]), commentRow('b', [[{_type: 'span', text: 'y'}]])]
+
+    const result = selectUnresolvedComments(rows, false, 'user-1', 20)
+
+    expect(result.map((row) => row._id)).toEqual(['a', 'b'])
   })
 })
