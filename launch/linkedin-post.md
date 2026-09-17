@@ -2,33 +2,39 @@
 
 ---
 
-Across most of my Sanity projects, the Structure tool ends up being the starting point — the screen every editor lands on first. And it struck me that this empty space could actually be a useful point of entry to work with content, right where the content already is.
+Content work rarely fails loudly.
 
-A draft nobody's published yet, a release scheduled for tomorrow that's still empty, a task assigned three days ago — all worth surfacing right there, the moment the editor opens the Studio, instead of waiting to be found.
+A draft nobody published. A release scheduled for Thursday that's still empty. A comment thread nobody answered. None of that throws an error — it just sits there quietly, until someone notices by accident, usually later than they'd like.
 
-So I built **sanity-plugin-structure-inbox** to put that space to work: it turns that first screen into an actual inbox — drafts, releases, tasks, validation errors, broken assets, unresolved comments, a personal to-do list — merged into one list, sorted by what actually needs attention first.
+But every editor on the team already opens the same screen every morning. In Sanity Studio, that's the Structure tool. And it's blank.
 
-A couple of decisions I'm proud of:
+So I built **sanity-plugin-structure-inbox** to put that screen to work. It opens by itself when an editor lands in the Studio, and the first thing they read is: *"13 things waiting on you and your team."*
 
-→ **Every tick means something specific.** "Mark as done" only shows up when there's a real, verifiable resolution behind it (a task Sanity itself confirms is closed). Otherwise it's "Acknowledge" — I've seen this, it's still open. No fake completions.
+Underneath: forgotten drafts, stalling releases, open tasks, failing validation, broken links, oversized assets, unresolved comments and a personal to-do list — merged into one list, sorted so the most urgent and the longest-waiting sit at the top. Nobody has to triage it. Nobody has to go looking for it. It's already there.
 
-→ **AI is scoped to judgment calls, not facts.** Ask a plain-language question and it filters your own list. Get a one-paragraph summary of what's most worth starting today. Ask it what content might be missing from your site. But a broken link, a failed validation rule, a closed task — those stay 100% deterministic. AI never touches anything that has an actual right answer.
+A few decisions I'm proud of:
 
-→ **Delegation over ownership.** You can hand any item to a teammate — an oversized image nobody's fixed, a release going stale — the same way a task board would, whether or not that thing has one "natural" owner.
+→ **Proactive, but never nagging.** It surfaces things before they're a problem — a release that's imminent and still empty, a draft that's crossed the age you set. Snooze anything, and it comes back on its own — earlier if the item changes underneath you. When there's genuinely nothing left, it says so: "Nothing waiting on you and your team."
 
-→ **Your own work and the team's, side by side.** A private to-do list sits right next to shared items you can assign to a teammate — and a separate team view lets a lead see who's sitting on what across the whole project, without touching anyone's personal queue.
+→ **A shared queue, not a scoreboard.** Assign any item to a teammate — an oversized image, a release going stale — whether or not it has one "natural" owner. A forgotten draft defaults to being the team's problem, not one person's fault. Your private to-do list stays private; there's no team-wide reading of it at all. A separate team view lets a lead see what's sitting where, without touching anyone's personal queue.
 
-It's open source, npm-installable, and built to extend — writing your own source is a few lines of a React hook.
+→ **Every tick means something specific.** "Mark as done" only appears when there's a real, verifiable resolution behind it (a task Sanity itself confirms is closed). Otherwise it's "Acknowledge" — I've seen this, it's still open. No fake completions, because a queue you can quietly lie to stops being worth reading.
+
+→ **AI is scoped to judgment calls, not facts.** Ask it in plain language what's worth starting first, or what content looks missing from your site. But a broken link, a failed validation rule, a closed task — those stay 100% deterministic. AI never touches anything that already has a right answer.
+
+It's open source, MIT, npm-installable, and built to extend — writing your own source is a few lines of a React hook.
 
 npm install sanity-plugin-structure-inbox
 
-Link in comments. Curious if others have felt the same about that first screen — what would you put there?
+Link in comments. Curious whether others have felt the same about that first screen — what would you put on it?
 
 #sanity #cms #contentops #buildinpublic #opensource
 
 ---
 
 ## Notes for posting
-- Lead image: `media/hero.png` — the default-vs-with-structure-inbox comparison graphic (see `launch/demo-shotlist.md`), not a single screenshot.
+
+- Lead image: `media/hero-linkedin.png` — the default-vs-with-structure-inbox comparison, pre-cropped to LinkedIn's 1.91:1 feed ratio with the headline set above it. Use this one, **not** `media/hero.png` (3.93:1 — LinkedIn letterboxes it and the labels shrink).
 - Put the GitHub/npm link in the first comment, not the post body — LinkedIn suppresses reach on posts with outbound links.
 - Post Tuesday–Thursday, mid-morning, per usual LinkedIn engagement patterns — no data specific to this audience, just the general default.
+- If a second post is worth it later, `media/ask-query.gif` (Ask filtering rows live) is the strongest standalone follow-up asset.

@@ -6,9 +6,11 @@
 ![Sanity Studio v6](https://img.shields.io/badge/Sanity%20Studio-v6-red)
 
 Turns the empty Structure canvas into an inbox — drafts left unpublished, releases coming up,
-tasks assigned to you, whatever else you feed it. Each item can be opened, or ticked off.
+tasks assigned to you, whatever else you feed it. Nobody has to go looking for it: it's already on
+the screen editors land on, sorted by what's been waiting longest. Each item can be opened, handed
+to a teammate, or ticked off.
 
-![The Inbox pane, populated with tasks, drafts and releases](./media/hero.png)
+![Two Studios side by side: the same Structure tool with a blank right-hand pane, and with structure-inbox filling it with a sorted list of drafts, releases and tasks](./media/hero.png)
 
 > **Requires Sanity Studio v6.**
 
@@ -79,6 +81,8 @@ A persistent Overview card (oldest open item, next snooze wake, overdue count, o
 assignee) appears in the aside column once the open list is long enough for a breakdown to say
 something the list itself can't — below ~12 open items it stays out of the way.
 
+![The Overview card: oldest open item, overdue count, and open items broken down by assignee](./media/overview-stats.png)
+
 Most sources declare `audience`: `openTasks`/`unresolvedComments` default to `onlyMine: true`
 (a task or a thread naturally belongs to someone); `unpublishedDrafts` defaults to `onlyMine:
 false` (a forgotten draft is usually the team's problem). `todos` has no team-wide reading at all.
@@ -104,6 +108,8 @@ delegation, not ownership — a row doesn't need one natural owner to be worth a
 sources don't offer it: `openTasks` already has its own native (read-only, here) assignee field,
 and `todos` has no shared document to label — it offers `transfer` ("Hand off to…") instead, for
 handing your own todos to someone else before you leave a team.
+
+![The Hand off to… menu open on selected todos](./media/todos-handoff.png)
 
 With exactly one row selected, `unpublishedDrafts` and `unresolvedComments` also show a fact-based
 suggestion above the picker (most recent editor, or the thread's own `@mention`) — never
@@ -265,6 +271,13 @@ all. AI is additive on top of that, never required:
 Every one of these is click-triggered, never automatic — nothing fires just from selecting a row
 or opening the pane, and every handler is guarded against a rapid double-click firing twice.
 
+![The AI insights menu: Summarize, Suggest todos, and Find content gaps, each with a one-line explanation](./media/ai-insights.png)
+
+**Summarize** answers the question an inbox can't answer by being a list — what, out of all this,
+is most worth starting first:
+
+![The Summarize result card: two sentences on what's most worth starting first](./media/summarize.png)
+
 Sanity bills Agent Actions at a flat **$0.05 per request**, regardless of document or prompt size —
 cost scales with how many times editors click these buttons, not with how many documents or how
 much content you have. `summarize`/`suggestTodos` are on by default since they're cheap and
@@ -272,8 +285,6 @@ low-friction; turn either off (see [Options](#options)) for a config-level guara
 from that read, regardless of what an editor clicks.
 
 ## Grounding AI reads in your project
-
-![The AI insights menu: Summarize, Suggest todos, and Find content gaps](./media/ai-insights.png)
 
 ```ts
 structureInbox({
@@ -338,6 +349,8 @@ Function is deployed, or if the noise is acceptable for your project.
 ```ts
 structureInbox({ask: true, sources: [/* ... */]})
 ```
+
+![Typing a plain-language question into the Ask input, and the matching rows being selected](./media/ask-query.gif)
 
 With `ask` on, a single-line "Ask about these items…" input appears in the Open view. Type a
 plain-language question and AI selects which on-screen rows match it — a selection only, never a

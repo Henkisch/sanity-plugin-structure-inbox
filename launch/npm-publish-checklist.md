@@ -1,17 +1,25 @@
 # npm publish checklist
 
-Reference for whenever the backlog clears — **not** an instruction to publish now. Per [[feedback_release_last]], v0.1.0 ships last, once the badge-size and findings-as-rows items are done.
+**Status: published.** `sanity-plugin-structure-inbox@1.0.1` went out 2026-09-17 via semantic-release
+(Trusted Publishing / OIDC). semantic-release computed `1.0.0` from conventional-commit history, not
+the `0.1.0` this file originally anticipated. Kept as the reference for future releases.
 
 ## Before publishing
 
-- [ ] Backlog clear: number-badge standardization + "findings as rows" idea resolved or explicitly deferred.
-- [ ] `version` in `package.json` — leave at `0.0.0`; `semantic-release` (`.releaserc.json`, `@sanity/semantic-release-preset`) computes and writes the real version from conventional-commit history at release time. Do not hand-edit it.
-- [ ] Conventional-commit compliance: skim `git log --oneline` for anything that doesn't start with `feat:`/`fix:`/`chore:`/`refactor:`/etc. — semantic-release's version bump depends on this. The 149 commits so far look compliant.
-- [ ] `files: ["dist"]` in `package.json` already whitelists only the built output — `launch/`, `plans/`, `test-studio/`, and everything else at the repo root are excluded from the published tarball automatically, no `.npmignore` needed. Confirm with `npm pack --dry-run` (see below) rather than assuming.
-- [ ] `LICENSE` file present at repo root — it is (MIT, confirmed).
-- [ ] `exports`/`publishConfig.exports` point at `./dist/index.js` and `./dist/link-checker.js` — confirm `npm run build` produces both before tagging a release.
-- [ ] README's four screenshot placeholders (`media/hero.png`, `media/ask-ai.png`, `media/ai-insights.png`, `media/assign.png`) have real files in `media/` — a broken image on the npm page reads worse than no image.
-- [ ] `engines.node` (`>=20.19 <22 || >=22.12`) still matches what CI actually tests against.
+- [x] Backlog clear.
+- [x] `version` in `package.json` — never hand-edit it; `semantic-release` (`.releaserc.json`,
+      `@sanity/semantic-release-preset`) computes and writes it from conventional-commit history at
+      release time.
+- [x] Conventional-commit compliance: skim `git log --oneline` before tagging — the version bump
+      depends on it.
+- [x] `files: ["dist"]` whitelists only built output; `launch/`, `plans/`, `test-studio/` are excluded
+      automatically. Confirm with `npm pack --dry-run` rather than assuming.
+- [x] `LICENSE` present at repo root (MIT).
+- [x] `exports`/`publishConfig.exports` point at `./dist/index.js` and `./dist/link-checker.js` —
+      confirm `npm run build` produces both.
+- [x] README's screenshots have real files in `media/` — a broken image on the npm page reads worse
+      than no image.
+- [x] `engines.node` (`>=20.19 <22 || >=22.12`) still matches what CI tests against.
 
 ## Dry run
 
@@ -20,15 +28,26 @@ npm run build
 npm pack --dry-run
 ```
 
-Review the file list in the output — should be `dist/**` plus `package.json`, `README.md`, `LICENSE` (npm includes these three by default regardless of `files`). Nothing from `launch/`, `plans/`, `src/`, or `test-studio/` should appear.
+Review the file list — should be `dist/**` plus `package.json`, `README.md`, `LICENSE` (npm includes
+those three by default regardless of `files`). Nothing from `launch/`, `plans/`, `src/`, or
+`test-studio/` should appear.
 
 ## Release
 
-- semantic-release handles: version number, git tag, GitHub release notes, and (first run) the initial `CHANGELOG.md` — driven entirely by commit messages since the last release. Nothing to do by hand beyond making sure commits are clean going in.
-- After the first successful publish, verify the package appears at `npmjs.com/package/sanity-plugin-structure-inbox`.
+semantic-release handles the version number, git tag, GitHub release notes and `CHANGELOG.md`, driven
+entirely by commit messages since the last release. Nothing to do by hand beyond keeping commits clean
+going in.
 
 ## After publishing
 
-- [ ] Confirm the plugin surfaces on `sanity.io/plugins` (indexed from the `sanity-plugin` keyword + npm metadata — can take some time to appear; no manual submission step found).
-- [ ] Post `launch/discord-post.md` and `launch/linkedin-post.md` once the npm install command in them actually resolves to a real published version.
-- [ ] Update badges in README — the shields.io badges already point at the real npm package name, so they'll self-populate once a version exists; no edit needed, just verify they render (not "package not found").
+- [x] Package live at [npmjs.com/package/sanity-plugin-structure-inbox](https://www.npmjs.com/package/sanity-plugin-structure-inbox).
+- [x] README badges render (shields.io self-populates once a version exists).
+- [x] GitHub repo topics set (`sanity`, `sanity-plugin`, `sanity-io`, `sanity-studio`, `cms`,
+      `headless-cms`, `contentops`, `inbox`) and homepage pointed at the npm page — these are the
+      discovery path from GitHub search.
+- [ ] **Confirm the plugin surfaces on `sanity.io/plugins`** — indexed from the `sanity-plugin`
+      keyword plus npm metadata, no manual submission step. Still 404 as of 2026-09-17 (published
+      the same day); recheck in a few days.
+- [ ] **Post `launch/discord-post.md`** — attach `media/hero.png` + `media/ask-query.gif`.
+- [ ] **Post `launch/linkedin-post.md`** — lead image `media/hero-linkedin.png` (1.91:1 crop), link in
+      the first comment.
