@@ -10,7 +10,7 @@ assigned to you, and whatever else you feed it, merged into one list sorted by w
 first. It sits on the screen editors already land on, so nobody has to go looking for it, and every
 row can be opened, handed to a colleague, snoozed or ticked off without leaving the pane.
 
-![Two Studios side by side: the same Structure tool with a blank right-hand pane, and with structure-inbox filling it with a sorted list of drafts, releases and tasks](./media/hero.png)
+![The Inbox pane in a Sanity Studio: a sorted list of releases needing attention, drafts, a task, an unresolved comment and personal todos, with an Overview and Upcoming releases card beside it](./media/hero.png)
 
 > **Requires Sanity Studio v6.**
 
@@ -98,8 +98,6 @@ A persistent Overview card (oldest open item, next snooze wake, overdue count, o
 assignee) appears in the aside column once the open list is long enough for a breakdown to say
 something the list itself can't — below ~12 open items it stays out of the way.
 
-![The Overview card: oldest open item, overdue count, and open items broken down by assignee](./media/overview-stats.png)
-
 Most sources declare `audience`: `openTasks`/`unresolvedComments` default to `onlyMine: true`
 (a task or a thread naturally belongs to someone); `unpublishedDrafts` defaults to `onlyMine:
 false` (a forgotten draft is usually the team's problem). `todos` has no team-wide reading at all.
@@ -118,23 +116,17 @@ A few operational notes worth knowing before you configure sources:
 
 ### Assigning an item to someone else
 
-![The Assign to… picker, open on a selected row](./media/assign.png)
-
 Most sources offer `assign`: select rows, pick a name from the **Assign to…** picker. This is
 delegation, not ownership — a row doesn't need one natural owner to be worth assigning. Two
 sources don't offer it: `openTasks` already has its own native (read-only, here) assignee field,
 and `todos` has no shared document to label — it offers `transfer` ("Hand off to…") instead, for
 handing your own todos to someone else before you leave a team.
 
-![The Hand off to… menu open on selected todos](./media/todos-handoff.png)
-
 With exactly one row selected, `unpublishedDrafts` and `unresolvedComments` also show a fact-based
 suggestion above the picker (most recent editor, or the thread's own `@mention`) — never
 pre-selected, always just one more click away from the picker itself.
 
 ### Asking AI about an item
-
-![A row's Ask AI reply: a one-line read on whether the draft looks ready to publish](./media/ask-ai.png)
 
 `unpublishedDrafts` offers `assess`: click **Ask AI** on a row for a one-line read via Sanity's
 Agent Actions — "looks ready to publish", "still missing a hero image." Informational only; it
@@ -187,9 +179,13 @@ function MyBadge() {
 Ticking a checkbox **selects** a row; the action bar then lets you choose what happens, spanning
 the whole merged list at once (mix a task and a draft in one selection).
 
+![One row selected, with the action bar showing Ask, Snooze, Assign to… and Clear, and an AI answer above the list](./media/ask.png)
+
 - **Open** — everything not resolved and not snoozed.
 - **Cleared** — only items a source itself confirms are resolved with real evidence (today, only
   `openTasks`). Never populated by an editor ticking something.
+
+  ![The Cleared tab, listing two drafts cleared by you](./media/cleared.png)
 - **Snoozed** — hidden until a chosen time, or until the item changes underneath the snooze,
   whichever comes first. **Wake now** brings one back early.
 - **Acknowledge** — a personal, non-binding "I've seen this" marker (a small checkmark), for
@@ -201,6 +197,18 @@ lives, e.g. closes the task), or **Acknowledge** for one without (a draft, a rel
 mixed selection does both at once. `unpublishedDrafts` also offers **Suggest a time** next to
 Snooze: an explicit click sends the document to Agent Actions for a date-aware suggestion, never
 applied without a second click.
+
+### Filtering the list
+
+Two filters sit above the list, both display-only — neither changes what a source fetched, and
+nothing is resolved, snoozed or dismissed by filtering:
+
+- **By assignee** — the avatar stack. Click a face to show only that person's items; click again to
+  clear it. The headline count follows the filter, so it never disagrees with the list under it.
+- **By type** — the funnel button, which only appears once more than one type is on screen. Pick
+  any number of types; a small count badge on the button says how many are active.
+
+![The Type filter menu open, with Needs fixing and Needs attention ticked, and the list narrowed to three rows](./media/filters.png)
 
 Acknowledgments, snoozes and todos each live in their own small, unregistered per-editor document
 (`structureInbox.dismissals.<userId>`, `.snoozes.<userId>`, `.todos.<userId>`) — plain, queryable
@@ -288,13 +296,6 @@ all. AI is additive on top of that, never required:
 Every one of these is click-triggered, never automatic — nothing fires just from selecting a row
 or opening the pane, and every handler is guarded against a rapid double-click firing twice.
 
-![The AI insights menu: Summarize, Suggest todos, and Find content gaps, each with a one-line explanation](./media/ai-insights.png)
-
-**Summarize** answers the question an inbox can't answer by being a list — what, out of all this,
-is most worth starting first:
-
-![The Summarize result card: two sentences on what's most worth starting first](./media/summarize.png)
-
 Sanity bills Agent Actions at a flat **$0.05 per request**, regardless of document or prompt size —
 cost scales with how many times editors click these buttons, not with how many documents or how
 much content you have. `summarize`/`suggestTodos` are on by default since they're cheap and
@@ -366,8 +367,6 @@ Function is deployed, or if the noise is acceptable for your project.
 ```ts
 structureInbox({ask: true, sources: [/* ... */]})
 ```
-
-![Typing a plain-language question into the Ask input, and the matching rows being selected](./media/ask-query.gif)
 
 With `ask` on, a single-line "Ask about these items…" input appears in the Open view. Type a
 plain-language question and AI selects which on-screen rows match it — a selection only, never a
