@@ -45,13 +45,21 @@ going in.
 - [x] GitHub repo topics set (`sanity`, `sanity-plugin`, `sanity-io`, `sanity-studio`, `cms`,
       `headless-cms`, `contentops`, `inbox`) and homepage pointed at the npm page — these are the
       discovery path from GitHub search.
-- [ ] **Submit to the Sanity Exchange** — this is a *manual* submission, not npm-keyword indexing
+- [x] **Submitted to the Sanity Exchange** 2026-09-17. Listings are reviewed before they appear, so
+      `sanity.io/plugins/sanity-plugin-structure-inbox` may 404 for a while yet — recheck in a few
+      days rather than resubmitting.
+- [x] **Posted `launch/discord-post.md`** 2026-09-17.
+- [ ] **Post `launch/linkedin-post.md`** — planned 2026-09-18. Lead image `media/hero-linkedin.png`
+      (1.91:1), link in the first comment.
+
+<details>
+<summary>Original Exchange submission steps, for reference</summary>
+
+- **Submit to the Sanity Exchange** — this is a *manual* submission, not npm-keyword indexing
       (an earlier version of this checklist had that wrong, which is why `sanity.io/plugins/...`
       still 404s). The Exchange is itself a Sanity Studio: log in at
       [community.sanity.tools](https://community.sanity.tools) with your Sanity account → **Help** →
       "Make your first contribution" → pick the **Plugin** category and fill in the fields there.
       Have ready: npm package name, GitHub repo URL, the one-line description from `package.json`,
       and `media/hero.png`.
-- [ ] **Post `launch/discord-post.md`** — attach `media/hero.png` + `media/ask.png`.
-- [ ] **Post `launch/linkedin-post.md`** — lead image `media/hero-linkedin.png` (1.91:1 crop), link in
-      the first comment.
+</details>
