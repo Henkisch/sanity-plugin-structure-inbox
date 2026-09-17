@@ -110,6 +110,7 @@ export function InboxSection(props: InboxSectionProps) {
           <Button
             disabled={actionRunning}
             fontSize={1}
+            icon={action.icon}
             mode="ghost"
             onClick={handleAction}
             padding={2}
