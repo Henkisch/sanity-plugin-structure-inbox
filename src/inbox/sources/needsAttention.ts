@@ -3,7 +3,7 @@ import type {SanityClient} from '@sanity/client'
 import {useMemo} from 'react'
 import {useObservable} from 'react-rx'
 import {defer, from, of} from 'rxjs'
-import {map} from 'rxjs/operators'
+import {catchError, map} from 'rxjs/operators'
 // Type-only: erased at compile time — see `upcomingReleases.ts`'s own note
 // on why this stays a type-only import.
 import type {useActiveReleases as UseActiveReleasesType} from 'sanity'
@@ -63,7 +63,7 @@ export interface NeedsAttentionOptions {
  * One query for every currently-active release at once, not one per release:
  * `releaseIds.length` releases produce one round trip, not N.
  */
-function useDocumentCounts(client: SanityClient, releaseIds: readonly string[]): Map<string, number> {
+export function useDocumentCounts(client: SanityClient, releaseIds: readonly string[]): Map<string, number> {
   const idsKey = useMemo(() => releaseIds.slice().sort().join(','), [releaseIds])
 
   const counts$ = useMemo(() => {
@@ -76,6 +76,17 @@ function useDocumentCounts(client: SanityClient, releaseIds: readonly string[]):
     const readCounts$ = defer(() =>
       from(client.fetch<{name: string; count: number}[]>(query, {names: releaseIds})).pipe(
         map((rows) => new Map(rows.map((row) => [row.name, row.count]))),
+        // Every sibling source's own fetch pipeline degrades to an empty
+        // result on error rather than propagating — this was the one
+        // exception, and an unhandled observable error here doesn't just
+        // lose the counts: `useObservable` throws it during render, which
+        // takes down the whole "Needs attention" card (every off-track
+        // release row, not just the document-count field) for a transient
+        // failure that should have cost this feature nothing. An empty
+        // Map here means every release's own `documentCount` reads as
+        // `undefined` — already the "can't determine" case
+        // `classifyRelease` treats as unproven, never as a confirmed zero.
+        catchError(() => of(new Map<string, number>())),
       ),
     )
 
