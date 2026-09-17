@@ -259,6 +259,7 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
                 timestamp: row.dueBy || row._updatedAt,
                 changedAt: row._updatedAt,
                 tone: isOverdue(row.dueBy) ? 'critical' : 'default',
+                overdue: isOverdue(row.dueBy),
                 // A task's own title is thin ("Follow up: X") — the document
                 // it targets is the substantial thing to look at, so clicking
                 // the row opens that instead of an editor for the task itself.

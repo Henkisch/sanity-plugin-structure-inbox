@@ -129,13 +129,21 @@ describe('nextWake', () => {
 })
 
 describe('countOverdue', () => {
-  it('counts only rows whose source already set a critical tone', () => {
+  it('counts only rows explicitly marked overdue', () => {
     const rows = [
-      row('tasks', {id: '1', tone: 'critical'}),
-      row('tasks', {id: '2', tone: 'caution'}),
-      row('tasks', {id: '3', tone: 'critical'}),
+      row('tasks', {id: '1', overdue: true}),
+      row('tasks', {id: '2', overdue: false}),
+      row('tasks', {id: '3', overdue: true}),
     ]
     expect(countOverdue(rows)).toBe(2)
+  })
+
+  it('does not count a merely-critical-toned row that is not overdue', () => {
+    const rows = [
+      row('tasks', {id: '1', tone: 'critical', overdue: true}),
+      row('assetIssues', {id: '2', tone: 'critical'}), // no `overdue` — e.g. a broken link
+    ]
+    expect(countOverdue(rows)).toBe(1)
   })
 })
 
