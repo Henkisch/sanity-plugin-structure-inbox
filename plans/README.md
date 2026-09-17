@@ -881,3 +881,86 @@ non-interactively the way the 5 bug/debt/docs plans above were).
   deliberate pass first — confidence MED on whether this is oversight vs.
   an intentional-but-undocumented distinction; confirm with the maintainer
   before assuming it's pure oversight.
+
+## Closing out the last deferred backlog items, 2026-09-17
+
+The four items still-deferred after Plan 042's own "Direction options not
+undertaken here" section (context-as-file, native groq-param, embeddings,
+`MergedList` row memoization) were revisited on request — shipped where
+actually cheap, investigated with real evidence otherwise, rather than
+left to rot indefinitely.
+
+- **Context-as-file — shipped, no plan needed** (commit `4641f49`).
+  Sanity Studio already runs on Vite, so `import context from
+  './project-context.md?raw'` already works with zero plugin code change
+  — this was a documentation gap, not a missing feature. README now has
+  the recipe plus concrete "what to put in `context`" guidance (concrete,
+  stable, short — from this session's own AI-context research).
+- **Native `{type: 'groq'}` Agent Actions instruction param — investigated
+  via Sanity's own docs (`agent-actions/instructions`,
+  `agent-actions/prompt-quickstart`), not adopted.** Real and available on
+  every Agent Action including Prompt, but the docs show no evidence it
+  applies any smarter formatting or token-budgeting than this plugin's own
+  hand-tuned digest — it's the same "run a GROQ query, interpolate the raw
+  result" shape `surveyContentTypes` already does, just executed
+  server-side instead of client-side. The one real advantage (fewer round
+  trips) is a latency optimization, not a cost or quality one, and Plan
+  042's own TTL cache already amortizes that cost across Ask and Find
+  content gaps. **Not worth adopting** — no evidence it beats what's
+  already shipped.
+  - Side finding worth flagging separately: the Instructions doc states a
+    hard 2,000-character cap on `instruction`/`styleGuide` for **Transform
+    and Translate specifically** (measured post-interpolation) — re-read
+    the Prompt quickstart specifically to check whether this also applies
+    to Prompt (what this plugin actually uses for every AI read); it does
+    not mention any such cap. Plan 042's own survey digest is not at
+    correctness risk from this, but worth re-confirming if Sanity's docs
+    ever change.
+- **Embeddings/semantic search — investigated, found a real correction to
+  the earlier framing.** The mechanism recorded as "deprecated" in Plan
+  042 (`content-lake/embeddings-index-api-overview`) is real and is
+  deprecated, but it's a *different*, older API (used for Agent Actions
+  Generate's own reference-population feature). The actual current,
+  non-deprecated mechanism is **Dataset Embeddings**
+  (`content-lake/dataset-embeddings`) — `text::semanticSimilarity()` as a
+  plain GROQ function inside `score()`, available on all plans, free to
+  generate (only the query itself counts against a monthly semantic
+  search quota). Genuinely usable today, once a dataset has embeddings
+  enabled (`sanity datasets embeddings enable <name>`).
+  - Does not cleanly fit this plugin's own actual problem, though:
+    `surveyContentTypes`'s "5 most recent per type" sample has no natural
+    search query to score against — it's a *representativeness* problem
+    (recency bias), not a *retrieval* problem semantic search solves. It
+    would fit **Ask** well (the user's own question is a real query to
+    search by) if Ask's own survey ever needed dataset-wide retrieval
+    rather than on-screen-only candidates — a bigger design change Ask
+    doesn't currently need.
+  - **Real, cheap, evidence-based alternative found instead**: no native
+    GROQ random-sampling primitive was found (unconfirmed via docs due to
+    a tool outage this session — worth a direct check before assuming),
+    so a stride-pick — over-fetch a larger recency-ordered window (e.g.
+    `[0...50]`) and take every Nth row client-side, rather than the
+    literal top 5 — would reduce (not eliminate) the same recency bias at
+    near-zero cost, with no dataset-embeddings dependency at all. Not
+    written as a plan yet — genuinely minor, and the actual value of a
+    slightly-more-diverse sample for `contentGaps`'s own judgment call is
+    unconfirmed without real user feedback that "5 most recent" is
+    actually producing bad suggestions in practice.
+- **`MergedList` row memoization — investigated, real verdict: not worth
+  it at this plugin's own scale.** The actual prep work this needs is
+  deeper than the original finding implied: `mergeRows` builds fresh
+  `MergedRow`/`InboxItem` object references on every call (confirmed:
+  `rows.push({...})`, no reuse of prior objects), and `MergedList`'s own
+  `renderRow` builds brand-new closures (`onAssess`, `onReassign`,
+  `onUnassign`, `onEdit`, `onSelectedChange`) inline on every render
+  regardless. `React.memo` on `InboxRow` would be defeated by both,
+  independent of each other — genuinely stabilizing this needs either
+  reusing row objects by content-hash across renders, or moving closure
+  construction into `InboxRow` itself (so it can build its own stable
+  `useCallback`s from primitive props instead of receiving pre-built
+  functions) — a real architectural change, not a quick memoization
+  patch. Weighed against this plugin's own deliberate small-list design
+  (10–30 row caps throughout every source) — reconstructing a few dozen
+  rows' worth of props on a checkbox click is very likely imperceptible
+  in practice. **Not worth pursuing** without a real, reported perf
+  complaint at a scale this plugin doesn't currently target.
