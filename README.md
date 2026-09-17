@@ -54,7 +54,7 @@ separate, optional integration:
 
 | Source                                             | What it lists                                                      | Whose      |
 | --------------------------------------------------- | -------------------------------------------------------------- | ---------- |
-| `openTasks({limit, onlyMine, clearedWithinDays})`    | Sanity Tasks assigned to you and still open.                    | Yours      |
+| `openTasks({limit, onlyMine, clearedWithinDays})`    | Sanity Tasks assigned to you and still open (requires the [Growth plan](https://www.sanity.io/pricing) or above). | Yours      |
 | `unpublishedDrafts({olderThanDays, limit, types, onlyMine})` | Drafts that have sat untouched long enough to look forgotten. | Everyone's |
 | `upcomingReleases({limit})`                          | Releases that are scheduled or still being filled.               | Everyone's |
 | `needsAttention({limit})`                            | Releases that are overdue, empty and imminent, or stalling.       | Everyone's |
