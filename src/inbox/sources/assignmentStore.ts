@@ -108,15 +108,16 @@ export interface AssignmentStore {
  * the write itself rejects.
  */
 export function useAssignmentStore(client: SanityClient, docType: string): AssignmentStore {
-  const query = `*[_type == "${docType}" && defined(assignedTo)]{targetId, assignedTo}`
+  const query = `*[_type == $docType && defined(assignedTo)]{targetId, assignedTo}`
 
   const byTarget$ = useMemo(() => {
-    const fetch$ = client.observable.fetch<AssignmentRow[]>(query)
-    return liveQuery$(client, query, {}, fetch$).pipe(
+    const params = {docType}
+    const fetch$ = client.observable.fetch<AssignmentRow[]>(query, params)
+    return liveQuery$(client, query, params, fetch$).pipe(
       map((rows) => new Map(rows.map((row) => [row.targetId, row.assignedTo]))),
       catchError(() => of(new Map<string, string>())),
     )
-  }, [client, query])
+  }, [client, query, docType])
 
   const remoteByTarget = useObservable(byTarget$, new Map<string, string>())
 
@@ -179,7 +180,16 @@ export function useAssignmentStore(client: SanityClient, docType: string): Assig
             .patch(docId, (patch) => patch.set({assignedTo}))
             .commit()
         } catch (error) {
+          // Only roll back if this write's own value is still the one in
+          // place — a second, later call to the same `targetId` (a quick
+          // reassign, or assign-then-unassign) may have already overwritten
+          // it with its own, still-in-flight optimistic value by the time
+          // this `catch` runs. Deleting unconditionally would wipe out that
+          // newer, still-pending write, reintroducing the exact "sometimes
+          // needs a reload" bug this file exists to fix — just for the
+          // narrower case of two overlapping writes to one target.
           setOverrides((current) => {
+            if (current.get(targetId) !== assignedTo) return current
             const next = new Map(current)
             next.delete(targetId)
             return next
@@ -192,7 +202,9 @@ export function useAssignmentStore(client: SanityClient, docType: string): Assig
         try {
           await client.delete(assignmentDocId(docType, targetId))
         } catch (error) {
+          // Same reasoning as `assign`'s own catch above.
           setOverrides((current) => {
+            if (current.get(targetId) !== null) return current
             const next = new Map(current)
             next.delete(targetId)
             return next

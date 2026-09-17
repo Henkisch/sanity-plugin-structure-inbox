@@ -175,6 +175,61 @@ describe('useAssignmentStore', () => {
     expect(result.current.byTarget.has('draft-1')).toBe(false)
   })
 
+  it('does not let an earlier, now-superseded rejected write roll back a newer write to the same target', async () => {
+    // Two rapid `assign` calls to the *same* target (a quick reassign):
+    // the first one's own commit rejects, but only after the second one
+    // has already taken over the override with its own, still-succeeding
+    // value. Rolling back unconditionally on the first rejection would
+    // wipe out the second call's own pending write — reintroducing the
+    // "sometimes needs a reload" bug this file exists to fix, just for
+    // this narrower two-overlapping-writes case.
+    const {client} = stubClient([])
+    const commits: {resolve: () => void; reject: (error: Error) => void}[] = []
+    client.transaction = vi.fn(() => {
+      let resolve!: () => void
+      let reject!: (error: Error) => void
+      const promise = new Promise<void>((res, rej) => {
+        resolve = res
+        reject = rej
+      })
+      commits.push({resolve, reject})
+      return {
+        createIfNotExists: vi.fn().mockReturnThis(),
+        patch: vi.fn().mockReturnThis(),
+        commit: vi.fn(() => promise),
+      }
+    }) as unknown as SanityClient['transaction']
+
+    const {result} = renderHook(() => useAssignmentStore(client, 'structureInbox.assignment'))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+
+    let firstAssign: Promise<void> | undefined
+    let secondAssign: Promise<void> | undefined
+    act(() => {
+      firstAssign = result.current.assign('draft-1', 'user-1').catch(() => undefined)
+    })
+    act(() => {
+      secondAssign = result.current.assign('draft-1', 'user-2')
+    })
+    expect(result.current.byTarget.get('draft-1')).toBe('user-2')
+    expect(commits).toHaveLength(2)
+
+    // The first write's own commit rejects — after the second already won.
+    await act(async () => {
+      commits[0].reject(new Error('network down'))
+      await firstAssign
+    })
+    expect(result.current.byTarget.get('draft-1')).toBe('user-2')
+
+    await act(async () => {
+      commits[1].resolve()
+      await secondAssign
+    })
+    expect(result.current.byTarget.get('draft-1')).toBe('user-2')
+  })
+
   it("stops overriding once the live query confirms the write, so a later remote change (someone else reassigning it) becomes visible", async () => {
     const {client, setRows, emitRemoteChange} = stubClient([])
     const {result} = renderHook(() => useAssignmentStore(client, 'structureInbox.assignment'))
