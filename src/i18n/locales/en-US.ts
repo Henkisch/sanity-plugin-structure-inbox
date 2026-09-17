@@ -118,6 +118,7 @@ const enUS = {
 
   'action.assign': 'Assign to…',
   'action.assign.suggested': '{{name}}',
+  'assignee.suggest.loading': 'Checking…',
   'action.assign.reason.lastEditor': 'edited this most recently',
   'action.assign.reason.mentioned': 'was mentioned in this thread',
   'action.transfer': 'Hand off to…',

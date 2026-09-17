@@ -25,6 +25,21 @@ export type SnoozeSuggestionState =
   | {status: 'none'}
   | {status: 'error'}
 
+/**
+ * `suggestAssignee`'s own state — unlike `SnoozeSuggestionState`, the
+ * fetch behind this one fires automatically on selection change rather
+ * than from a click (see `assigneeSuggestion`'s own doc comment below and
+ * `MergedList.tsx`'s effect): it's a fast, non-billed fact lookup, not an
+ * AI read that needs consent-gating. Only the *rendering* shape mirrors
+ * the snooze suggestion, not the triggering.
+ */
+export type AssigneeSuggestionState =
+  | {status: 'idle'}
+  | {status: 'loading'}
+  | {status: 'done'; userId: string; reason: 'lastEditor' | 'mentioned'}
+  | {status: 'none'}
+  | {status: 'error'}
+
 interface SelectionActionsProps {
   count: number
   view: InboxView
@@ -83,7 +98,7 @@ interface SelectionActionsProps {
    * editor still has to click, the same as choosing from the `<select>`
    * would be.
    */
-  assigneeSuggestion?: {userId: string; reason: 'lastEditor' | 'mentioned'}
+  assigneeSuggestion?: AssigneeSuggestionState
   /**
    * Who `onTransfer` can hand the selection to — absent or empty hides the
    * picker. Distinct from `assignableUsers`/`onAssign`: a source offers one
@@ -257,9 +272,10 @@ export function SelectionActions(props: SelectionActionsProps) {
           ? t('action.clear')
           : t('action.markDone')
 
-  const suggestedUser = assigneeSuggestion
-    ? assignableUsers?.find((user) => user.id === assigneeSuggestion.userId)
-    : undefined
+  const suggestedUser =
+    assigneeSuggestion?.status === 'done'
+      ? assignableUsers?.find((user) => user.id === assigneeSuggestion.userId)
+      : undefined
 
   return (
     // No count text here — it renders in `MergedList.tsx`'s own header,
@@ -353,7 +369,11 @@ export function SelectionActions(props: SelectionActionsProps) {
         />
       )}
 
-      {assigneeSuggestion && onAssign && suggestedUser && (
+      {assigneeSuggestion?.status === 'loading' && (
+        <Button disabled fontSize={0} mode="bleed" padding={1} text={t('assignee.suggest.loading')} />
+      )}
+
+      {assigneeSuggestion?.status === 'done' && onAssign && suggestedUser && (
         <Tooltip
           content={
             <Box padding={2}>
@@ -371,6 +391,19 @@ export function SelectionActions(props: SelectionActionsProps) {
             text={t('action.assign.suggested', {name: suggestedUser.label})}
           />
         </Tooltip>
+      )}
+
+      {/* No branch for `status === 'none'` — unlike the snooze suggestion,
+          where "the AI genuinely had no date to suggest" is worth saying, an
+          assignee suggestion resolving to "nobody in particular" is a
+          common, unremarkable outcome (most rows have no
+          last-editor/mention signal); rendering nothing here matches
+          today's effective behavior. */}
+
+      {assigneeSuggestion?.status === 'error' && (
+        <Text muted size={0}>
+          {t('assess.error')}
+        </Text>
       )}
 
       {onAssign && assignableUsers && assignableUsers.length > 0 && (
