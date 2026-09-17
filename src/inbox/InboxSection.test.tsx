@@ -1,3 +1,4 @@
+import {SearchIcon} from '@sanity/icons/Search'
 import {cleanup, fireEvent, screen} from '@testing-library/react'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
@@ -242,6 +243,26 @@ describe('InboxSection', () => {
 
     expect(screen.queryByText('assess.ask')).toBeNull()
     expect(screen.queryByText('action.delete')).toBeNull()
+  })
+
+  it('renders a source action\'s icon in its header button — same as the main column does', () => {
+    // Regression for plan 047: the aside column's own action button (the
+    // `badge` passed into `SectionCard`) used to drop `action.icon` on the
+    // floor, even though the main column's equivalent button (`Inbox.tsx`)
+    // already rendered it. Same `action`, same icon, regardless of which
+    // column a source's `placement` puts it in.
+    renderSection({
+      source: {
+        name: 'linkChecker',
+        title: 'Link checker',
+        useItems: () => ({
+          items: [],
+          action: {label: 'Scan for issues', run: vi.fn(), icon: SearchIcon},
+        }),
+      },
+    })
+
+    expect(document.querySelector('[data-sanity-icon="search"]')).toBeTruthy()
   })
 
   it('does not render a "select all" header — aside sources are ambient context, not a worklist to bulk-clear', () => {
