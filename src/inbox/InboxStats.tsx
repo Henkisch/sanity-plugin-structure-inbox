@@ -186,13 +186,15 @@ export function InboxStats(props: InboxStatsProps) {
           itself — `SectionCard` is built around one source's items with a
           retry-on-error path this card has no use for; a plain header plus
           a `Stack` of stat rows is simpler here than bending that component
-          to fit. */}
+          to fit. Matches `SectionCard`'s own header `minHeight` (58px,
+          confirmed live in a running Studio) so the two stacked sidebar
+          cards' headers align. */}
       <Card
         borderBottom
         paddingX={3}
         paddingY={3}
         radius={0}
-        style={{alignItems: 'center', display: 'flex', minHeight: 54}}
+        style={{alignItems: 'center', display: 'flex', minHeight: 58}}
         tone="transparent"
       >
         <Flex align="center" gap={3} paddingLeft={2}>

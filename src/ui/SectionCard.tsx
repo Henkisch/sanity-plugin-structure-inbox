@@ -43,19 +43,16 @@ export function SectionCard(props: SectionCardProps) {
     // clipped by this card's radius instead of bleeding past it.
     <Card border overflow="hidden" radius={3} shadow={0}>
       {title && (
-        // `minHeight` matches `MergedList`'s own actions/toolbar row
-        // exactly (confirmed live: 58px at its normal, single-row height)
-        // — both columns' own cards start at the same `top`, so a shorter
-        // header here reads as misaligned even though nothing is actually
-        // wrong with either card's own position. This card has no toolbar
-        // of its own to grow for, so the height is pinned explicitly
-        // instead. Re-measure and update this constant if that row's own
-        // content ever changes height again (it did once already, when
-        // Summarize/Suggest todos/Find content gaps were grouped behind
-        // one "AI insights" menu). Only ever matches that row's *single-line*
-        // height — once it wraps to two rows on a narrow screen, this
-        // static card no longer tracks it; a real fix for that would need
-        // live cross-column measurement, not a pinned constant.
+        // `minHeight: 58` is this card's own tuned header height (confirmed
+        // live in a running Studio) — not derived from or matching
+        // `MergedList`'s actions/toolbar row, which sets no `minHeight` of
+        // its own and sizes to its variable-width button cluster instead.
+        // `InboxStats`'s "Overview" card header now matches this value (not
+        // the other way around) so the two stacked sidebar cards' headers
+        // align. Re-measure and update both constants together if this
+        // card's own header content ever changes height again (it did once
+        // already, when Summarize/Suggest todos/Find content gaps were
+        // grouped behind one "AI insights" menu).
         <Card
           borderBottom
           paddingX={3}
