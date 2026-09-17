@@ -1,9 +1,10 @@
-import {Avatar, Card, Flex, Stack, Text} from '@sanity/ui'
+import {Avatar, Box, Card, Flex, Stack, Text} from '@sanity/ui'
 import {useMemo} from 'react'
 import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {type SnoozeState} from '../store/snoozes'
+import {CountBadge} from '../ui/CountBadge'
 import {initials, UnassignedAvatar} from './InboxRow'
 import {type MergedRow} from './mergeItems'
 
@@ -26,6 +27,27 @@ const WAKE_SOON_MS = 24 * 60 * 60 * 1000
 /** Rows whose source offers `assign` (so "unassigned" is a meaningful state) but nobody's on them. */
 export function countUnassigned(assignableRows: readonly MergedRow[]): number {
   return assignableRows.filter((row) => !row.item.assignee).length
+}
+
+/**
+ * A long display name past this length pushes an assignee row's own count
+ * out of view — same problem the CSS `text-overflow: ellipsis` route this
+ * replaced was fixing. Character-based, not CSS: confirmed live, Sanity
+ * UI's own `Text` reports a shorter box height than its actual glyph line
+ * needs at this size — harmless everywhere else on this card (nothing else
+ * clips it), but any non-`visible` `overflow` value on it (required for
+ * `text-overflow: ellipsis` to do anything at all) clips the *top* of every
+ * character rather than truncating cleanly, on both the `Unassigned`
+ * bucket and every real assignee row once real seeded data produced more
+ * than one. A plain character cap sidesteps the whole overflow/`Text`
+ * interaction rather than fighting it.
+ */
+const MAX_ASSIGNEE_LABEL_CHARS = 40
+
+export function truncateLabel(label: string): string {
+  return label.length > MAX_ASSIGNEE_LABEL_CHARS
+    ? `${label.slice(0, MAX_ASSIGNEE_LABEL_CHARS - 1)}…`
+    : label
 }
 
 /**
@@ -208,7 +230,9 @@ export function InboxStats(props: InboxStatsProps) {
                 <Text muted size={1}>
                   {t('stats.overdue')}
                 </Text>
-                <Text size={1}>{overdueCount}</Text>
+                <Box style={{flexShrink: 0}}>
+                  <CountBadge tone="critical">{overdueCount}</CountBadge>
+                </Box>
               </Flex>
             )}
           </Stack>
@@ -226,40 +250,39 @@ export function InboxStats(props: InboxStatsProps) {
                   singled out on its own line. */}
               {unassignedCount > 0 && (
                 <Flex align="center" gap={2} justify="space-between">
-                  {/* `minWidth: 0` on this flex item (so it can actually
+                  {/* `minWidth: 0` on this flex item so it can actually
                       shrink below its own content width — a flex item's
-                      default `min-width: auto` otherwise refuses to),
-                      `overflow: hidden` + `textOverflow="ellipsis"` on
-                      the label itself (Sanity UI's own `Text` sets
-                      `white-space: nowrap` by default but not
-                      `overflow: hidden` — without it, a long label
-                      doesn't truncate, it just overflows past the
-                      card's own edge and pushes the count completely
-                      out of view). Confirmed live with a long
-                      synthetic display name — needed all three
-                      together; any one alone still overflowed. */}
+                      default `min-width: auto` otherwise refuses to. The
+                      label itself is pre-truncated in JS
+                      (`truncateLabel`), not CSS `overflow` +
+                      `text-overflow: ellipsis`: that was tried and reverted
+                      — confirmed live, Sanity UI's own `Text` at this size
+                      reports a shorter box height than its actual glyph
+                      line needs (harmless everywhere else on this card,
+                      since nothing else clips it), but any non-`visible`
+                      `overflow` value on it — required for
+                      `text-overflow: ellipsis` to do anything — clips the
+                      *top* of every character instead of truncating
+                      cleanly. Reproduced on real seeded demo data the
+                      moment more than one assignee row existed. */}
                   <Flex align="center" gap={2} style={{minWidth: 0}}>
                     <UnassignedAvatar size={0} />
-                    <Text size={1} style={{overflow: 'hidden'}} textOverflow="ellipsis">
-                      {t('assignee.unassigned')}
-                    </Text>
+                    <Text size={1}>{truncateLabel(t('assignee.unassigned'))}</Text>
                   </Flex>
-                  <Text muted size={1} style={{flexShrink: 0}}>
-                    {unassignedCount}
-                  </Text>
+                  <Box style={{flexShrink: 0}}>
+                    <CountBadge>{unassignedCount}</CountBadge>
+                  </Box>
                 </Flex>
               )}
               {assigneeLoad.map((person) => (
                 <Flex align="center" gap={2} justify="space-between" key={person.id}>
                   <Flex align="center" gap={2} style={{minWidth: 0}}>
                     <Avatar initials={initials(person.label)} size={0} src={person.imageUrl} />
-                    <Text size={1} style={{overflow: 'hidden'}} textOverflow="ellipsis">
-                      {person.label}
-                    </Text>
+                    <Text size={1}>{truncateLabel(person.label)}</Text>
                   </Flex>
-                  <Text muted size={1} style={{flexShrink: 0}}>
-                    {person.count}
-                  </Text>
+                  <Box style={{flexShrink: 0}}>
+                    <CountBadge>{person.count}</CountBadge>
+                  </Box>
                 </Flex>
               ))}
             </Stack>

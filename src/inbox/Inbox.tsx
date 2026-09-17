@@ -1829,85 +1829,83 @@ export function Inbox({
           responsive `[3, 3, 4]` horizontal inset as that header `Card`, not
           a fixed 20px — the two used to disagree at the mobile breakpoint. */}
       <Box paddingBottom={4} paddingTop={0} paddingX={[3, 3, 4]}>
-        <Container width={4}>
-          <TabPanel
-            aria-labelledby={
-              view === 'open' ? OPEN_TAB_ID : view === 'cleared' ? CLEARED_TAB_ID : SNOOZED_TAB_ID
-            }
-            id={PANEL_ID}
-          >
-            <ColumnsBoundary ref={boundaryRef}>
-              <ResponsiveColumns>
-                <Box>
-                  <MergedList
-                    actions={mainColumnActions}
-                    ask={ask}
-                    askResult={askResult}
-                    assessments={assessments}
-                    assigneeFilter={assigneeFilter}
-                    context={context}
-                    dismissals={dismissals}
-                    filterBar={filterBar}
-                    getProjectDigest={getProjectDigest}
-                    maxHeight={isStacked ? undefined : sidebarHeight}
-                    onAskResultChange={setAskResult}
-                    order={mainOrder}
-                    reports={reports}
-                    results={hasMainColumnResults ? mainColumnResults : undefined}
-                    scrollable={!isStacked}
-                    snoozes={snoozes}
-                    typeFilter={typeFilter}
-                    view={view}
+        <TabPanel
+          aria-labelledby={
+            view === 'open' ? OPEN_TAB_ID : view === 'cleared' ? CLEARED_TAB_ID : SNOOZED_TAB_ID
+          }
+          id={PANEL_ID}
+        >
+          <ColumnsBoundary ref={boundaryRef}>
+            <ResponsiveColumns>
+              <Box>
+                <MergedList
+                  actions={mainColumnActions}
+                  ask={ask}
+                  askResult={askResult}
+                  assessments={assessments}
+                  assigneeFilter={assigneeFilter}
+                  context={context}
+                  dismissals={dismissals}
+                  filterBar={filterBar}
+                  getProjectDigest={getProjectDigest}
+                  maxHeight={isStacked ? undefined : sidebarHeight}
+                  onAskResultChange={setAskResult}
+                  order={mainOrder}
+                  reports={reports}
+                  results={hasMainColumnResults ? mainColumnResults : undefined}
+                  scrollable={!isStacked}
+                  snoozes={snoozes}
+                  typeFilter={typeFilter}
+                  view={view}
+                />
+              </Box>
+
+              {/* Always rendered now, `InboxStats` first — the persistent
+                  sidebar. Every aside source's own card is persistent too:
+                  each one already draws its own "All clear."/"Nothing
+                  snoozed." empty state internally, so there is no reason
+                  left to hide the whole card while it has nothing due.
+                  `ref` here is what `MergedList`'s own list height is
+                  capped against — see `sidebarHeight` above. */}
+              <Box ref={sidebarRef}>
+                <Stack gap={3}>
+                  <InboxStats
+                    assignableRows={assignableRows}
+                    now={now}
+                    openRows={openRows}
+                    snoozed={snoozes.state.snoozed}
+                    snoozedRows={snoozedRows}
                   />
-                </Box>
 
-                {/* Always rendered now, `InboxStats` first — the persistent
-                    sidebar. Every aside source's own card is persistent too:
-                    each one already draws its own "All clear."/"Nothing
-                    snoozed." empty state internally, so there is no reason
-                    left to hide the whole card while it has nothing due.
-                    `ref` here is what `MergedList`'s own list height is
-                    capped against — see `sidebarHeight` above. */}
-                <Box ref={sidebarRef}>
-                  <Stack gap={3}>
-                    <InboxStats
-                      assignableRows={assignableRows}
-                      now={now}
-                      openRows={openRows}
-                      snoozed={snoozes.state.snoozed}
-                      snoozedRows={snoozedRows}
-                    />
-
-                    {/* Always `view="open"`, never the pane's own tab: an
-                        aside source offers no dismiss/snooze action of its
-                        own (InboxSection dropped that whole mechanism for
-                        aside content), so nothing can ever move a release
-                        into Done or Snoozed through this UI — following the
-                        Open/Done/Snoozed tabs here just meant Releases sat
-                        showing "Nothing snoozed." on a tab that can never
-                        hold anything, for every aside source there ever
-                        is. */}
-                    {aside.length > 0 && (
-                      <Stack gap={3}>
-                        {aside.map((source) => (
-                          <BoundedSection
-                            compact
-                            dismissals={dismissals}
-                            key={source.name}
-                            onCount={ignoreCount}
-                            snoozes={snoozes}
-                            source={source}
-                            view="open"
-                          />
-                        ))}
-                      </Stack>
-                    )}
-                  </Stack>
-                </Box>
-              </ResponsiveColumns>
-            </ColumnsBoundary>
-          </TabPanel>
-        </Container>
+                  {/* Always `view="open"`, never the pane's own tab: an
+                      aside source offers no dismiss/snooze action of its
+                      own (InboxSection dropped that whole mechanism for
+                      aside content), so nothing can ever move a release
+                      into Done or Snoozed through this UI — following the
+                      Open/Done/Snoozed tabs here just meant Releases sat
+                      showing "Nothing snoozed." on a tab that can never
+                      hold anything, for every aside source there ever
+                      is. */}
+                  {aside.length > 0 && (
+                    <Stack gap={3}>
+                      {aside.map((source) => (
+                        <BoundedSection
+                          compact
+                          dismissals={dismissals}
+                          key={source.name}
+                          onCount={ignoreCount}
+                          snoozes={snoozes}
+                          source={source}
+                          view="open"
+                        />
+                      ))}
+                    </Stack>
+                  )}
+                </Stack>
+              </Box>
+            </ResponsiveColumns>
+          </ColumnsBoundary>
+        </TabPanel>
       </Box>
     </Stack>
   )

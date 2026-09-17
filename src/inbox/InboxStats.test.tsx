@@ -10,6 +10,7 @@ import {
   InboxStats,
   nextWake,
   oldestOpenAgeDays,
+  truncateLabel,
 } from './InboxStats'
 import {type MergedRow} from './mergeItems'
 import {type InboxItem} from './types'
@@ -149,6 +150,24 @@ vi.mock('sanity', async (importOriginal) => {
   }
 })
 
+describe('truncateLabel', () => {
+  it('returns a short label unchanged', () => {
+    expect(truncateLabel('Ada')).toBe('Ada')
+  })
+
+  it('crops a label past the character cap and appends an ellipsis', () => {
+    const long = 'A'.repeat(50)
+    const result = truncateLabel(long)
+    expect(result.endsWith('…')).toBe(true)
+    expect(result.length).toBe(40)
+  })
+
+  it('leaves a label exactly at the cap unchanged', () => {
+    const exact = 'A'.repeat(40)
+    expect(truncateLabel(exact)).toBe(exact)
+  })
+})
+
 describe('InboxStats', () => {
   it('renders nothing at all below the row threshold', () => {
     const {container} = renderWithTheme(
@@ -201,6 +220,21 @@ describe('InboxStats', () => {
 
     expect(screen.getByText('stats.title')).toBeTruthy()
     expect(screen.getByText('Ada')).toBeTruthy()
+  })
+
+  it('truncates a long assignee name instead of rendering it in full', () => {
+    const longName = 'A Very Long Display Name That Would Otherwise Overflow The Card'
+    const rows = [
+      ...manyRows(11),
+      row('tasks', {id: '1', timestamp: new Date(NOW).toISOString(), assignee: {id: 'long', label: longName}}),
+    ]
+
+    renderWithTheme(
+      <InboxStats assignableRows={rows} now={NOW} openRows={rows} snoozed={EMPTY_SNOOZED} snoozedRows={[]} />,
+    )
+
+    expect(screen.queryByText(longName)).toBeNull()
+    expect(screen.getByText(truncateLabel(longName))).toBeTruthy()
   })
 
   it('shows an unassigned row in the per-assignee section, not a separate stat of its own', () => {
