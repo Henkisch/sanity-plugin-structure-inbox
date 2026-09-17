@@ -10,7 +10,7 @@ That bothered me for a while. There's usually plenty worth showing there. A draf
 
 So I built a plugin that fills it. It opens on its own and says "13 things waiting on you and your team". Everything in one list, most urgent first.
 
-The part I'm happiest with: you only get "Mark as done" if something can actually be confirmed resolved. Otherwise it's "Acknowledge", and it stays in the list.
+What I like best is that it's all actionable from the list itself. Open the document, hand it to a colleague, snooze it until next week or tick it off. And you can do that to a draft and a task in one go.
 
 Open source, free to use. Link in the comments.
 
