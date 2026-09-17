@@ -45,9 +45,13 @@ going in.
 - [x] GitHub repo topics set (`sanity`, `sanity-plugin`, `sanity-io`, `sanity-studio`, `cms`,
       `headless-cms`, `contentops`, `inbox`) and homepage pointed at the npm page — these are the
       discovery path from GitHub search.
-- [ ] **Confirm the plugin surfaces on `sanity.io/plugins`** — indexed from the `sanity-plugin`
-      keyword plus npm metadata, no manual submission step. Still 404 as of 2026-09-17 (published
-      the same day); recheck in a few days.
+- [ ] **Submit to the Sanity Exchange** — this is a *manual* submission, not npm-keyword indexing
+      (an earlier version of this checklist had that wrong, which is why `sanity.io/plugins/...`
+      still 404s). The Exchange is itself a Sanity Studio: log in at
+      [community.sanity.tools](https://community.sanity.tools) with your Sanity account → **Help** →
+      "Make your first contribution" → pick the **Plugin** category and fill in the fields there.
+      Have ready: npm package name, GitHub repo URL, the one-line description from `package.json`,
+      and `media/hero.png`.
 - [ ] **Post `launch/discord-post.md`** — attach `media/hero.png` + `media/ask-query.gif`.
 - [ ] **Post `launch/linkedin-post.md`** — lead image `media/hero-linkedin.png` (1.91:1 crop), link in
       the first comment.
