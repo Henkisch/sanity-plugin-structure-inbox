@@ -1,24 +1,22 @@
 # LinkedIn post
 
-~900 characters. The first two lines are what shows above "…see more" — they carry the post.
+Written to `launch/voice.md` — read that first if you're editing this.
 
 ---
 
-Content work rarely fails loudly.
+I've built a fair number of Sanity projects over the years, and in most of them the Structure tool is where the editors start their day. It's the first thing they open. And until you click something, the pane next to the list is just empty.
 
-A draft nobody published. A release scheduled for Thursday that's still empty. Nothing throws an error — it just sits there until someone notices by accident.
+That empty space bothered me for a long time. There's usually plenty worth putting there. A draft someone forgot to publish. A release scheduled for Thursday that's still empty. A task that's been open since last week. None of it is broken, so nobody gets told about it, and it sits there until someone happens to notice.
 
-Meanwhile every editor opens the same screen every morning. In Sanity Studio, it's blank.
+So I built a plugin that fills it: sanity-plugin-structure-inbox. When an editor lands in the Studio it opens on its own and says "13 things waiting on you and your team", with everything in one list, most urgent first.
 
-So I built **sanity-plugin-structure-inbox** to put that screen to work. It opens by itself and leads with: *"13 things waiting on you and your team."* Forgotten drafts, stalling releases, open tasks, failing validation, unresolved comments — one list, most urgent first. Nobody triages it. Nobody goes looking for it.
+Two things I spent the most time getting right:
 
-Two rules I held to:
+I didn't want fake completions. If a source can actually confirm something is resolved, you get "Mark as done". If it can't, you only get "Acknowledge", and the item stays open. Ticking a box shouldn't make a problem go away.
 
-→ **No fake completions.** "Mark as done" only appears when something can actually be resolved. Otherwise it's "Acknowledge" — I've seen this, it's still open.
+And I wanted it to be useful for the team, not just for whoever is looking at it. You can hand any item to a colleague, and a forgotten draft is treated as the team's problem rather than one person's. Your own todo list stays private though — nobody else can read it.
 
-→ **A queue, not a scoreboard.** Assign anything to anyone. Private to-do lists stay private.
-
-Open source, MIT. Link in comments.
+It's open source and free to use. Link in the comments.
 
 #sanity #cms #contentops #opensource
 
@@ -29,4 +27,4 @@ Open source, MIT. Link in comments.
 - Lead image: `media/hero-linkedin.png` — the comparison, pre-cropped to LinkedIn's 1.91:1 feed ratio. **Not** `media/hero.png` (3.93:1 — gets letterboxed to unreadable).
 - Link in the first comment, not the body — LinkedIn suppresses reach on posts with outbound links.
 - Tuesday–Thursday, mid-morning.
-- Everything cut from this post (delegation, AI scoping, team view, custom sources) is follow-up material. One point per post beats five in one.
+- Everything left out (delegation, AI reads, team view, custom sources) is follow-up material.
