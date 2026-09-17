@@ -18,7 +18,11 @@ import {matchesInboxFilters} from './inboxFilterSentinels'
 import {InboxRow} from './InboxRow'
 import {mergeRows, type MergedRow} from './mergeItems'
 import {type ContentTypeSummary} from './projectDigest'
-import {SelectionActions, type SnoozeSuggestionState} from './SelectionActions'
+import {
+  SelectionActions,
+  type AssigneeSuggestionState,
+  type SnoozeSuggestionState,
+} from './SelectionActions'
 import {type SourceReport} from './SourceFeed'
 import {type InboxItem, type InboxView} from './types'
 import {EXIT_ANIMATION_MS, useUndoToast} from './useUndoToast'
@@ -634,29 +638,29 @@ export function MergedList(props: MergedListProps) {
   // share one source, trivially true for exactly one.
   const suggestAssigneeForRow = singleSelectedRow ? assignableSource?.suggestAssignee : undefined
 
-  const [assigneeSuggestion, setAssigneeSuggestion] = useState<{
-    userId: string
-    reason: 'lastEditor' | 'mentioned'
-  } | null>(null)
+  const [assigneeSuggestion, setAssigneeSuggestion] = useState<AssigneeSuggestionState>({
+    status: 'idle',
+  })
 
   useEffect(() => {
     if (!singleSelectedRow || !suggestAssigneeForRow) {
-      setAssigneeSuggestion(null)
+      setAssigneeSuggestion({status: 'idle'})
       return undefined
     }
 
     let cancelled = false
-    setAssigneeSuggestion(null)
+    setAssigneeSuggestion({status: 'loading'})
 
     suggestAssigneeForRow(singleSelectedRow.item)
       .then((result) => {
-        if (!cancelled) setAssigneeSuggestion(result)
+        if (!cancelled) {
+          setAssigneeSuggestion(result ? {status: 'done', ...result} : {status: 'none'})
+        }
         return undefined
       })
       .catch((error: unknown) => {
-        if (!cancelled) {
-          console.error('[sanity-plugin-structure-inbox] suggest-assignee failed', error)
-        }
+        console.error('[sanity-plugin-structure-inbox] suggest-assignee failed', error)
+        if (!cancelled) setAssigneeSuggestion({status: 'error'})
       })
 
     return () => {

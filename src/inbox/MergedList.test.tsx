@@ -980,6 +980,33 @@ describe('suggested assignee', () => {
     expect(screen.queryByText('action.assign.suggested')).toBeNull()
   })
 
+  it('shows a loading indicator while suggestAssignee is pending', async () => {
+    let resolveSuggestion: ((value: {userId: string; reason: 'lastEditor' | 'mentioned'} | null) => void) | undefined
+    const suggestAssignee = vi.fn(
+      () =>
+        new Promise<{userId: string; reason: 'lastEditor' | 'mentioned'} | null>((resolve) => {
+          resolveSuggestion = resolve
+        }),
+    )
+    const toUser = vi.fn().mockResolvedValue(undefined)
+    const reports = {
+      drafts: report('drafts', 'Drafts', {
+        open: [item('d1', {title: 'Draft one'})],
+        assign: {users: [{id: 'user-1', label: 'Ada'}], toUser, suggestAssignee},
+      }),
+    }
+    renderList({reports, order: ['drafts']})
+
+    selectItem('Draft one')
+
+    expect(await screen.findByText('assignee.suggest.loading')).toBeTruthy()
+
+    resolveSuggestion?.({userId: 'user-1', reason: 'lastEditor'})
+
+    expect(await screen.findByText('action.assign.suggested')).toBeTruthy()
+    expect(screen.queryByText('assignee.suggest.loading')).toBeNull()
+  })
+
   it('renders the suggestion for a single row from a source that offers it', async () => {
     const suggestAssignee = vi.fn().mockResolvedValue({userId: 'user-1', reason: 'lastEditor'})
     const toUser = vi.fn().mockResolvedValue(undefined)
@@ -1053,5 +1080,22 @@ describe('suggested assignee', () => {
     fireEvent.click(screen.getByRole('button', {name: 'action.assign'}))
     fireEvent.click(screen.getByRole('menuitem', {name: 'Ada'}))
     await vi.waitFor(() => expect(toUser).toHaveBeenCalledTimes(1))
+  })
+
+  it('renders a plain error line, instead of silence, when suggestAssignee rejects', async () => {
+    const suggestAssignee = vi.fn().mockRejectedValue(new Error('network down'))
+    const toUser = vi.fn().mockResolvedValue(undefined)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const reports = {
+      drafts: report('drafts', 'Drafts', {
+        open: [item('d1', {title: 'Draft one'})],
+        assign: {users: [{id: 'user-1', label: 'Ada'}], toUser, suggestAssignee},
+      }),
+    }
+    renderList({reports, order: ['drafts']})
+
+    selectItem('Draft one')
+
+    expect(await screen.findByText('assess.error')).toBeTruthy()
   })
 })
