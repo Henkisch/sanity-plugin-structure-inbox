@@ -47,6 +47,11 @@ export default defineConfig({
 Editors now land on the Inbox instead of a blank canvas. Nothing is added to your structure tree —
 the plugin teaches the root pane to resolve the Inbox id directly.
 
+> `openTasks` and `upcomingReleases` above only show real rows on a plan that actually has Tasks
+> and Content Releases (see the plan requirements in the table below) — on a plan without them,
+> that source just quietly renders nothing rather than an error. `unpublishedDrafts` works on every
+> plan, so it's a safer first source to reach for if you're not sure what your plan includes yet.
+
 ## Sources
 
 A source is a feed of inbox items. Eight ship with the plugin, plus one more (last row) via a
@@ -56,8 +61,8 @@ separate, optional integration:
 | --------------------------------------------------- | -------------------------------------------------------------- | ---------- |
 | `openTasks({limit, onlyMine, clearedWithinDays})`    | Sanity Tasks assigned to you and still open (requires the [Growth plan](https://www.sanity.io/pricing) or above). | Yours      |
 | `unpublishedDrafts({olderThanDays, limit, types, onlyMine})` | Drafts that have sat untouched long enough to look forgotten. | Everyone's |
-| `upcomingReleases({limit})`                          | Releases that are scheduled or still being filled.               | Everyone's |
-| `needsAttention({limit})`                            | Releases that are overdue, empty and imminent, or stalling.       | Everyone's |
+| `upcomingReleases({limit})`                          | Releases that are scheduled or still being filled (requires [Content Releases](https://www.sanity.io/pricing), an Enterprise add-on). | Everyone's |
+| `needsAttention({limit})`                            | Releases that are overdue, empty and imminent, or stalling (same Content Releases requirement as above). | Everyone's |
 | `documentValidation({limit, types})`                 | Drafts currently failing their own schema's validation rules.    | Everyone's |
 | `assetIssues({limit, maxSizeBytes, altFieldName})`    | Oversized, unused, or poorly alt-texted image/file assets.        | Everyone's |
 | `unresolvedComments({limit, onlyMine})`               | Unresolved comment threads (requires the [Growth plan](https://www.sanity.io/pricing) or above). | Yours |
