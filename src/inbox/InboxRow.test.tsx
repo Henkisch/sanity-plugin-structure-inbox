@@ -216,7 +216,14 @@ describe('InboxRow', () => {
       renderRow(<InboxRow item={item()} onAssess={onAssess} onSelectedChange={vi.fn()} selected={false} />)
       askAi()
 
-      expect(await screen.findByText('Looks ready to publish.')).toBeTruthy()
+      const message = await screen.findByText('Looks ready to publish.')
+      expect(message).toBeTruthy()
+      // Regression: a toneless success must stay plain text, not get pulled
+      // into the failure path's new critical-toned `Card` treatment. (The
+      // row itself renders inside its own default-toned `Card` — see
+      // `HoverableCard` — so this checks specifically for a critical tone,
+      // not for the absence of any `Card` ancestor at all.)
+      expect(message.closest('[data-tone="critical"]')).toBeNull()
     })
 
     it('renders assess.unavailable, not assess.error, when the model answered but not usably', async () => {
@@ -229,14 +236,17 @@ describe('InboxRow', () => {
       expect(screen.queryByText('assess.error')).toBeNull()
     })
 
-    it('renders assess.error for a plain transport failure', async () => {
+    it('renders assess.error inside a critical-toned card, not plain text', async () => {
       const onAssess = vi.fn().mockRejectedValue(new Error('network down'))
 
       renderRow(<InboxRow item={item()} onAssess={onAssess} onSelectedChange={vi.fn()} selected={false} />)
       askAi()
 
-      expect(await screen.findByText('assess.error')).toBeTruthy()
+      const message = await screen.findByText('assess.error')
       expect(screen.queryByText('assess.unavailable')).toBeNull()
+      const card = message.closest('[data-tone="critical"]')
+      expect(card).not.toBeNull()
+      expect(card?.getAttribute('data-ui')).toBe('Card')
     })
 
     // Plan 044: unlike `handleSuggestTodos`/etc in `Inbox.tsx` (whose trigger
@@ -294,6 +304,32 @@ describe('InboxRow', () => {
         resolveOnAssess({message: 'Looks ready to publish.'})
         await Promise.resolve()
       })
+    })
+  })
+
+  describe('fix', () => {
+    function askForFix() {
+      fireEvent.click(screen.getByRole('button', {name: 'row.menu'}))
+      fireEvent.click(screen.getByRole('menuitem', {name: 'fix.ask'}))
+    }
+
+    it('renders fix.error inside a critical-toned card, not plain text', async () => {
+      const onProposeFix = vi.fn().mockRejectedValue(new Error('network down'))
+
+      renderRow(
+        <InboxRow
+          item={item({fixable: true})}
+          onProposeFix={onProposeFix}
+          onSelectedChange={vi.fn()}
+          selected={false}
+        />,
+      )
+      askForFix()
+
+      const message = await screen.findByText('fix.error')
+      const card = message.closest('[data-tone="critical"]')
+      expect(card).not.toBeNull()
+      expect(card?.getAttribute('data-ui')).toBe('Card')
     })
   })
 })

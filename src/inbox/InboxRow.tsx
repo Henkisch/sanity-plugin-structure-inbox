@@ -314,7 +314,9 @@ export function InboxRow(props: InboxRowProps) {
         assessInFlightRef.current = false
         console.error('[sanity-plugin-structure-inbox] assess failed', error)
         const message = error instanceof AssessmentUnavailableError ? t('assess.unavailable') : t('assess.error')
-        return requestId === assessRequestRef.current ? setAssessment({status: 'done', message}) : undefined
+        return requestId === assessRequestRef.current
+          ? setAssessment({status: 'done', message, tone: 'critical'})
+          : undefined
       })
   }, [onAssess, item, t])
 
@@ -478,9 +480,11 @@ export function InboxRow(props: InboxRowProps) {
         </Text>
       )}
       {fix.status === 'error' && (
-        <Text muted size={0}>
-          {t('fix.error')}
-        </Text>
+        <Card padding={1} radius={2} tone="critical">
+          <Text muted size={0}>
+            {t('fix.error')}
+          </Text>
+        </Card>
       )}
     </Flex>
   )
