@@ -49,8 +49,10 @@ going in.
       `sanity.io/plugins/sanity-plugin-structure-inbox` may 404 for a while yet — recheck in a few
       days rather than resubmitting.
 - [x] **Posted `launch/discord-post.md`** 2026-09-17.
-- [ ] **Post `launch/linkedin-post.md`** — planned 2026-09-18. Lead image `media/hero-linkedin.png`
-      (1.91:1), link in the first comment.
+- [x] **Posted `launch/linkedin-post.md`** 2026-09-17.
+
+Launch complete. The only thing still outstanding is the Exchange listing appearing, which is on
+their review, not on us.
 
 <details>
 <summary>Original Exchange submission steps, for reference</summary>
