@@ -994,14 +994,15 @@ export function MergedList(props: MergedListProps) {
             {results}
           </Box>
         )}
-        {/* Matches the header every `aside` source's own card already has
-            (`SectionCard`) — the main column merges every source into one
-            list, but it's still one section, and it looked like an
-            afterthought without a header of its own to say so. `minHeight`
-            (measured live: the filter bar's own row rendered at 54px, the
-            selection bar's at 50px) is a floor, not a fixed height — Ask's
-            own row (narrow) or its own answer text (either width) can still
-            grow this taller. No `tone="transparent"` (unlike the actions
+        {/* The main column merges every source into one list, but it's
+            still one section, and it looked like an afterthought without a
+            header of its own to say so. `minHeight: 54` is this row's own
+            measured value (the filter bar's own row rendered at 54px, the
+            selection bar's at 50px), unrelated to `SectionCard`'s header
+            height (58px) — a different number for a different row, not an
+            equivalence to maintain. It's a floor, not a fixed height —
+            Ask's own row (narrow) or its own answer text (either width) can
+            still grow this taller. No `tone="transparent"` (unlike the actions
             toolbar above) — this row selects/filters the exact rows below
             it, tied to the list the same way `results`/Ask are, so it gets
             the list's own plain background instead of the toolbar's boxed
