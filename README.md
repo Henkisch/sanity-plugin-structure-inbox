@@ -5,10 +5,10 @@
 [![license](https://img.shields.io/npm/l/sanity-plugin-structure-inbox.svg)](./LICENSE)
 ![Sanity Studio v6](https://img.shields.io/badge/Sanity%20Studio-v6-red)
 
-Turns the empty Structure canvas into an inbox — drafts left unpublished, releases coming up,
-tasks assigned to you, whatever else you feed it. Nobody has to go looking for it: it's already on
-the screen editors land on, sorted by what's been waiting longest. Each item can be opened, handed
-to a teammate, or ticked off.
+Turns the empty Structure canvas into an inbox. Drafts left unpublished, releases coming up, tasks
+assigned to you, and whatever else you feed it, merged into one list sorted by what needs attention
+first. It sits on the screen editors already land on, so nobody has to go looking for it, and every
+row can be opened, handed to a colleague, snoozed or ticked off without leaving the pane.
 
 ![Two Studios side by side: the same Structure tool with a blank right-hand pane, and with structure-inbox filling it with a sorted list of drafts, releases and tasks](./media/hero.png)
 
