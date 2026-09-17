@@ -26,5 +26,5 @@ Feedback welcome, especially on the AI parts.
 
 ## Notes for posting
 
-- Attach `media/hero.png` and `media/ask-query.gif`.
+- Attach `media/hero.png`, and `media/ask.png` as a second image.
 - Check which channel Sanity's Discord currently uses for plugin showcases — the name has shifted before.

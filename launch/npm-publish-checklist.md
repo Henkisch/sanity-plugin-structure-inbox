@@ -52,6 +52,6 @@ going in.
       "Make your first contribution" → pick the **Plugin** category and fill in the fields there.
       Have ready: npm package name, GitHub repo URL, the one-line description from `package.json`,
       and `media/hero.png`.
-- [ ] **Post `launch/discord-post.md`** — attach `media/hero.png` + `media/ask-query.gif`.
+- [ ] **Post `launch/discord-post.md`** — attach `media/hero.png` + `media/ask.png`.
 - [ ] **Post `launch/linkedin-post.md`** — lead image `media/hero-linkedin.png` (1.91:1 crop), link in
       the first comment.
