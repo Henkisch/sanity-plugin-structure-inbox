@@ -98,16 +98,17 @@ export function nextWake(snoozedRows: readonly MergedRow[], snoozed: SnoozeState
 }
 
 /**
- * Open rows a source has already, deterministically, called critical —
- * never a due-date guess: `InboxItem.timestamp`'s own doc comment says it
- * "may be in the future... this field is for display only," so a past
- * timestamp alone is not evidence of overdue (most open rows have one, that
- * is what "waiting since" means). `tone === 'critical'` is the one signal a
- * source already sets deliberately for exactly this ("use sparingly," per
- * that field's own doc comment), so it's the only thing this counts.
+ * Counts only rows whose source explicitly set `overdue: true` — a
+ * due-date fact, not the generic `tone` severity color, which several
+ * non-overdue sources (`documentValidation`, `linkCheckerFindings`) also
+ * set to `'critical'` for unrelated reasons. Never a due-date guess either:
+ * `InboxItem.timestamp`'s own doc comment says it "may be in the future...
+ * this field is for display only," so a past timestamp alone is not
+ * evidence of overdue (most open rows have one, that is what "waiting
+ * since" means).
  */
 export function countOverdue(rows: readonly MergedRow[]): number {
-  return rows.filter((row) => row.item.tone === 'critical').length
+  return rows.filter((row) => row.item.overdue === true).length
 }
 
 export interface AssigneeLoad {

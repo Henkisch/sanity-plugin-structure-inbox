@@ -59,6 +59,16 @@ export interface InboxItem {
   /** Colours the row. Use sparingly — everything urgent means nothing is. */
   tone?: 'default' | 'primary' | 'positive' | 'caution' | 'critical'
   /**
+   * True only when the source itself knows this item has a real due date
+   * that has already passed. Distinct from `tone`: `tone` colors the row for
+   * *any* severity reason a source wants (a broken link, a failed
+   * validation, an overdue task all set `tone: 'critical'`), while this
+   * field is specifically the due-date fact `InboxStats`'s own "Overdue"
+   * count needs — only set it when there's a real due date being compared
+   * against, never as a stand-in for "this is bad."
+   */
+  overdue?: boolean
+  /**
    * Overrides the source's own static title in the row's category segment
    * ("Task · Everyone", "Broken reference · Everyone") — for a source whose
    * items aren't all the same kind of thing, e.g. `linkCheckerFindings`

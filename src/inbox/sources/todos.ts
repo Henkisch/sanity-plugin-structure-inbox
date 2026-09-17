@@ -117,6 +117,7 @@ export function todos(options: TodosOptions = {}): InboxSource {
             // not free text.
             timestamp: todo.dueBy || todo.createdAt,
             tone: isOverdue(todo.dueBy) ? 'critical' : 'default',
+            overdue: isOverdue(todo.dueBy),
             // Exact, not the display fallback above — an edit dialog needs
             // to know whether there really is a due date, not just what to
             // show when there isn't one.
