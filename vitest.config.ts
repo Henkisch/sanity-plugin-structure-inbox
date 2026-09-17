@@ -18,9 +18,12 @@ export default defineConfig({
     // getByText) timed out consistently on GitHub's shared CI runners
     // (all 5 OS/Node combos, same test, twice in a row), while passing
     // locally every time. Not a hang: CI's shared CPU just makes jsdom
-    // rendering itself slower than local hardware. 15s gives that headroom
-    // without hiding a real infinite-loop-style bug (a genuine hang would
-    // still time out, just later).
-    testTimeout: 15_000,
+    // rendering itself slower than local hardware. 15s gave that headroom
+    // for a while, but Inbox.test.tsx's `handleSuggestTodos` batching test
+    // (real timers, two real promptJson calls) later blew past 15s on the
+    // `lts/-1` runner specifically, three runs in a row, needing 17s+ while
+    // passing locally in under 7s every time. 30s gives real margin without
+    // hiding a genuine hang (which would still time out, just later).
+    testTimeout: 30_000,
   },
 })

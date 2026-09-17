@@ -433,7 +433,11 @@ describe('MergedList', () => {
 
     await vi.waitFor(() => expect(dismissals.dismiss).toHaveBeenCalledWith('drafts', 'd1'))
 
-    fireEvent.click(await screen.findByText('selection.undo', {}, {timeout: 5000}))
+    // A generous timeout, not the library default: this toast only appears
+    // after `confirmSelection`'s own real `setTimeout(EXIT_ANIMATION_MS)`
+    // resolves, and a slow, loaded test run can push that past a shorter
+    // window on its own, with nothing actually wrong.
+    fireEvent.click(await screen.findByText('selection.undo', {}, {timeout: 10_000}))
     expect(dismissals.restore).toHaveBeenCalledWith('drafts', 'd1')
   })
 
@@ -455,9 +459,9 @@ describe('MergedList', () => {
 
     // A generous timeout, not the library default: this toast only appears
     // after `confirmSelection`'s own real `setTimeout(EXIT_ANIMATION_MS)`
-    // resolves, and a slow, loaded test run can push that past the default
-    // 1000ms window on its own, with nothing actually wrong.
-    fireEvent.click(await screen.findByText('selection.undo', {}, {timeout: 5000}))
+    // resolves, and a slow, loaded test run can push that past a shorter
+    // window on its own, with nothing actually wrong.
+    fireEvent.click(await screen.findByText('selection.undo', {}, {timeout: 10_000}))
     expect(snoozes.wake).toHaveBeenCalledWith('drafts', 'd1')
     // Undo reverses the seen-marker snoozing also sets, not just the snooze itself.
     expect(dismissals.restore).toHaveBeenCalledWith('drafts', 'd1')
