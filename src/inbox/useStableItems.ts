@@ -1,6 +1,15 @@
-import {useState} from 'react'
+import {useRef, useState} from 'react'
 
+import {warnOnce} from '../warnOnce'
 import {type InboxItem} from './types'
+
+/**
+ * How many times in a row a render may adopt a new items array before this
+ * hook stops trying and freezes the last one. A genuine data change adopts
+ * once and then commits, which resets the counter; only a comparator that can
+ * never return true climbs this high.
+ */
+const MAX_CONSECUTIVE_ADOPTIONS = 5
 
 /**
  * Whether two values that turned up under the same key on two items are the
@@ -19,6 +28,16 @@ function sameValue(a: unknown, b: unknown): boolean {
 
   if (Array.isArray(a) && Array.isArray(b)) {
     return a.length === b.length && a.every((value, index) => sameValue(value, b[index]))
+  }
+
+  // Two functions — `icon` is the documented case, and a source that builds
+  // its items inline builds a fresh `() => <Foo/>` on every render. There is no
+  // way to tell two closures apart, so compare the only stable thing they
+  // carry: their name (both `''` for inline arrows, the component's own name
+  // when it has one). Treating them as unequal instead is what made a
+  // per-render icon freeze the whole source.
+  if (typeof a === 'function' && typeof b === 'function') {
+    return a.name === b.name
   }
 
   if (isPlainObject(a) && isPlainObject(b)) {
@@ -75,7 +94,7 @@ export function sameItems(a: InboxItem[], b: InboxItem[]): boolean {
  *
  * @internal
  */
-export function useStableItems(items: InboxItem[]): InboxItem[] {
+export function useStableItems(items: InboxItem[], sourceName = 'a source'): InboxItem[] {
   // State rather than a ref, and adjusted during render rather than in an
   // effect — React's own "adjusting state when props change" pattern. A ref
   // written during render is what this looked like first; it does the same
@@ -84,13 +103,47 @@ export function useStableItems(items: InboxItem[]): InboxItem[] {
   // would already have fired on the unstable array.
   const [stable, setStable] = useState(items)
 
+  // How many times in a row this render has adopted a new array without a
+  // commit in between. `sameItems` cannot be made total — a value that is
+  // neither a primitive, a plain object nor an array (a function, a `Date`, a
+  // `Map`, a class instance) can only be compared by `===`, so an item
+  // carrying a freshly-allocated one of those on every render compares
+  // unequal *forever*. `icon?: ComponentType` is exactly that shape and is
+  // documented public API. Without a bound, this hook's own `setStable` below
+  // then runs on every render, which is a render-phase update loop — upstream
+  // of `sameReport` and of the error boundary around `SourceFeed`, so neither
+  // can contain it. Confirmed by test, not assumed.
+  //
+  // The counter resets below on the *equal* path — a render where the content
+  // did compare the same. That is the honest signal that this source can
+  // settle. Resetting on commit instead was tried and is wrong: the loop simply
+  // ran to the cap, committed, reset, and ran again, forever.
+  const adoptions = useRef(0)
+
   if (stable !== items && !sameItems(stable, items)) {
+    // eslint-disable-next-line refs -- adjusting state when a value changes; see the comment above
+    if (adoptions.current >= MAX_CONSECUTIVE_ADOPTIONS) {
+      warnOnce(
+        `${sourceName} returns items that never compare equal — most likely a value on each item ` +
+          `(an \`icon\`, a \`Date\`, a \`Map\`) is allocated fresh on every render. Its rows are now ` +
+          `frozen at the last version rather than looping. Memoize the items, or hoist that value.`,
+      )
+      return stable
+    }
+
+    // eslint-disable-next-line refs -- adjusting state when a value changes; see the comment above
+    adoptions.current += 1
     // Re-renders immediately, before anything commits. Returning `items` for
     // this one render keeps what the caller sees consistent with what was just
     // stored — the very next render reads it back out of `stable`.
     setStable(items)
     return items
   }
+
+  // Content compared equal, so whatever churn there was has settled. Anything
+  // that genuinely alternates gets its full allowance again from here.
+  // eslint-disable-next-line refs -- adjusting state when a value changes; see the comment above
+  adoptions.current = 0
 
   return stable
 }

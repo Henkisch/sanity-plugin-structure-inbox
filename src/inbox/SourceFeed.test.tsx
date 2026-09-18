@@ -122,3 +122,40 @@ describe('SourceFeed', () => {
     expect(report.open).toHaveLength(1)
   })
 })
+
+describe('SourceFeed with an item value that never compares equal', () => {
+  // `sameItems` falls back to `===` for anything that is not a primitive, a
+  // plain object or an array, so a per-render `icon` compares unequal forever.
+  // Shipped in 1.0.4, this looped in the render phase — upstream of
+  // `sameReport` and of the error boundary, so nothing downstream could contain
+  // it. `useStableItems` now bounds its own adoptions instead.
+  it('settles instead of looping when every item carries a fresh icon', () => {
+    const source: InboxSource = {
+      name: 'churningIcon',
+      title: 'Churning icon',
+      useItems: () => ({
+        items: [
+          {
+            id: 'doc-1',
+            title: 'A draft',
+            icon: () => null,
+            intent: {type: 'edit' as const, params: {id: 'doc-1', type: 'post'}},
+          },
+        ],
+      }),
+    }
+
+    const onReport = vi.fn()
+    function Host() {
+      const [, setReports] = useState<Record<string, SourceReport>>({})
+      const handleReport = useCallback((sourceName: string, report: SourceReport) => {
+        onReport(sourceName, report)
+        setReports((current) => ({...current, [sourceName]: report}))
+      }, [])
+      return <SourceFeed now={NOW} onReport={handleReport} snoozes={fakeSnoozes()} source={source} />
+    }
+
+    expect(() => render(<Host />)).not.toThrow()
+    expect(onReport.mock.calls.length).toBeLessThan(10)
+  })
+})

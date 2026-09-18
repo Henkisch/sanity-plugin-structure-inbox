@@ -64,7 +64,7 @@ export function SourceFeed(props: SourceFeedProps) {
   // source naturally takes), and a new array identity every render would re-fire
   // the report effect below forever — see `useStableItems`' own doc comment for
   // the crash this prevents.
-  const items = useStableItems(result.items)
+  const items = useStableItems(result.items, source.name)
 
   const {
     loading,

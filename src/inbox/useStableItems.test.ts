@@ -93,3 +93,26 @@ describe('useStableItems', () => {
     expect(result.current).toEqual(changed)
   })
 })
+
+describe('an item value that can never compare equal', () => {
+  // `sameValue` falls back to `===` for anything that is not a primitive, a
+  // plain object or an array, so an item carrying a freshly-allocated function
+  // compares unequal *forever*. Without a bound, this hook's own render-phase
+  // `setStable` then runs on every render — a loop upstream of every other
+  // guard in the pane. `icon?: ComponentType` is exactly that shape and is
+  // documented public API, so this is reachable, not theoretical: it shipped in
+  // 1.0.4 and took a Studio down.
+  it('keeps updating, because two inline icons compare equal by name', () => {
+    const {result, rerender} = renderHook(
+      ({n}) => useStableItems([item({icon: () => null, title: `v${n}`})], 'churningIcon'),
+      {initialProps: {n: 0}},
+    )
+
+    // Well past MAX_CONSECUTIVE_ADOPTIONS, and each rerender commits, so the
+    // reset effect runs between them — this is the *legitimate* case and must
+    // keep updating.
+    for (let n = 1; n <= 8; n++) rerender({n})
+
+    expect(result.current[0]?.title).toBe('v8')
+  })
+})
