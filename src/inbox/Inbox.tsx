@@ -45,7 +45,7 @@ import {InboxStats} from './InboxStats'
 import {initials, UnassignedAvatar} from './InboxRow'
 import {mergeRows} from './mergeItems'
 import {MergedList} from './MergedList'
-import {SourceFeed, type SourceReport} from './SourceFeed'
+import {sameReport, SourceFeed, type SourceReport} from './SourceFeed'
 import {type InboxSource, type InboxView, type SuggestTodosState} from './types'
 import {useElementHeight, useElementWidth} from './useElementHeight'
 
@@ -412,8 +412,16 @@ export function Inbox({
   const showSnoozed = useCallback(() => setView('snoozed'), [])
 
   const [reports, setReports] = useState<Record<string, SourceReport>>({})
+  // Keeping the same `reports` object when a report says nothing new is what
+  // stops a source that re-reports on every render from re-rendering this
+  // component on every render — the same guard `createInboxCountLayout`'s own
+  // `handleCount` already has. `SourceFeed` shouldn't be able to report
+  // redundantly at all now (see `useStableItems`), but a source's capabilities
+  // are its own objects and this is the cheap second line.
   const handleReport = useCallback((sourceName: string, report: SourceReport) => {
-    setReports((current) => ({...current, [sourceName]: report}))
+    setReports((current) =>
+      sameReport(current[sourceName], report) ? current : {...current, [sourceName]: report},
+    )
   }, [])
 
   // Aside sources still report an open count the old way; nothing reads it

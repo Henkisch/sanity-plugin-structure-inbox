@@ -135,6 +135,8 @@ never writes to the document.
 ### Writing your own
 
 ```tsx
+import {useMemo} from 'react'
+import {useClient} from 'sanity'
 import {type InboxSource} from 'sanity-plugin-structure-inbox'
 
 export function needsReview(): InboxSource {
@@ -144,16 +146,20 @@ export function needsReview(): InboxSource {
     placement: 'main',
     useItems() {
       const client = useClient({apiVersion: '2025-02-19'})
-      // ...fetch, then:
-      return {
-        items: rows.map((row) => ({
-          id: row._id,
-          title: row.title,
-          subtitle: 'Submitted for review',
-          timestamp: row._updatedAt,
-          intent: {type: 'edit', params: {id: row._id, type: row._type}},
-        })),
-      }
+      // ...fetch into `rows`, then:
+      const items = useMemo(
+        () =>
+          rows.map((row) => ({
+            id: row._id,
+            title: row.title,
+            subtitle: 'Submitted for review',
+            timestamp: row._updatedAt,
+            intent: {type: 'edit', params: {id: row._id, type: row._type}},
+          })),
+        [rows],
+      )
+
+      return {items}
     },
   }
 }
@@ -162,7 +168,14 @@ export function needsReview(): InboxSource {
 `useItems` is a plain React hook — reach for `useClient`, `useCurrentUser`, or any Studio hook you
 need. Return `resolve` to make a tick complete the item for real (see below); return `create` to
 offer an "Add" dialog; return `remove` for sources with no `resolve` that still need a way to clear
-an item out for good. A source can also offer `useOpenCount(snoozes, now)`, read by the exported
+an item out for good.
+
+Memoize `items`, as above, or return it straight out of an observable. The plugin re-splits and
+re-reports a source's items whenever that array changes, so building it fresh on every render means
+reporting on every render. That is absorbed rather than trusted — the plugin compares the contents
+before acting on a new array — but memoizing keeps the work off the render path to begin with.
+
+A source can also offer `useOpenCount(snoozes, now)`, read by the exported
 `useInboxOpenCount()` hook for a live count usable anywhere in the Studio (e.g. a navbar badge):
 
 ```tsx

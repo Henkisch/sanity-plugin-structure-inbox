@@ -3,6 +3,7 @@ import {useEffect, useMemo, useRef} from 'react'
 import {type Snoozes} from '../store/useSnoozes'
 import {splitItems} from './splitItems'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from './types'
+import {useStableItems} from './useStableItems'
 
 /** Everything `MergedList` needs from one source, for every view at once. */
 export interface SourceReport extends Omit<InboxSourceResult, 'items' | 'loading'> {
@@ -11,6 +12,31 @@ export interface SourceReport extends Omit<InboxSourceResult, 'items' | 'loading
   open: InboxItem[]
   cleared: InboxItem[]
   snoozed: InboxItem[]
+}
+
+/**
+ * Whether a freshly built report says anything new, compared field by field
+ * with `===`.
+ *
+ * A backstop for the loop `useStableItems` already closes one step earlier:
+ * every value in a report is either a primitive, a capability the source owns,
+ * or one of the three arrays derived from stable `items`, so identity is a
+ * fair test here and an unchanged report can be dropped without storing it.
+ * The always-mounted count provider (`createInboxCountLayout`'s own
+ * `handleCount`) has had this guard from the start; the pane's own report path
+ * never did.
+ *
+ * @internal
+ */
+export function sameReport(a: SourceReport | undefined, b: SourceReport): boolean {
+  if (a === b) return true
+  if (!a) return false
+
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+  for (const key of keys) {
+    if (Reflect.get(a, key) !== Reflect.get(b, key)) return false
+  }
+  return true
 }
 
 interface SourceFeedProps {
@@ -31,8 +57,16 @@ interface SourceFeedProps {
  */
 export function SourceFeed(props: SourceFeedProps) {
   const {source, snoozes, now, onReport} = props
+  const result = source.useItems()
+
+  // Not `result.items` directly: a source is free to build its items fresh on
+  // every render (the shape the README documents, and the shape any hand-written
+  // source naturally takes), and a new array identity every render would re-fire
+  // the report effect below forever — see `useStableItems`' own doc comment for
+  // the crash this prevents.
+  const items = useStableItems(result.items)
+
   const {
-    items,
     loading,
     error,
     resolve,
@@ -49,7 +83,7 @@ export function SourceFeed(props: SourceFeedProps) {
     action,
     acknowledgable,
     transfer,
-  } = source.useItems()
+  } = result
 
   const {open, cleared, snoozed} = useMemo(
     () => splitItems(items, source.name, snoozes.state, now),

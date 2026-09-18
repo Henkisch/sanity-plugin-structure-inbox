@@ -205,6 +205,18 @@ export type SuggestTodosState =
  * @public
  */
 export interface InboxSourceResult {
+  /**
+   * Everything this source has to show right now.
+   *
+   * Worth memoizing (or returning straight out of an observable): the plugin
+   * re-splits these into open/cleared/snoozed and reports the result up to the
+   * pane whenever the array changes, so a fresh array every render is a report
+   * every render. That is absorbed rather than trusted — `useStableItems`
+   * compares the contents before anything acts on a new array, because the
+   * natural way to write a source ends in `rows.map(toItem)` and getting this
+   * wrong used to cost the whole Structure tool — but memoizing keeps the work
+   * off the render path to begin with.
+   */
   items: InboxItem[]
   loading?: boolean
   error?: Error

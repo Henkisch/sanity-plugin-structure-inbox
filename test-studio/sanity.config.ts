@@ -16,6 +16,7 @@ import {structureTool} from 'sanity/structure'
 import {type StructureResolver} from 'sanity/structure'
 
 import {schemaTypes} from './schemaTypes'
+import {unmemoizedCanary} from './unmemoizedCanary'
 
 const projectId = process.env.SANITY_STUDIO_PROJECT_ID!
 const dataset = process.env.SANITY_STUDIO_DATASET || 'production'
@@ -64,7 +65,7 @@ export default defineConfig({
       // in front of it.
       context:
         'A blog and events site for a small editorial team, published under posts, authors, and events.',
-      showInList: true,
+      // showInList: true,
       sources: [
         // Everyone's open tasks, not just this editor's own — lets the new
         // assignee/type filter row in the merged list actually have
@@ -87,6 +88,11 @@ export default defineConfig({
         upcomingReleases(),
         todos(),
         linkCheckerFindings(),
+        // Deliberately unmemoized — see its own doc comment. Nothing else
+        // configured here returns a fresh `items` array per render, which is
+        // exactly why the loop that crashed a customer's Studio never showed
+        // up in this workspace.
+        unmemoizedCanary(),
       ],
     }),
     visionTool(),

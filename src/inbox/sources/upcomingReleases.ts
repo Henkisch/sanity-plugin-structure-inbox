@@ -57,6 +57,18 @@ function useUnavailableReleases(): ReleasesState {
 // whether it got the real hook.
 const useReleases = optionalHook<() => ReleasesState>('useActiveReleases', useUnavailableReleases)
 
+/**
+ * The result this source returns for as long as Sanity has no
+ * `useActiveReleases` to read — built once, at module scope, for the same
+ * reason `needsAttention`'s own copy is: `useItems` returns it on every render
+ * while that is the case, and a fresh `Error`/`[]` each time is a new identity
+ * each time, which the pane reports and re-renders on, forever.
+ */
+const RELEASES_UNAVAILABLE: InboxSourceResult = {
+  items: [],
+  error: new Error('Upcoming releases are unavailable: Sanity no longer exports useActiveReleases.'),
+}
+
 export interface UpcomingReleasesOptions {
   /** Cap on rows. Defaults to 5. */
   limit?: number
@@ -163,14 +175,7 @@ export function upcomingReleases(options: UpcomingReleasesOptions = {}): InboxSo
         }
       }, [assignable, assignments])
 
-      if (useReleases === useUnavailableReleases) {
-        return {
-          items: [],
-          error: new Error(
-            'Upcoming releases are unavailable: Sanity no longer exports useActiveReleases.',
-          ),
-        }
-      }
+      if (useReleases === useUnavailableReleases) return RELEASES_UNAVAILABLE
 
       return {items, loading, error, assign}
     },

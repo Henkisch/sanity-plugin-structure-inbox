@@ -45,6 +45,21 @@ function useUnavailableReleases(): ReleasesState {
 // Resolved once at module scope — see `upcomingReleases.ts` for why.
 const useReleases = optionalHook<() => ReleasesState>('useActiveReleases', useUnavailableReleases)
 
+/**
+ * The result this source returns for as long as Sanity has no
+ * `useActiveReleases` to read — built once, at module scope, because
+ * `useItems` returns it on *every* render while that is the case. A fresh
+ * `Error` (or a fresh `[]`) each time would be a new identity each time, which
+ * `SourceFeed` reports upward, which re-renders the pane, which renders this
+ * again: an infinite loop rather than an error card.
+ */
+const RELEASES_UNAVAILABLE: InboxSourceResult = {
+  items: [],
+  error: new Error(
+    'Releases needing attention are unavailable: Sanity no longer exports useActiveReleases.',
+  ),
+}
+
 export interface NeedsAttentionOptions {
   /** Cap on rows. Defaults to 10. */
   limit?: number
@@ -240,14 +255,7 @@ export function needsAttention(options: NeedsAttentionOptions = {}): InboxSource
         }
       }, [assignable, assignments])
 
-      if (useReleases === useUnavailableReleases) {
-        return {
-          items: [],
-          error: new Error(
-            'Releases needing attention are unavailable: Sanity no longer exports useActiveReleases.',
-          ),
-        }
-      }
+      if (useReleases === useUnavailableReleases) return RELEASES_UNAVAILABLE
 
       return {items, loading, error, assign}
     },

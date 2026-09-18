@@ -1,4 +1,5 @@
 import {cleanup, render} from '@testing-library/react'
+import {useCallback, useState} from 'react'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {EMPTY_SNOOZES} from '../store/snoozes'
@@ -7,6 +8,9 @@ import {SourceFeed, type SourceReport} from './SourceFeed'
 import {type InboxSource, type InboxSourceResult} from './types'
 
 afterEach(cleanup)
+
+/** Stable across renders, the way `Inbox`'s own `now` state is. */
+const NOW = Date.now()
 
 function fakeSnoozes(): Snoozes {
   return {state: EMPTY_SNOOZES, snooze: vi.fn(), wake: vi.fn()}
@@ -69,5 +73,52 @@ describe('SourceFeed', () => {
     expect(report.openDetail).toBe(openDetail)
     expect(report.action?.run).toBe(run)
     expect(report.acknowledgable).toBe(false)
+  })
+
+  // The test above hands `SourceFeed` one hoisted `result` object, which is
+  // why it never caught this: a real hand-written source — including the one
+  // the README documents — ends in `items: rows.map(toItem)`, allocating a new
+  // array of new objects on every render. That identity used to flow straight
+  // into the report effect's dependency list, so the effect re-fired on every
+  // render, and `Inbox`'s own `setReports` re-rendered on every report. It
+  // took a real Studio down with "Maximum update depth exceeded".
+  it('reports once for a source that rebuilds its items on every render', () => {
+    const source: InboxSource = {
+      name: 'churning',
+      title: 'Churning',
+      useItems: () => ({
+        items: [
+          {
+            id: 'doc-1',
+            title: 'A draft',
+            subtitle: 'Post',
+            timestamp: '2026-09-18T08:00:00.000Z',
+            intent: {type: 'edit', params: {id: 'doc-1', type: 'post'}},
+          },
+        ],
+      }),
+    }
+
+    const onReport = vi.fn()
+
+    // Stands in for `Inbox`: every report sets state, so a redundant report
+    // costs another render, which is what closes the loop in the real pane.
+    function Host() {
+      const [, setReports] = useState<Record<string, SourceReport>>({})
+      // Memoized, and storing the report unconditionally — exactly what
+      // `Inbox.handleReport` did before it gained its own equality guard, so
+      // what this asserts is `SourceFeed`'s own restraint, not the guard's.
+      const handleReport = useCallback((sourceName: string, report: SourceReport) => {
+        onReport(sourceName, report)
+        setReports((current) => ({...current, [sourceName]: report}))
+      }, [])
+      return <SourceFeed now={NOW} onReport={handleReport} snoozes={fakeSnoozes()} source={source} />
+    }
+
+    render(<Host />)
+
+    expect(onReport).toHaveBeenCalledTimes(1)
+    const report = onReport.mock.calls[0]?.[1] as SourceReport
+    expect(report.open).toHaveLength(1)
   })
 })

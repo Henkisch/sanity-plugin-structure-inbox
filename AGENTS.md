@@ -64,6 +64,22 @@ Check there before assuming a finding, idea, or gap is new — it may already
 be planned, in progress, done, or deliberately rejected with reasoning
 recorded.
 
+## A source's `useItems` result must not churn identity per render
+
+`SourceFeed` reports a source's result up to `Inbox`, which stores it as state,
+so anything in that result whose identity changes on every render becomes a
+render on every render — React's "Maximum update depth exceeded", and the whole
+Structure tool with it. This has now bitten three times: `assign` (fixed with
+the fingerprint dependency list in `src/inbox/SourceFeed.tsx`), `items` (fixed
+by `src/inbox/useStableItems.ts`, after it took down a real customer Studio),
+and a per-render `new Error(...)` in `needsAttention`/`upcomingReleases`'
+releases-unavailable branch (fixed by hoisting it to a module constant).
+
+So: anything a `useItems` returns on a path it takes *every* render — a
+fallback result, an error, an empty list — belongs at module scope or behind a
+`useMemo`, never built inline. Integrators' own sources are covered by
+`useStableItems`; the built-ins should not be relying on it.
+
 ## Maintenance
 
 If a genuinely new invariant of this shape emerges (something that silently

@@ -442,4 +442,35 @@ describe('Inbox getProjectDigest cache', () => {
     // 1 (rejected) + 2 (count + sample on retry) = 3, not stuck at 1.
     expect(clientFetchMock).toHaveBeenCalledTimes(3)
   })
+
+})
+
+describe('Inbox source stability', () => {
+  // The real thing, end to end: a source written the way the README documents
+  // — items built fresh inside `useItems`, nothing memoized — mounted in the
+  // actual `Inbox`, whose `handleReport` stores what `SourceFeed` reports.
+  // Before `useStableItems`, this combination was an unbounded render loop
+  // that took a customer's Structure tool down with "Maximum update depth
+  // exceeded". It renders the row instead.
+  it('survives a source that rebuilds its items on every render', () => {
+    const churning: InboxSource = {
+      name: 'churning',
+      title: 'Churning',
+      useItems: () => ({
+        items: [
+          {
+            id: 'sub-1',
+            title: 'An unanswered enquiry',
+            subtitle: 'Contact form',
+            timestamp: '2026-09-18T08:00:00.000Z',
+            intent: {type: 'edit', params: {id: 'sub-1', type: 'contactSubmission'}},
+          },
+        ],
+      }),
+    }
+
+    renderWithTheme(<Inbox sources={[churning]} />)
+
+    expect(screen.getByText('An unanswered enquiry')).toBeTruthy()
+  })
 })
