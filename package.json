@@ -1,6 +1,6 @@
 {
   "name": "sanity-plugin-structure-inbox",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Turns the empty Structure canvas into an inbox — forgotten drafts, upcoming releases and open tasks, on the screen editors already land on.",
   "keywords": [
     "ai",

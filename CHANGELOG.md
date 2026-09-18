@@ -5,6 +5,12 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.0.4](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v1.0.3...v1.0.4) (2026-09-18)
+
+### Bug Fixes
+
+- stop an unmemoized source's items from looping the pane ([478e05a](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/478e05aef7b1a4f829a259495dea581b0eccd855))
+
 ## [1.0.3](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v1.0.2...v1.0.3) (2026-09-17)
 
 ## [1.0.2](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v1.0.1...v1.0.2) (2026-09-17)
