@@ -80,6 +80,24 @@ fallback result, an error, an empty list — belongs at module scope or behind a
 `useMemo`, never built inline. Integrators' own sources are covered by
 `useStableItems`; the built-ins should not be relying on it.
 
+## The `sanity` peer floor is `^6.10.0`, and it is load-bearing
+
+`@sanity/plugin-kit` requires `@sanity/ui` to be a **dependency**, not a peer
+(`verify-package` fails the build otherwise), so this plugin ships its own copy.
+That is only safe while the studio's copy satisfies the same major.
+
+`sanity@6.10.0` is the first release that moved from `@sanity/ui` v3 to v4 —
+a change *inside* the 6.x line, not at a major boundary. On any studio below it,
+npm resolves two copies of `@sanity/ui`, and this plugin's v4 components render
+against the studio's v3 styles. The visible result is not an obvious error: a
+`Checkbox`'s visually-hidden input loses its positioned wrapper and stretches
+over the whole pane, swallowing every click. It cost a customer half a day, and
+the peer range said `^6.0.0-0` the whole time, so their install looked clean.
+
+Do not widen this range to court older studios. A refused install is the
+feature. The same reasoning applies to `@sanity/icons` (v5 moved icons to
+subpath exports, `@sanity/icons/Trash` rather than the package root).
+
 ## Maintenance
 
 If a genuinely new invariant of this shape emerges (something that silently
