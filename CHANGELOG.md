@@ -5,6 +5,12 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.0.5](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v1.0.4...v1.0.5) (2026-09-18)
+
+### Bug Fixes
+
+- stop a per-render item value from looping useStableItems ([c301585](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/c30158503fb3aeb58eb0ed92b38d5474e73a8064))
+
 ## [1.0.4](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v1.0.3...v1.0.4) (2026-09-18)
 
 ### Bug Fixes
