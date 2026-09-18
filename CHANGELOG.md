@@ -5,6 +5,12 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.0.6](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v1.0.5...v1.0.6) (2026-09-18)
+
+### Bug Fixes
+
+- require sanity ^6.10.0, the first release with @sanity/ui v4 ([b13092f](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/b13092fb4a77de0e96c48020d0d17867274b9a60))
+
 ## [1.0.5](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v1.0.4...v1.0.5) (2026-09-18)
 
 ### Bug Fixes
