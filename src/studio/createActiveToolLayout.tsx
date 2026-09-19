@@ -6,6 +6,7 @@ import {INBOX_PANE_ID} from '../constants'
 import {isInboxAvailable, subscribeInboxAvailability} from '../structure/inboxAvailability'
 import {type ResolvedStructureInboxConfig} from '../types'
 import {shouldRedirectToInbox} from './shouldRedirectToInbox'
+import {useCollapsedLayout} from './useCollapsedLayout'
 
 /**
  * Builds the `studio.components.activeToolLayout` override that puts editors on
@@ -44,6 +45,8 @@ export function createActiveToolLayout(config: ResolvedStructureInboxConfig) {
       isInboxAvailable(config.toolName),
     )
 
+    const collapsedLayout = useCollapsedLayout()
+
     useEffect(() => {
       const redirect = shouldRedirectToInbox({
         redirectOnLanding: config.redirectOnLanding,
@@ -52,6 +55,7 @@ export function createActiveToolLayout(config: ResolvedStructureInboxConfig) {
         targetToolName: config.toolName,
         panes,
         intent,
+        collapsedLayout,
       })
 
       if (!redirect) return
@@ -60,7 +64,7 @@ export function createActiveToolLayout(config: ResolvedStructureInboxConfig) {
       // out of Inbox would land on `/structure`, redirect again, and trap the
       // editor in the Studio.
       navigate({panes: [[{id: INBOX_PANE_ID}]]}, {replace: true})
-    }, [activeToolName, inboxAvailable, intent, navigate, panes])
+    }, [activeToolName, collapsedLayout, inboxAvailable, intent, navigate, panes])
 
     return props.renderDefault(props)
   }

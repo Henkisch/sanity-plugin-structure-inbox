@@ -10,6 +10,7 @@ import {beforeEach, describe, expect, it, vi} from 'vitest'
 import {INBOX_PANE_ID} from '../constants'
 import {resetWarnings} from '../warnOnce'
 import {isInboxAvailable, resetInboxAvailability} from './inboxAvailability'
+import {inboxListItem} from './inboxNode'
 import {resolveConfig} from './resolveConfig'
 import {wrapStructure} from './wrapStructure'
 
@@ -58,16 +59,32 @@ beforeEach(() => {
 })
 
 describe('wrapStructure', () => {
-  it('resolves the Inbox id without touching the list the developer wrote', () => {
-    const posts = S.listItem().id('post').title('Posts')
-    const wrapped = wrapStructure(() => S.list().id('content').items([posts]), resolveConfig())
+  it('resolves the Inbox id whether or not an entry produced it', () => {
+    const wrapped = wrapStructure(
+      () =>
+        S.list()
+          .id('content')
+          .items([S.listItem().id('post').title('Posts')]),
+      resolveConfig(),
+    )
 
-    const root = wrapped(S, context)
-    const home = resolveChild(root, INBOX_PANE_ID) as {getId: () => string}
+    // Resolution reaches a child purely by id, so the landing redirect and a
+    // hand-placed item both work without the plugin's own entry being there.
+    const home = resolveChild(wrapped(S, context), INBOX_PANE_ID) as {getId: () => string}
 
     expect(home.getId()).toBe(INBOX_PANE_ID)
-    // The whole point: no Inbox entry appears in the editor's list.
-    expect(itemsOf(root).map((item) => item.id)).toEqual(['post'])
+  })
+
+  it('leaves a hand-placed Inbox item alone rather than adding a second one', () => {
+    const wrapped = wrapStructure(
+      () =>
+        S.list()
+          .id('content')
+          .items([S.listItem().id('post').title('Posts'), inboxListItem(S)]),
+      resolveConfig(),
+    )
+
+    expect(itemsOf(wrapped(S, context)).map((item) => item.id)).toEqual(['post', INBOX_PANE_ID])
   })
 
   it('leaves every other id to the structure it wrapped', () => {
@@ -122,13 +139,13 @@ describe('wrapStructure', () => {
     expect((home as {getId: () => string}).getId()).toBe(INBOX_PANE_ID)
   })
 
-  it('adds a visible list item above a divider when showInList is on', () => {
+  it('adds a visible list item above a divider', () => {
     const wrapped = wrapStructure(
       () =>
         S.list()
           .id('content')
           .items([S.listItem().id('post').title('Posts')]),
-      resolveConfig({showInList: true}),
+      resolveConfig(),
     )
 
     const items = itemsOf(wrapped(S, context))
@@ -137,7 +154,7 @@ describe('wrapStructure', () => {
     expect(items[1].type).toBe('divider')
   })
 
-  it('adds a visible list item above a divider when the resolver is async and showInList is on', async () => {
+  it('adds a visible list item above a divider when the resolver is async', async () => {
     const wrapped = wrapStructure(
       () =>
         Promise.resolve(
@@ -145,7 +162,7 @@ describe('wrapStructure', () => {
             .id('content')
             .items([S.listItem().id('post').title('Posts')]),
         ),
-      resolveConfig({showInList: true}),
+      resolveConfig(),
     )
 
     const items = itemsOf(await wrapped(S, context))
@@ -165,16 +182,16 @@ describe('wrapStructure', () => {
     expect(isInboxAvailable('structure')).toBe(true)
   })
 
-  it('warns but keeps the pane reachable when showInList has no list to add to', () => {
+  it('warns but keeps the pane reachable when there is no list to add to', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     const wrapped = wrapStructure(
       () => S.documentList().id('posts').apiVersion('2024-01-01').filter('_type == "post"'),
-      resolveConfig({showInList: true}),
+      resolveConfig(),
     )
     const home = resolveChild(wrapped(S, context), INBOX_PANE_ID)
 
-    expect(warn.mock.calls.flat().join(' ')).toContain('showInList')
+    expect(warn.mock.calls.flat().join(' ')).toContain('does not have a list at its root')
     expect((home as {getId: () => string}).getId()).toBe(INBOX_PANE_ID)
   })
 

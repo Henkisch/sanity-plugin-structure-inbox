@@ -52,8 +52,6 @@ export default defineConfig({
     // (`readReport`/`runScan`/`writeReport`) and needs no Studio tool
     // mounted to do either — see that source's own doc comment. Only the
     // npm package is a dependency; its separate tool tab is not wanted.
-    // `showInList` is off by default; this workspace turns it on so both the
-    // visible entry and the invisible resolution get exercised somewhere.
     structureInbox({
       // Off by default (plan 022) — on here so this workspace exercises
       // it too, alongside every other surface it's built to demo.
@@ -65,7 +63,6 @@ export default defineConfig({
       // in front of it.
       context:
         'A blog and events site for a small editorial team, published under posts, authors, and events.',
-      // showInList: true,
       sources: [
         // Everyone's open tasks, not just this editor's own — lets the new
         // assignee/type filter row in the merged list actually have

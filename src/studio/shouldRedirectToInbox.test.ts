@@ -10,6 +10,7 @@ const landing: RedirectDecision = {
   targetToolName: 'structure',
   panes: [],
   intent: undefined,
+  collapsedLayout: false,
 }
 
 describe('shouldRedirectToInbox', () => {
@@ -43,6 +44,12 @@ describe('shouldRedirectToInbox', () => {
     // `IntentResolver` is about to navigate. Redirecting now would win the race
     // and drop the document the editor asked for.
     expect(shouldRedirectToInbox({...landing, intent: 'edit'})).toBe(false)
+  })
+
+  it('stays put on a collapsed pane layout', () => {
+    // A phone shows one pane at a time, so redirecting would hide the root
+    // list behind a pane with no way back to it.
+    expect(shouldRedirectToInbox({...landing, collapsedLayout: true})).toBe(false)
   })
 
   it('treats a missing panes value as a bare landing', () => {

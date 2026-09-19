@@ -89,26 +89,34 @@ export function wrapStructure(
     const base = inner ? inner(S, context) : S.defaults()
 
     const withInbox = (resolved: unknown): unknown => {
-      const root = config.showInList ? addInboxListItem(S, resolved, config) : resolved
+      // Checked before the list item, not after: an unextendable root has no
+      // Inbox pane at all, and complaining about where its entry would have
+      // gone on top of that would only bury the one warning that matters.
+      if (!isSerializable(resolved) && !isPaneNode(resolved)) {
+        warnOnce(
+          `The structure for tool "${config.toolName}" resolved to something this plugin cannot extend, so the Inbox pane is unreachable and the landing redirect is disabled. ` +
+            `This happens when a structure resolver returns an observable; return a structure node, a builder, or a promise instead.`,
+        )
+        setInboxAvailable(config.toolName, false)
+        return resolved
+      }
+
+      const root = addInboxListItem(S, resolved, config)
+      setInboxAvailable(config.toolName, true)
 
       if (isSerializable(root)) {
-        setInboxAvailable(config.toolName, true)
         return {
           serialize: (options?: SerializeOptions) =>
             addInboxChild(S, root.serialize(options), config),
         }
       }
 
-      if (isPaneNode(root)) {
-        setInboxAvailable(config.toolName, true)
-        return addInboxChild(S, root, config)
-      }
+      // `addInboxListItem` either returns its input or a builder built from
+      // it, so the only way to be here is a plain pane node that already
+      // passed `isPaneNode` above. Re-narrowing says so to the type system
+      // rather than asserting it.
+      if (isPaneNode(root)) return addInboxChild(S, root, config)
 
-      warnOnce(
-        `The structure for tool "${config.toolName}" resolved to something this plugin cannot extend, so the Inbox pane is unreachable and the landing redirect is disabled. ` +
-          `This happens when a structure resolver returns an observable; return a structure node, a builder, or a promise instead.`,
-      )
-      setInboxAvailable(config.toolName, false)
       return root
     }
 
@@ -123,12 +131,20 @@ export function wrapStructure(
 }
 
 /**
- * Adds the Inbox item to the top of the root list, above a divider.
+ * Puts the Inbox item at the top of the root list, unless the developer has
+ * already placed one themselves.
  *
- * Only reachable via `showInList`, and only meaningful when the root is a list
- * — a document list has no items to add to. Resolution does not depend on this
- * succeeding, so a root without items is left alone silently rather than
- * warning about something the editor will never notice.
+ * Not optional, and deliberately so: below `theme.sanity.media[1]` the
+ * structure tool shows one pane at a time and the landing redirect is skipped
+ * (see `useCollapsedLayout`), which makes this entry the only way into the
+ * Inbox on a phone. A structure is serialized once, before any viewport is
+ * known, so it cannot be added for narrow screens alone. Developers who want
+ * the entry somewhere other than the top place `inboxListItem` themselves and
+ * this leaves it alone.
+ *
+ * Only meaningful when the root is a list — a document list has no items to
+ * add to. Resolution does not depend on this succeeding, so a root without
+ * items is left alone rather than treated as an error.
  */
 function addInboxListItem(
   S: StructureBuilder,
@@ -137,20 +153,36 @@ function addInboxListItem(
 ): unknown {
   if (!hasMethod(base, 'items') || !hasMethod(base, 'getItems')) {
     warnOnce(
-      `showInList is on, but the structure for tool "${config.toolName}" does not have a list at its root, so there is nowhere to put the Inbox item. ` +
-        `The Inbox pane still opens on landing.`,
+      `The structure for tool "${config.toolName}" does not have a list at its root, so there is nowhere to put the Inbox item. ` +
+        `The pane still opens on landing, but on a narrow viewport — where the structure tool shows one pane at a time and that redirect is skipped — editors have no way to reach it.`,
     )
     return base
   }
 
   const existing: unknown = base.getItems()
-  const items = [
-    inboxListItem(S, config),
-    S.divider(),
-    ...(Array.isArray(existing) ? existing : []),
-  ]
+  const items = Array.isArray(existing) ? existing : []
+
+  // A developer who placed `inboxListItem(S)` themselves already has an entry,
+  // and adding a second one at the top would be a duplicate rather than a
+  // convenience.
+  if (items.some(isInboxItem)) return base
 
   // `hasMethod` only proves `items` is callable, so the argument is untyped
   // here. The real type check happened where the caller built its list.
-  return base.items(items)
+  return base.items([inboxListItem(S, config), S.divider(), ...items])
+}
+
+/**
+ * Whether a root-list entry is an Inbox item the developer placed themselves.
+ *
+ * Both the builder and its serialized form carry the id, and a root list can
+ * hold either — `getItems()` returns whatever the developer put in. Reading
+ * `.getId()` through `hasMethod` rather than calling `serialize()` keeps this
+ * from throwing on a half-built item that the structure tool would have
+ * reported on itself, far more legibly, a moment later.
+ */
+function isInboxItem(item: unknown): boolean {
+  if (hasMethod(item, 'getId')) return item.getId() === INBOX_PANE_ID
+  if (typeof item === 'object' && item !== null && 'id' in item) return item.id === INBOX_PANE_ID
+  return false
 }

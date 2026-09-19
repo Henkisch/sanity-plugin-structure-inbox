@@ -31,6 +31,9 @@ function withTitle<
  * at all (confirmed live), rather than falling back to its id or anything
  * else. That bar only ever repeated what the pane's own headline
  * (`Inbox.tsx`) already says, and it cost real vertical space doing it.
+ * The one thing it also carried — a back button on a collapsed pane layout —
+ * `InboxPane` renders itself, behind the same flag, so a phone is not left
+ * without one.
  *
  * @internal
  */
@@ -54,10 +57,13 @@ export function inboxComponent(
 /**
  * The Inbox pane's entry in the root list.
  *
- * The pane is reachable without it — the plugin teaches the root pane to
- * resolve the Inbox id directly — so reach for this only when you want a
- * visible entry in a particular place. For one at the top of the list,
- * `showInList: true` does the same thing with no structure changes.
+ * The plugin already puts one at the top of the root list, so reach for this
+ * only when you want the entry somewhere else — it checks the list for an item
+ * with this id and skips adding its own when it finds one.
+ *
+ * The entry matters most on a phone: the structure tool shows one pane at a
+ * time there, the landing redirect is skipped so editors see the root list,
+ * and this is what they tap to reach the Inbox.
  *
  * ```ts
  * structureTool({
