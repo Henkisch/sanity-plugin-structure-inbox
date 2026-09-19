@@ -5,6 +5,23 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.0.0](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v1.0.6...v2.0.0) (2026-09-19)
+
+### ⚠ BREAKING CHANGES
+
+- `showInList` is removed from `StructureInboxConfig`. The
+  Inbox entry is always added to the root list, because on a collapsed pane
+  layout it is the only way in and a structure cannot know the viewport at
+  serialization time. Use `inboxListItem(S)` to place the entry yourself —
+  the plugin detects it and does not add a second one.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NHZLZkTNqb8n82avDjV6QK
+
+### Features
+
+- land on the root list on mobile instead of trapping editors ([539b067](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/539b0674a9f9d108a3c56786c96e34611ed2c14e))
+
 ## [1.0.6](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v1.0.5...v1.0.6) (2026-09-18)
 
 ### Bug Fixes
