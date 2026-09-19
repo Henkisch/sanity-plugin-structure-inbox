@@ -103,8 +103,12 @@ jobs:
       pull-requests: write # to be able to comment on released pull requests
       id-token: write # to enable use of OIDC for npm provenance
     needs: [build, test]
-    # only run if opt-in during workflow_dispatch
-    if: always() && github.event.inputs.release == 'true' && needs.build.result != 'failure' && needs.test.result != 'failure' && needs.test.result != 'cancelled'
+    # Releases on every push to main, and on a workflow_dispatch that opts in.
+    # semantic-release decides whether there is anything to release: a push
+    # carrying only `chore:`/`docs:` commits is a no-op, so this is safe to run
+    # unconditionally. The release commit it pushes back carries `[skip ci]`,
+    # which is what keeps this from re-triggering itself.
+    if: always() && (github.event_name == 'push' || github.event.inputs.release == 'true') && needs.build.result != 'failure' && needs.test.result != 'failure' && needs.test.result != 'cancelled'
     runs-on: ubuntu-latest
     name: Semantic release
     steps:
