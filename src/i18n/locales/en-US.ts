@@ -5,6 +5,11 @@
 const enUS = {
   'inbox.title': 'Inbox',
 
+  // Only ever rendered on a collapsed pane layout (a phone, or a narrow
+  // window), where the Inbox pane needs a back button of its own to keep the
+  // rest of the structure reachable — see `InboxPane`'s `CollapsedBackBar`.
+  'inbox.back': 'Back',
+
   // Leads the headline when the current viewer is known — always the
   // logged-in editor's own first name, never `headlineSubject`'s (that
   // one can name a different teammate the assignee filter picked out).

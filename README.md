@@ -264,10 +264,9 @@ const staleIds = findStaleEditorDocuments(docs, activeUserIds)
 | Option              | Type            | Default           |                                                                                   |
 | ------------------- | --------------- | ------------------ | ---------------------------------------------------------------------------------- |
 | `sources`           | `InboxSource[]` | `[]`               | The feeds that fill the inbox, in order.                                          |
-| `title`             | `string`        | localized `Inbox`  | Title for the pane, and for its list item when shown.                             |
+| `title`             | `string`        | localized `Inbox`  | Title for the pane, and for its entry in the root list.                            |
 | `toolName`          | `string`        | `'structure'`      | Which structure tool to attach to. Set this when the Studio runs more than one.   |
-| `showInList`        | `boolean`       | `false`            | Whether to show an "Inbox" entry at the top of the root list.                     |
-| `redirectOnLanding` | `boolean`       | `true`             | Whether to open the Inbox when an editor lands on the tool with nothing selected. |
+| `redirectOnLanding` | `boolean`       | `true`             | Whether to open the Inbox when an editor lands on the tool with nothing selected. Never fires on a narrow viewport — see below. |
 | `ask`               | `boolean`       | `false`            | Lets an editor select rows by asking a plain-language question. See below.        |
 | `contentGaps`       | `object`        | off                | Enables the "Find content gaps" AI read. See below.                               |
 | `context`           | `string`        | —                  | Project description prepended to every AI read. See below.                       |
@@ -276,9 +275,8 @@ const staleIds = findStaleEditorDocuments(docs, activeUserIds)
 
 ### Getting back to the Inbox
 
-Editors land on it, and clicking the tool in the navbar returns them to it. For a visible entry,
-`showInList: true` puts one at the top of the root list — or use `inboxListItem` to place it
-somewhere specific:
+An "Inbox" entry goes at the top of the root list, above a divider. Use `inboxListItem` to put it
+somewhere else instead — the plugin spots a hand-placed entry and does not add a second one:
 
 ```ts
 import {inboxListItem} from 'sanity-plugin-structure-inbox'
@@ -290,6 +288,21 @@ structureTool({
       .items([...S.documentTypeListItems(), S.divider(), inboxListItem(S)]),
 })
 ```
+
+On a wide layout editors also land on the Inbox without clicking anything, and clicking the tool in
+the navbar returns them to it.
+
+### On a phone
+
+Below 640px the structure tool shows one pane at a time, and only the last one — so opening the
+Inbox automatically there would hide the root list behind a pane and leave the rest of your
+structure unreachable. The landing redirect is skipped at that width regardless of
+`redirectOnLanding`: editors land on the root list like they would in a stock Studio, and tap the
+Inbox entry to open it. The pane grows a back button of its own at that width, so a bookmark
+straight to it is not a dead end either.
+
+This is why the Inbox entry is not optional. A structure is serialized once, before any viewport is
+known, so the entry cannot be added for narrow screens alone.
 
 ## AI features, and what they cost
 

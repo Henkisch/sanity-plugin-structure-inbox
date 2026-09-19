@@ -19,30 +19,23 @@ export interface StructureInboxConfig {
   sources?: InboxSource[]
 
   /**
-   * Title for the "Inbox" entry in the root list, when {@link inboxListItem}
-   * (or `showInList`) puts one there. The pane itself has no title bar of
-   * its own to show this on — see `inboxComponent`'s own doc comment.
-   * Defaults to the localized `inbox.title`.
+   * Title for the "Inbox" entry in the root list. The pane itself has no
+   * title bar of its own to show this on — see `inboxComponent`'s own doc
+   * comment. Defaults to the localized `inbox.title`.
    */
   title?: string
-
-  /**
-   * Whether to show a "Inbox" item at the top of the root list.
-   *
-   * Off by default: editors land on the Inbox pane without clicking anything,
-   * and clicking the tool in the navbar brings them back, so the entry mostly
-   * takes up room in a list the developer designed. Turn it on if you want an
-   * explicit way in — or place {@link inboxListItem} yourself to control where
-   * it sits.
-   *
-   * @defaultValue false
-   */
-  showInList?: boolean
 
   /**
    * Whether to send editors to the Inbox pane when they land on the tool with
    * nothing selected. Turning this off leaves the Inbox item in the list as
    * something the editor opens themselves.
+   *
+   * Never fires on a collapsed pane layout (below `theme.sanity.media[1]`,
+   * 640px), regardless of this setting: only the last pane is visible there,
+   * so redirecting would hide the root list and make the rest of the
+   * structure unreachable. Phones land on the root list and reach the Inbox
+   * through its entry there, which the plugin always adds — see
+   * {@link inboxListItem} to place that entry yourself instead.
    *
    * @defaultValue true
    */
@@ -129,7 +122,12 @@ export interface StructureInboxConfig {
 export type ResolvedStructureInboxConfig = Required<
   Pick<
     StructureInboxConfig,
-    'toolName' | 'showInList' | 'redirectOnLanding' | 'sources' | 'ask' | 'summarize' | 'suggestTodos'
+    | 'toolName'
+    | 'redirectOnLanding'
+    | 'sources'
+    | 'ask'
+    | 'summarize'
+    | 'suggestTodos'
   >
 > &
   Pick<StructureInboxConfig, 'title' | 'contentGaps' | 'context'>
