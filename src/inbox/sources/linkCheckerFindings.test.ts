@@ -1,7 +1,43 @@
+import {type SanityClient} from '@sanity/client'
+import {cleanup, renderHook, waitFor} from '@testing-library/react'
 import {getFindingKey, type BrokenLink, type BrokenReference, type ScanResult} from 'sanity-plugin-link-checker/core'
-import {describe, expect, it} from 'vitest'
+import {Subject} from 'rxjs'
+import {afterEach, describe, expect, it, vi} from 'vitest'
 
-import {groupOccurrences, toItems} from './linkCheckerFindings'
+import {groupOccurrences, linkCheckerFindings, toItems, validateChosenReference} from './linkCheckerFindings'
+
+const {useClientMock, stableSchema} = vi.hoisted(() => ({
+  useClientMock: vi.fn(),
+  // A single stable reference — a fresh object per call would recompute
+  // every memo keyed on `schema` on each render, same reasoning
+  // `assetIssues.proposeFix.test.tsx`'s own `stableSchema` states.
+  stableSchema: {
+    getTypeNames: () => ['post'],
+    get: (name: string) =>
+      name === 'post'
+        ? {title: 'Post', fields: [{name: 'author', type: {to: [{name: 'author'}]}}]}
+        : undefined,
+  },
+}))
+
+// Same reasoning as `assetIssues.proposeFix.test.tsx`'s own mock: assignment
+// reaches Sanity's own `useUserListWithPermissions`, which needs a real
+// Studio `source` context this test has no business standing up — none of
+// these assertions are about assignment.
+vi.mock('./capability', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./capability')>()),
+  useAssignableUsers: () => ({data: undefined}),
+}))
+
+vi.mock('sanity', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('sanity')>()
+  return {
+    ...actual,
+    useClient: useClientMock,
+    useSchema: () => stableSchema,
+    useCurrentUser: vi.fn(() => ({id: 'user-1'})),
+  }
+})
 
 function fakeSchema(
   titles: Record<string, string> = {},
@@ -339,5 +375,121 @@ describe('grouping the several findings one dead link produces', () => {
       ['x', 2],
       ['y', 1],
     ])
+  })
+})
+
+describe('validateChosenReference', () => {
+  const candidateIds = new Set(['a', 'b'])
+
+  it('returns a valid id that is genuinely in the candidate set', () => {
+    expect(validateChosenReference({id: 'a', label: 'A', reason: 'because'}, candidateIds)).toEqual({
+      id: 'a',
+      label: 'A',
+      reason: 'because',
+    })
+  })
+
+  it('drops an id that is not in the candidate set — the regression this validator exists to prevent', () => {
+    expect(validateChosenReference({id: 'zzz', label: 'Invented', reason: 'because'}, candidateIds)).toBeNull()
+  })
+
+  it('drops a non-string id (a number)', () => {
+    expect(validateChosenReference({id: 123}, candidateIds)).toBeNull()
+  })
+
+  it('drops a non-string id (an object)', () => {
+    expect(validateChosenReference({id: {_ref: 'a'}}, candidateIds)).toBeNull()
+  })
+
+  it('drops a null id', () => {
+    expect(validateChosenReference({id: null}, candidateIds)).toBeNull()
+  })
+
+  it('drops an id that is empty after trimming', () => {
+    expect(validateChosenReference({id: '  '}, candidateIds)).toBeNull()
+  })
+
+  it.each([
+    ['null', null],
+    ['a string', 'a'],
+    ['an array', ['a']],
+  ])('drops a raw answer that is %s, not an object', (_label, raw) => {
+    expect(validateChosenReference(raw, candidateIds)).toBeNull()
+  })
+
+  it('still returns a valid id when label is not a string, coercing label to empty rather than rejecting the choice', () => {
+    expect(validateChosenReference({id: 'a', label: 42, reason: 'because'}, candidateIds)).toEqual({
+      id: 'a',
+      label: '',
+      reason: 'because',
+    })
+  })
+})
+
+describe('proposeFix — reference retargeting', () => {
+  afterEach(() => {
+    cleanup()
+    useClientMock.mockReset()
+  })
+
+  function stubClient(options: {
+    report: ScanResult
+    candidates: {_id: string; label?: string}[]
+    agentAnswer: string
+  }) {
+    const commit = vi.fn().mockResolvedValue(undefined)
+    const set = vi.fn(() => ({commit}))
+    const patch = vi.fn(() => ({set}))
+    const prompt = vi.fn().mockResolvedValue(options.agentAnswer)
+
+    const fetch = vi.fn(async (query: string) => {
+      // `observeReport`'s own `readReport` query, for the live report this
+      // source reads its findings from.
+      if (query.includes('ranAt, findings')) return options.report
+      // The candidates fetch this plan adds — the same query/params the
+      // prompt's own `$candidates` parameter uses.
+      if (query.includes('[0...20]')) return options.candidates
+      return null
+    })
+
+    const client = {
+      config: () => ({dataset: 'production'}),
+      fetch,
+      observable: {fetch: vi.fn()},
+      listen: vi.fn(() => new Subject()),
+      patch,
+      agent: {action: {prompt}},
+      withConfig: () => client,
+    } as unknown as SanityClient
+
+    return {client, fetch, patch, set, commit, prompt}
+  }
+
+  it('never patches a document with a model-invented id that is not in the candidate list', async () => {
+    const finding: BrokenReference = brokenReference({fromId: 'post-1', fieldPath: 'author'})
+    const stub = stubClient({
+      report: report([finding]),
+      // The model was shown only 'a' and 'b' — 'zzz' is not one of them.
+      candidates: [
+        {_id: 'a', label: 'Author A'},
+        {_id: 'b', label: 'Author B'},
+      ],
+      agentAnswer: '{"id": "zzz", "label": "Invented Author", "reason": "best fit"}',
+    })
+    useClientMock.mockReturnValue(stub.client)
+
+    const source = linkCheckerFindings()
+    const {result} = renderHook(() => source.useItems())
+    await waitFor(() => expect(result.current.items.length).toBeGreaterThan(0))
+
+    const item = result.current.items[0]
+    expect(item.fixable).toBe(true)
+
+    const proposal = await result.current.proposeFix!(item)
+
+    expect(proposal).toBeNull()
+    // The assertion that proves content cannot be corrupted: no patch was
+    // ever committed for the invented id.
+    expect(stub.patch).not.toHaveBeenCalled()
   })
 })

@@ -90,6 +90,46 @@ export interface LinkCheckerFindingsOptions {
 const DEFAULT_ACTION_DESCRIPTION =
   'Scans every document in the dataset for broken external links and references to deleted documents.'
 
+/**
+ * The GROQ query (and its shape) that both hands Agent Actions its
+ * `$candidates` list and is re-run here to fetch that same list into code —
+ * one constant, used in both places, so the set `validateChosenReference`
+ * checks against is provably the same set the model was shown. If the two
+ * ever drifted, validation would start rejecting genuinely valid answers.
+ */
+const CANDIDATES_QUERY = '*[_type == $type][0...20]{_id, "label": coalesce(title, name, _id)}'
+
+/**
+ * The id a model picked, but only if it is genuinely one of the candidates we
+ * offered it.
+ *
+ * The model's answer is unvalidated JSON, not a trusted shape: `raw.id` can
+ * be a number, an object, or a string `_id` that was never in the candidate
+ * list at all — invented, or remembered from a stale context. Writing an
+ * unchecked value here would make this fix create exactly the dangling
+ * reference the source exists to report, so an id that is not a non-empty
+ * string, or not in `candidateIds`, is dropped rather than trusted. Same
+ * posture as `selectionFromResponse` in `src/ai/askInbox.ts`, and for the
+ * same stated reason: a model will eventually invent a plausible-looking id.
+ *
+ * Exported for its own tests — the same reasoning as `toItems`/`groupOccurrences`.
+ */
+export function validateChosenReference(
+  raw: unknown,
+  candidateIds: ReadonlySet<string>,
+): {id: string; label: string; reason: string} | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  if (!('id' in raw) || typeof raw.id !== 'string') return null
+
+  const trimmed = raw.id.trim()
+  if (!trimmed || !candidateIds.has(trimmed)) return null
+
+  const label = 'label' in raw && typeof raw.label === 'string' ? raw.label : ''
+  const reason = 'reason' in raw && typeof raw.reason === 'string' ? raw.reason : ''
+
+  return {id: trimmed, label, reason}
+}
+
 /** A plain top-level field name — no `[index]`/`.nested` — the only shape `singleReferenceTargetType` below knows how to resolve or `proposeFix` knows how to patch. */
 const SIMPLE_FIELD_PATH = /^[a-zA-Z0-9_]+$/
 
@@ -630,14 +670,18 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
           const targetType = singleReferenceTargetType(schema, finding.fromType, finding.fieldPath)
           if (!targetType) return null
 
-          const candidateCount = await client.fetch<number>('count(*[_type == $type])', {
+          // Fetched — and validated against, below — *before* the paid
+          // Agent Actions call: if this fetch fails there is no point
+          // spending that request, and a failed fetch this way costs
+          // nothing rather than wasting one.
+          const candidates = await client.fetch<{_id: string; label?: string}[]>(CANDIDATES_QUERY, {
             type: targetType,
           })
-          if (candidateCount === 0) return null
+          if (candidates.length === 0) return null
 
-          type FixChoice = {id: string | null; label: string | null; reason: string}
+          const candidateIds = new Set(candidates.map((row) => row._id))
 
-          const choice = await promptJson<FixChoice>(
+          const choice = await promptJson<unknown>(
             agentClient,
             "Given the following document:\n$document\n---\nField '" +
               finding.fieldPath +
@@ -655,21 +699,23 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
               document: {type: 'document', documentId: finding.fromId},
               candidates: {
                 type: 'groq',
-                query: '*[_type == $type][0...20]{_id, "label": coalesce(title, name, _id)}',
+                query: CANDIDATES_QUERY,
                 params: {type: targetType},
               },
             },
           )
 
-          if (!choice?.id) return null
+          const validated = validateChosenReference(choice, candidateIds)
+          if (!validated) return null
 
-          const chosenId = choice.id
           return {
-            summary: choice.reason ? `Replace with "${choice.label}" — ${choice.reason}` : `Replace with "${choice.label}"`,
+            summary: validated.reason
+              ? `Replace with "${validated.label}" — ${validated.reason}`
+              : `Replace with "${validated.label}"`,
             apply: async () => {
               await client
                 .patch(finding.fromId)
-                .set({[finding.fieldPath]: {_type: 'reference', _ref: chosenId}})
+                .set({[finding.fieldPath]: {_type: 'reference', _ref: validated.id}})
                 .commit()
             },
           }
