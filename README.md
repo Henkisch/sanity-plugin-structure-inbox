@@ -23,6 +23,7 @@ row can be opened, handed to a colleague, snoozed or ticked off without leaving 
 - [Options](#options)
 - [AI features, and what they cost](#ai-features-and-what-they-cost)
 - [Grounding AI reads in your project](#grounding-ai-reads-in-your-project)
+- [Alt text](#alt-text)
 - [Optional: broken links via `sanity-plugin-link-checker`](#optional-broken-links-via-sanity-plugin-link-checker)
 - [Optional: asking about all your items](#optional-asking-about-all-your-items)
 - [Optional: finding content gaps](#optional-finding-content-gaps)
@@ -83,7 +84,7 @@ separate, optional integration:
 | `upcomingReleases({limit})`                          | Releases that are scheduled or still being filled (requires [Content Releases](https://www.sanity.io/pricing), an Enterprise add-on). | Everyone's |
 | `needsAttention({limit})`                            | Releases that are overdue, empty and imminent, or stalling (same Content Releases requirement as above). | Everyone's |
 | `documentValidation({limit, types})`                 | Drafts currently failing their own schema's validation rules.    | Everyone's |
-| `assetIssues({limit, maxSizeBytes, altFieldName})`    | Oversized, unused, or poorly alt-texted image/file assets.        | Everyone's |
+| `assetIssues({limit, maxSizeBytes, altFieldName, altFromTitle, suggestAlt, describeImage})` | Oversized, unused, missing-alt-text, or poorly alt-texted image/file assets — and, where you say so, a one-click fix for the missing ones. | Everyone's |
 | `unresolvedComments({limit, onlyMine})`               | Unresolved comment threads (requires the [Growth plan](https://www.sanity.io/pricing) or above). | Yours |
 | `todos({title, placement})`                          | A personal scratch list you type into, right in the pane.        | Yours      |
 | `linkCheckerFindings()`                              | Broken references and dead links — separate entry point, see below. | Everyone's |
@@ -110,6 +111,9 @@ A few operational notes worth knowing before you configure sources:
   error card for that source instead of failing the whole Studio to boot.
 - **`assetIssues`'s "unused" check** is skipped (reports zero rows) once a project has more than
   200 total assets, to avoid a slow query.
+- **`assetIssues`'s alt-text checks** cover top-level image fields only, in either convention: an
+  `image` field customized with an `alt` sub-field, or a wrapper object (`imageWithAlt`) holding an
+  image alongside an `alt`. Images nested inside objects, arrays or Portable Text aren't walked.
 - **`linkCheckerFindings`** needs [`sanity-plugin-link-checker`](https://www.sanity.io/plugins/sanity-plugin-link-checker)
   installed and is imported from its own entry point — see [Optional: broken
   links](#optional-broken-links-via-sanity-plugin-link-checker) below.
@@ -169,6 +173,33 @@ export function needsReview(): InboxSource {
 need. Return `resolve` to make a tick complete the item for real (see below); return `create` to
 offer an "Add" dialog; return `remove` for sources with no `resolve` that still need a way to clear
 an item out for good.
+
+### Offering a fix
+
+A source can also return `proposeFix`, which turns a row from a report into something an editor can
+act on without leaving the pane. It only ever *proposes*: the returned `apply` is what writes, and
+nothing calls it until the editor clicks Apply.
+
+```tsx
+proposeFix: async (item, options) => {
+  const fix = workOutTheFix(item)
+  if (!fix) return null // nothing safe to suggest — the row just stays a link
+  return {
+    summary: `Set alt text to "${fix}"`,
+    apply: async () => {
+      await client.patch(item.documentId).set({'portrait.alt': fix}).commit()
+    },
+  }
+}
+```
+
+Mark the item `fixable: true` so the row offers it at all, and `quickFixable: true` when the answer
+costs nothing and needs no round trip. The difference is what makes bulk safe: the selection bar
+only ever applies quick fixes, and it always passes `{instantOnly: true}`. **A source that ignores
+`instantOnly` turns one click on twenty selected rows into twenty billable calls**, so honour it by
+returning `null` rather than falling back to a paid path.
+
+Rows advertising a free answer say "Quick fix" in their menu; the rest say "Fix with AI".
 
 Memoize `items`, as above, or return it straight out of an observable. The plugin re-splits and
 re-reports a source's items whenever that array changes, so building it fresh on every render means
@@ -318,6 +349,7 @@ all. AI is additive on top of that, never required:
 | **Suggest todos**                        | Pane-wide                      | On      | Explicit click            |
 | **Ask** (`ask: true`)                    | Pane-wide                      | Off     | Explicit click, per question |
 | **Find content gaps** (`contentGaps: {}`)| Pane-wide                      | Off     | Explicit click            |
+| **Fix with AI** (`proposeFix`)           | Per row, on `linkCheckerFindings` | —    | Explicit click, then Apply |
 
 Every one of these is click-triggered, never automatic — nothing fires just from selecting a row
 or opening the pane, and every handler is guarded against a rapid double-click firing twice.
@@ -327,6 +359,18 @@ cost scales with how many times editors click these buttons, not with how many d
 much content you have. `summarize`/`suggestTodos` are on by default since they're cheap and
 low-friction; turn either off (see [Options](#options)) for a config-level guarantee of zero spend
 from that read, regardless of what an editor clicks.
+
+**Bulk actions never spend anything.** The selection bar's "Quick fix" only applies fixes the
+plugin can compute itself — filling a portrait's alt text from its own document, stripping a
+confirmed-dead URL — and skips the rest, saying so ("2 fixed · 1 needs review"). Selecting twenty
+rows and clicking once cannot become twenty billable calls.
+
+**Agent Actions cannot see images.** Its `instructionParams` accept `constant`, `field`, `document`
+and `groq` — there is no image input, and the image-related Agent Actions docs are about
+*generating* images, not reading them. So this plugin ships no built-in "describe this photo": a
+fallback that guessed alt text from the document's *text* would write confident, wrong descriptions,
+and a wrong alt text is worse than a missing one because nothing flags it again. Bring your own
+vision model instead, via `assetIssues`'s `describeImage` — see [Alt text](#alt-text).
 
 ## Grounding AI reads in your project
 
@@ -360,6 +404,68 @@ removes the menu item entirely, so no request is ever sent:
 ```ts
 structureInbox({summarize: false, suggestTodos: false, sources: [/* ... */]})
 ```
+
+## Alt text
+
+`assetIssues` reports four things, two of them about alt text: an image field with no alt text at
+all, and one whose alt text doesn't pull its weight (it repeats the filename, it's a generic word
+like "image", or it's too short to describe anything).
+
+Missing alt text is also the one finding this plugin can fix for you. For an image that depicts its
+own document's subject — an author's portrait, a product's pack shot — the correct alt text is
+already in the document: its title. Declare those fields and the row gains a one-click **Quick fix**,
+free and instant, applicable to a whole selection at once:
+
+```ts
+assetIssues({
+  altFromTitle: ['author.portrait', 'product.packShot'],
+})
+```
+
+`'<documentType>.<fieldName>'`, and declared rather than guessed on purpose: an article's hero image
+is not a picture of its headline, and a wrong alt text is worse than a missing one because nothing
+flags it again. A document with no title of its own is skipped rather than given its `_id`.
+
+**The title is written verbatim, with no "Photo of" / "Porträtt av" prefix.** Assistive technology
+already announces that it's an image, so a prefix is redundant — `alt="Daniel Vaziri"` is both
+simpler and more correct than `alt="Portrait of Daniel Vaziri"`. If you want one anyway, or any other
+rule, `suggestAlt` takes the decision over completely:
+
+```ts
+assetIssues({
+  suggestAlt: ({documentType, title}) =>
+    documentType === 'author' && title ? `Porträtt av ${title}` : null,
+})
+```
+
+Return `null` for "no safe answer here" and that row stays a plain link. `suggestAlt` must be
+synchronous and free — it's what the bulk action applies, so it can't do I/O — and a `null` from it
+is a decision, not a fall-through: it wins over `altFromTitle`.
+
+For everything else — a hero image, an illustration, anything whose alt text needs eyes on the
+actual picture — supply `describeImage` and back it with your own vision model:
+
+```ts
+assetIssues({
+  altFromTitle: ['author.portrait'],
+  describeImage: async ({imageUrl, documentType, fieldName, title}) => {
+    const res = await fetch('/api/describe-image', {
+      method: 'POST',
+      body: JSON.stringify({imageUrl, documentType, fieldName, title}),
+    })
+    return (await res.json()).alt ?? null
+  },
+})
+```
+
+`imageUrl` arrives width-capped so you're not paying to send a full-resolution original, and
+`documentType`/`fieldName` let you prompt differently per kind of image. It runs **only** when an
+editor clicks "Fix with AI" on one specific row — never on render, never on selection, and never
+from the bulk action. Without it, rows outside `altFromTitle`/`suggestAlt` simply aren't fixable.
+
+Either way the proposal is shown before anything is written, and the patch runs only when the editor
+clicks Apply. Poorly-worded existing alt text is deliberately **not** fixable: filling an empty field
+can't destroy what someone wrote, and replacing one can.
 
 ## Optional: broken links via `sanity-plugin-link-checker`
 
