@@ -129,6 +129,16 @@ export interface InboxItem {
    * afterwards why nothing happened.
    */
   fixable?: boolean
+  /**
+   * Whether a fix for this item is computable with no network round trip and
+   * no cost — the subset of `fixable` a bulk selection is allowed to apply.
+   *
+   * `fixable` alone is not enough for bulk: a model-backed proposal bills per
+   * row, so twenty selected rows would quietly spend twenty of them. A source
+   * that sets this is promising its `proposeFix` can answer this item under
+   * `instantOnly`, which is what the selection bar always passes.
+   */
+  quickFixable?: boolean
 }
 
 /**
@@ -279,19 +289,31 @@ export interface InboxSourceResult {
    * two-step: this only ever *proposes* one (`FixProposal.apply` is what
    * actually runs it), never writes anything on its own.
    *
-   * The one built-in case today (`linkCheckerFindings.ts`) has Agent
-   * Actions choose *which* existing document a broken reference should
-   * point to — never *how* to write it: the actual mutation this plugin
-   * runs is a plain, deterministic patch it fully controls, the same
-   * separation of concerns `resolve`/`assign` already draw between "an
-   * editor's own click decided this" and "here's the mechanical write that
-   * follows." Returns `null` when there is nothing good to propose (no
-   * eligible shape, or the model found no confident candidate) — the row
-   * should still only ever offer this when `InboxItem.fixable` is true, so
-   * a `null` here is the rarer "even though this looked fixable, nothing
+   * Where a model is involved at all (`linkCheckerFindings.ts` has Agent
+   * Actions choose *which* existing document a broken reference should point
+   * to) it only ever decides *which*, never *how* to write it: the actual
+   * mutation this plugin runs is a plain, deterministic patch it fully
+   * controls, the same separation of concerns `resolve`/`assign` already draw
+   * between "an editor's own click decided this" and "here's the mechanical
+   * write that follows." Plenty of fixes need no model at all — a dead URL is
+   * already confirmed dead, a portrait's alt text is already the document's
+   * own title — and those take the identical shape, minus the round trip.
+   *
+   * `instantOnly` asks for only the fixes in that second group: those needing
+   * no network round trip and costing nothing. A source that cannot answer an
+   * item that cheaply must return `null` rather than quietly fall back to a
+   * paid call, because this is what the bulk selection bar passes, and a
+   * source that ignores it turns one click into one charge per selected row.
+   * `InboxItem.quickFixable` is the matching per-item promise the selection
+   * bar reads before it ever gets here.
+   *
+   * Returns `null` when there is nothing good to propose (no eligible shape,
+   * no confident candidate, or `instantOnly` and nothing free to offer) — the
+   * row should still only ever offer this when `InboxItem.fixable` is true,
+   * so a `null` here is the rarer "even though this looked fixable, nothing
    * good turned up" case, not the common path.
    */
-  proposeFix?: (item: InboxItem) => Promise<FixProposal | null>
+  proposeFix?: (item: InboxItem, options?: {instantOnly?: boolean}) => Promise<FixProposal | null>
   /**
    * Delegates an item to someone else — "who's taking this," not just "who
    * owns this": a row needs no single natural owner to be worth assigning

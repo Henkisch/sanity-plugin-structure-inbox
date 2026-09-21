@@ -6,6 +6,7 @@ import {
   findAltEligibleImageFields,
   formatAssetSize,
   normalizeForComparison,
+  suggestAltText,
 } from './assetIssues'
 
 /**
@@ -50,7 +51,7 @@ describe('findAltEligibleImageFields', () => {
     const schema = {getTypeNames: () => ['post'], get: () => postType()}
 
     expect(findAltEligibleImageFields(schema, 'alt')).toEqual([
-      {documentType: 'post', documentTypeTitle: 'Post', fieldName: 'heroImage', fieldTitle: 'heroImage'},
+      {documentType: 'post', documentTypeTitle: 'Post', fieldName: 'heroImage', fieldTitle: 'heroImage', imagePath: 'heroImage'},
     ])
   })
 
@@ -103,7 +104,7 @@ describe('findAltEligibleImageFields', () => {
 
     expect(findAltEligibleImageFields(schema, 'alt')).toEqual([])
     expect(findAltEligibleImageFields(schema, 'description')).toEqual([
-      {documentType: 'post', documentTypeTitle: 'Post', fieldName: 'heroImage', fieldTitle: 'heroImage'},
+      {documentType: 'post', documentTypeTitle: 'Post', fieldName: 'heroImage', fieldTitle: 'heroImage', imagePath: 'heroImage'},
     ])
   })
 
@@ -126,7 +127,7 @@ describe('findAltEligibleImageFields', () => {
     const schema = {getTypeNames: () => ['event'], get: () => type}
 
     expect(findAltEligibleImageFields(schema, 'alt')).toEqual([
-      {documentType: 'event', documentTypeTitle: 'Event', fieldName: 'coverImage', fieldTitle: 'coverImage'},
+      {documentType: 'event', documentTypeTitle: 'Event', fieldName: 'coverImage', fieldTitle: 'coverImage', imagePath: 'coverImage.image'},
     ])
   })
 
@@ -167,8 +168,31 @@ describe('findAltEligibleImageFields', () => {
     const schema = {getTypeNames: () => ['event'], get: () => type}
 
     expect(findAltEligibleImageFields(schema, 'alt')).toEqual([
-      {documentType: 'event', documentTypeTitle: 'Event', fieldName: 'coverImage', fieldTitle: 'coverImage'},
+      {documentType: 'event', documentTypeTitle: 'Event', fieldName: 'coverImage', fieldTitle: 'coverImage', imagePath: 'coverImage.asset'},
     ])
+  })
+
+  it('skips a wrapper object whose inner image sub-field name would not be safe to interpolate into GROQ', () => {
+    // `imagePath` reaches the query string the same way `fieldName` does, so
+    // it gets the same allow-list guard — including its second segment.
+    const imageWithAltType: FixtureType = {
+      name: 'imageWithAlt',
+      jsonType: 'object',
+      fields: [
+        {name: 'inner-image', type: imageType()},
+        {name: 'alt', type: stringType},
+      ],
+    }
+    const type = {
+      name: 'event',
+      title: 'Event',
+      jsonType: 'object' as const,
+      type: documentType,
+      fields: [{name: 'coverImage', type: imageWithAltType}],
+    }
+    const schema = {getTypeNames: () => ['event'], get: () => type}
+
+    expect(findAltEligibleImageFields(schema, 'alt')).toEqual([])
   })
 
   it('skips a field whose name would not be safe to interpolate into a GROQ query', () => {
@@ -264,5 +288,80 @@ describe('classifyAltText', () => {
   it('returns null for a real, descriptive alt text', () => {
     expect(classifyAltText('A golden retriever catching a frisbee in a park')).toBeNull()
     expect(classifyAltText('Team offsite in Gothenburg, September 2026', 'IMG_2831.jpg')).toBeNull()
+  })
+})
+
+describe('suggestAltText', () => {
+  const ctx = {
+    documentId: 'person-a1b2c3',
+    documentType: 'person',
+    fieldName: 'portrait',
+    title: 'Daniel Vaziri',
+  }
+
+  it("uses the document's own title for a declared field, verbatim and with no prefix", () => {
+    expect(suggestAltText(ctx, {altFromTitle: ['person.portrait']})).toBe('Daniel Vaziri')
+  })
+
+  it('declines a declared field on a document with no title of its own', () => {
+    // The row's display `title` falls back to the `_id`, which is exactly what
+    // must never reach the alt attribute.
+    expect(suggestAltText({...ctx, title: undefined}, {altFromTitle: ['person.portrait']})).toBeNull()
+    expect(suggestAltText({...ctx, title: '   '}, {altFromTitle: ['person.portrait']})).toBeNull()
+  })
+
+  it('declines a field nobody declared, even on a document with a perfectly good title', () => {
+    expect(suggestAltText(ctx, {altFromTitle: ['person.otherImage']})).toBeNull()
+    expect(suggestAltText(ctx, {altFromTitle: []})).toBeNull()
+    expect(suggestAltText(ctx, {})).toBeNull()
+  })
+
+  it('matches on the document type as well as the field name', () => {
+    expect(suggestAltText(ctx, {altFromTitle: ['author.portrait']})).toBeNull()
+  })
+
+  it('lets suggestAlt override a declared field', () => {
+    expect(
+      suggestAltText(ctx, {
+        altFromTitle: ['person.portrait'],
+        suggestAlt: ({title}) => `Porträtt av ${title}`,
+      }),
+    ).toBe('Porträtt av Daniel Vaziri')
+  })
+
+  it('lets a suggestAlt returning null veto altFromTitle, rather than falling through to it', () => {
+    // The non-vacuous one: a `??` chain passes every other case in this block
+    // and fails exactly here. A callback that ran and declined has made a
+    // decision, and the declared-field default must not overrule it.
+    expect(
+      suggestAltText(ctx, {altFromTitle: ['person.portrait'], suggestAlt: () => null}),
+    ).toBeNull()
+  })
+
+  it('treats an empty or blank string from suggestAlt as a decline, not as a fall-through', () => {
+    // Same rule as returning null: the callback ran, so it decided. A
+    // callback written as `doc.caption ?? ''` must not silently inherit the
+    // declared-field default for every document with no caption.
+    expect(
+      suggestAltText(ctx, {altFromTitle: ['person.portrait'], suggestAlt: () => ''}),
+    ).toBeNull()
+    expect(
+      suggestAltText(ctx, {altFromTitle: ['person.portrait'], suggestAlt: () => '   '}),
+    ).toBeNull()
+  })
+
+  it('trims what a callback returns', () => {
+    expect(suggestAltText(ctx, {suggestAlt: () => '  Daniel Vaziri  '})).toBe('Daniel Vaziri')
+  })
+
+  it('passes the document type and field name through, so a caller can branch per kind of image', () => {
+    const seen: string[] = []
+    suggestAltText(ctx, {
+      suggestAlt: (c) => {
+        seen.push(`${c.documentType}.${c.fieldName}`, c.documentId)
+        return null
+      },
+    })
+    expect(seen).toEqual(['person.portrait', 'person-a1b2c3'])
   })
 })

@@ -1,6 +1,6 @@
 import {ImageIcon} from '@sanity/icons/Image'
 import {isDocumentSchemaType, isImageSchemaType} from '@sanity/types'
-import {useMemo} from 'react'
+import {useCallback, useMemo} from 'react'
 import {useObservable} from 'react-rx'
 import {defer, from, of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
@@ -10,7 +10,12 @@ import {useClient, useCurrentUser, useSchema} from 'sanity'
 
 import {API_VERSION} from '../../constants'
 import {isHiddenType} from '../AddMenu'
-import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
+import {
+  type FixProposal,
+  type InboxItem,
+  type InboxSource,
+  type InboxSourceResult,
+} from '../types'
 import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
 import {useAssignableUsers} from './capability'
 import {liveQuery$} from './liveQuery'
@@ -31,9 +36,20 @@ const SIMPLE_FIELD_PATH = /^[a-zA-Z0-9_]+$/
  */
 const UNUSED_ASSET_SCAN_LIMIT = 200
 
-/** True when some sub-field's own type is an image type — the wrapper-object convention's inner field, name-agnostic. */
-function hasImageSubfield(fields: {name: string; type: WalkableSchemaType}[] | undefined): boolean {
-  return Boolean(fields?.some((sub) => isImageSchemaType(sub.type)))
+/**
+ * The name of the sub-field whose own type is an image type — the
+ * wrapper-object convention's inner field, name-agnostic — or `undefined`
+ * when there is none. Returns the *name*, not a boolean, because the alt
+ * text and the asset do not live at the same path on a wrapper object: alt
+ * is at `<field>.<altFieldName>`, but the asset is at
+ * `<field>.<thisName>.asset`. Getting that second path wrong is silent —
+ * the projection just resolves to `null` — so the walk records it rather
+ * than letting each query guess.
+ */
+function imageSubfieldName(
+  fields: {name: string; type: WalkableSchemaType}[] | undefined,
+): string | undefined {
+  return fields?.find((sub) => isImageSchemaType(sub.type))?.name
 }
 
 /** True when some sub-field is named `altFieldName` — works the same whether `fields` came from a direct image type or a wrapper object type. */
@@ -49,6 +65,14 @@ interface EligibleImageField {
   documentTypeTitle: string
   fieldName: string
   fieldTitle: string
+  /**
+   * Path from the document root to the image object itself — `fieldName` for
+   * a direct image field, `fieldName.subfield` for the wrapper-object
+   * pattern. Alt text lives at `<fieldName>.<altFieldName>` either way, but
+   * the asset does not, which is the whole reason this is tracked
+   * separately.
+   */
+  imagePath: string
 }
 
 /**
@@ -103,21 +127,25 @@ export function findAltEligibleImageFields(
       // eslint-disable-next-line no-unsafe-type-assertion -- against the real `Schema`, `field.type` is a wide union of every schema type kind (most without a `.fields` property at all); `isImageSchemaType`'s own guard only collapses that union when used directly in an `if`, which the wrapper-object OR below can't do, so re-assert this walk's own loose shape once here instead.
       const fieldType = field.type as unknown as WalkableSchemaType
       const isDirectImage = isImageSchemaType(fieldType)
-      const isWrapperWithImage = !isDirectImage && hasImageSubfield(fieldType.fields)
-      if (!isDirectImage && !isWrapperWithImage) continue
+      const subfield = isDirectImage ? undefined : imageSubfieldName(fieldType.fields)
+      if (!isDirectImage && !subfield) continue
       if (!hasAltSibling(fieldType.fields, altFieldName)) continue
       // Guards the GROQ interpolation below (`assetIssues`'s missing-/poor-alt
-      // queries splice `field.fieldName` straight into the query string) —
-      // a real Sanity field name is already restricted to a safe identifier
-      // shape at schema-definition time, so this is a defensive skip, not a
-      // check expected to ever actually reject a genuine schema field.
+      // queries splice `field.fieldName` and `imagePath` straight into the
+      // query string) — a real Sanity field name is already restricted to a
+      // safe identifier shape at schema-definition time, so this is a
+      // defensive skip, not a check expected to ever actually reject a
+      // genuine schema field. The wrapper's inner field name reaches GROQ the
+      // same way, so it gets the same guard.
       if (!SIMPLE_FIELD_PATH.test(field.name)) continue
+      if (subfield && !SIMPLE_FIELD_PATH.test(subfield)) continue
 
       results.push({
         documentType: typeName,
         documentTypeTitle: type.title || typeName,
         fieldName: field.name,
         fieldTitle: fieldType.title || field.name,
+        imagePath: subfield ? `${field.name}.${subfield}` : field.name,
       })
     }
   }
@@ -139,6 +167,9 @@ export function formatAssetSize(bytes: number): string {
 }
 
 export type AltTextIssue = 'filenameLike' | 'placeholder' | 'tooShort'
+
+/** Alt text is one sentence; anything past this is a model that misunderstood the job. */
+const MAX_ALT_LENGTH = 300
 
 const GENERIC_ALT_WORDS = new Set(['image', 'photo', 'picture', 'img', 'graphic', 'photograph'])
 const MIN_ALT_LENGTH = 4
@@ -167,6 +198,21 @@ export function classifyAltText(altText: string, assetFilename?: string): AltTex
   return null
 }
 
+/**
+ * What a suggestion callback is told about the image it is being asked to
+ * describe. `documentType` and `fieldName` are the two that let an
+ * integrator branch per kind of image.
+ *
+ * @public
+ */
+export interface AltContext {
+  documentId: string
+  documentType: string
+  fieldName: string
+  /** The document's own title/name/label — absent when it has none. */
+  title?: string
+}
+
 export interface AssetIssuesOptions {
   /** Cap on rows per check (oversized, unused, missing alt text — each capped independently). Defaults to 20. */
   limit?: number
@@ -176,6 +222,82 @@ export interface AssetIssuesOptions {
   maxSizeBytes?: number
   /** The sub-field name on an image field that holds its alt text. Defaults to `'alt'`. */
   altFieldName?: string
+  /**
+   * `'<documentType>.<fieldName>'` pairs whose image depicts the document's
+   * own subject — a person's portrait, a product's pack shot. For those, the
+   * document's own title *is* the correct alt text, so the Inbox can fill it
+   * in with no model call and no cost, one row or a whole selection at a
+   * time.
+   *
+   * Deliberately declared rather than guessed: an article's hero image is not
+   * a picture of its headline, and a wrong alt text is worse than a missing
+   * one because nothing ever flags it again.
+   *
+   * The title is written verbatim, with no "Photo of"/"Porträtt av" prefix —
+   * WAI guidance is that assistive technology already announces that it is an
+   * image, so a prefix is redundant noise. Use `suggestAlt` if you want one
+   * anyway.
+   */
+  altFromTitle?: string[]
+  /**
+   * Full control over the deterministic answer, and it wins over
+   * `altFromTitle`. Return `null` for "no safe answer here" — that row stays
+   * unfixable rather than getting a guess.
+   *
+   * Synchronous and free on purpose: this is what the bulk action applies, so
+   * it must not do I/O. Anything that costs money or time belongs in
+   * `describeImage`.
+   *
+   * Captured once when `assetIssues()` is called, so it does not need to be
+   * memoized — but it is read on every rebuild of the item list, so keep it
+   * cheap and free of side effects.
+   */
+  suggestAlt?: (ctx: AltContext) => string | null
+  /**
+   * Describe an image this plugin has no safe answer for, using your own
+   * vision model.
+   *
+   * There is deliberately no built-in fallback here: Sanity's Agent Actions
+   * cannot see images — its `instructionParams` accept only `constant`,
+   * `field`, `document` and `groq` — so a built-in path could only guess at
+   * the picture from the document's text, which produces confident, wrong alt
+   * text. A wrong alt text is worse than a missing one, because the missing
+   * one comes back to this inbox and the wrong one never does.
+   *
+   * Runs only when an editor clicks the fix action on one specific row. Never
+   * on render, never on selection, and never from the bulk action — whatever
+   * this costs you, it is charged one deliberate click at a time.
+   * `ctx.documentType` and `ctx.fieldName` let you prompt differently per
+   * kind of image.
+   *
+   * Return `null` when the model cannot describe it confidently.
+   */
+  describeImage?: (ctx: AltContext & {imageUrl: string}) => Promise<string | null>
+}
+
+/**
+ * The deterministic half of the alt-text fix: what this plugin is willing to
+ * write without asking anyone. `null` means "no safe answer" — that row stays
+ * a link to the document rather than getting a guess.
+ *
+ * Exported for its own test, like `classifyAltText` and
+ * `normalizeForComparison` beside it.
+ */
+export function suggestAltText(
+  ctx: AltContext,
+  options: Pick<AssetIssuesOptions, 'altFromTitle' | 'suggestAlt'>,
+): string | null {
+  const fromCallback = options.suggestAlt?.(ctx)
+  // A supplied callback speaks once and its answer is final: anything other
+  // than `undefined` is its decision, including `null` and `''`. That is
+  // exactly why this isn't the `??` chain it otherwise wants to be — a
+  // callback written as `doc.caption ?? ''` must not silently inherit the
+  // `altFromTitle` default for every document without a caption. Only a
+  // callback that wasn't supplied at all falls through.
+  if (fromCallback !== undefined) return fromCallback?.trim() || null
+
+  if (!options.altFromTitle?.includes(`${ctx.documentType}.${ctx.fieldName}`)) return null
+  return ctx.title?.trim() || null
 }
 
 interface AssetRow {
@@ -191,6 +313,15 @@ const ASSET_COUNT_QUERY = `count(*[_type in $assetTypes])`
 interface MissingAltRow {
   _id: string
   title: string
+  /**
+   * The document's own title/name/label, *without* the `_id` fallback
+   * `title` carries. `title` is display text and is always a string; this is
+   * the only one a fix is allowed to write, because `alt="person-a1b2c3"` is
+   * worse than no alt text at all.
+   */
+  safeTitle?: string
+  /** The image asset's CDN url, for `describeImage`. Absent when the field holds no asset. */
+  imageUrl?: string
   _updatedAt?: string
 }
 
@@ -209,6 +340,18 @@ const ALT_ISSUE_CATEGORY: Record<AltTextIssue, string> = {
   tooShort: 'Alt text too short',
 }
 
+/**
+ * Everything `proposeFix` needs about one missing-alt row, keyed by the row's
+ * own id — the same lookup-by-id shape `linkCheckerFindings`'s `findingsByKey`
+ * uses, and for the same reason: a row id is a string, and `proposeFix` is
+ * handed back the item, not the query result it came from.
+ */
+interface AltTarget extends AltContext {
+  imageUrl?: string
+  /** Non-null exactly when a deterministic answer exists — this is what makes a row quick-fixable. */
+  suggestion: string | null
+}
+
 interface AssetIssuesFetch {
   oversized: AssetRow[]
   unused: AssetRow[]
@@ -222,10 +365,17 @@ interface AssetIssuesFetch {
  * Unused, oversized, missing-alt-text, and poor-alt-text (filename-like,
  * generic, or too short — via `classifyAltText`) image/file assets — none
  * of which Sanity's own Structure Tool or Media library surfaces in
- * aggregate. No AI, no `resolve`: fixing any of these means editing the
- * asset or the document that references it, the same reasoning
- * `documentValidation` already uses for a schema validation error —
- * acknowledge-only.
+ * aggregate. No `resolve`: an oversized or unused asset is fixed by editing
+ * the asset itself, the same reasoning `documentValidation` already uses for a
+ * schema validation error — acknowledge-only.
+ *
+ * Missing alt text is the exception, and the only one: where the image
+ * demonstrably depicts the document's own subject (`altFromTitle`), the
+ * correct alt text is already sitting in that document's title, so the row
+ * offers to write it — free, instantly, and for a whole selection at once.
+ * Anything less mechanical than that needs eyes on the actual picture, which
+ * is what the integrator's own `describeImage` is for; this source ships no
+ * model of its own.
  *
  * Oversized/unused rows have no `intent`: `sanity.imageAsset`/
  * `sanity.fileAsset` are real document types but are deliberately excluded
@@ -241,6 +391,9 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
     title = 'source.assetIssues.defaultTitle',
     maxSizeBytes = 5 * 1024 * 1024,
     altFieldName = 'alt',
+    altFromTitle,
+    suggestAlt,
+    describeImage,
   } = options
 
   if (!SIMPLE_FIELD_PATH.test(altFieldName)) {
@@ -296,7 +449,7 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
                 Promise.all(
                   altEligibleFields.map((field) =>
                     client.fetch<MissingAltRow[]>(
-                      `*[_type == $type && defined(${field.fieldName}) && !defined(${field.fieldName}.${altFieldName})] | order(_updatedAt desc)[0...$limit]{_id, "title": coalesce(title, name, label, _id), _updatedAt}`,
+                      `*[_type == $type && defined(${field.fieldName}) && !defined(${field.fieldName}.${altFieldName})] | order(_updatedAt desc)[0...$limit]{_id, "title": coalesce(title, name, label, _id), "safeTitle": coalesce(title, name, label), "imageUrl": ${field.imagePath}.asset->url, _updatedAt}`,
                       {type: field.documentType, limit},
                     ),
                   ),
@@ -304,7 +457,7 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
                 Promise.all(
                   altEligibleFields.map((field) =>
                     client.fetch<PoorAltRow[]>(
-                      `*[_type == $type && defined(${field.fieldName}.${altFieldName})] | order(_updatedAt desc)[0...$limit]{_id, "title": coalesce(title, name, label, _id), _updatedAt, "alt": ${field.fieldName}.${altFieldName}, "assetFilename": ${field.fieldName}.asset->originalFilename}`,
+                      `*[_type == $type && defined(${field.fieldName}.${altFieldName})] | order(_updatedAt desc)[0...$limit]{_id, "title": coalesce(title, name, label, _id), _updatedAt, "alt": ${field.fieldName}.${altFieldName}, "assetFilename": ${field.imagePath}.asset->originalFilename}`,
                       {type: field.documentType, limit},
                     ),
                   ),
@@ -349,8 +502,13 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
         return assignee ? {...row, assignee} : row
       }
 
-      const items = useMemo(() => {
+      // `items` and the fix's own lookup table are built in one pass, and
+      // deliberately share a `useMemo`: they are two views of the same rows,
+      // and computing them apart is how they drift — a row advertising
+      // `quickFixable` that `proposeFix` then can't find anything for.
+      const {items, altTargets} = useMemo(() => {
         const rows: InboxItem[] = []
+        const targets = new Map<string, AltTarget>()
 
         for (const asset of oversized) {
           rows.push(
@@ -380,9 +538,20 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
           const field = altEligibleFields[index]
           if (!field) continue
           for (const doc of fieldMissingAlt) {
+            const id = `missingAlt:${doc._id}:${field.fieldName}`
+            const ctx = {
+              documentId: doc._id,
+              documentType: field.documentType,
+              fieldName: field.fieldName,
+              title: doc.safeTitle,
+            }
+            const suggestion = suggestAltText(ctx, {altFromTitle, suggestAlt})
+
+            targets.set(id, {...ctx, imageUrl: doc.imageUrl, suggestion})
+
             rows.push(
               withAssignee({
-                id: `missingAlt:${doc._id}:${field.fieldName}`,
+                id,
                 title: doc.title,
                 subtitle: `${field.documentTypeTitle} · ${field.fieldTitle}`,
                 category: 'Missing alt text',
@@ -390,6 +559,11 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
                 timestamp: doc._updatedAt,
                 changedAt: doc._updatedAt,
                 intent: {type: 'edit', params: {id: doc._id, type: field.documentType}},
+                // Only ever `true` where there is a real answer waiting: a
+                // deterministic one this plugin can write for free, or an
+                // image an integrator's own model could be asked about.
+                quickFixable: suggestion !== null,
+                fixable: suggestion !== null || Boolean(describeImage && doc.imageUrl),
               }),
             )
           }
@@ -416,9 +590,17 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
           }
         }
 
-        return rows
+        return {items: rows, altTargets: targets}
         // eslint-disable-next-line react-hooks/exhaustive-deps -- `withAssignee` closes over `assignments.byTarget`/`assigneesById`, both already listed; it is redefined every render (not memoized) so including it would just make this dependency list re-describe itself.
-      }, [oversized, unused, missingAlt, poorAlt, altEligibleFields, assignments.byTarget, assigneesById])
+      }, [
+        oversized,
+        unused,
+        missingAlt,
+        poorAlt,
+        altEligibleFields,
+        assignments.byTarget,
+        assigneesById,
+      ])
 
       const assign = useMemo(() => {
         if (!assignable) return undefined
@@ -436,7 +618,64 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
         }
       }, [assignable, assignments])
 
-      return {items, loading, error, assign}
+      const proposeFix = useCallback(
+        async (item: InboxItem, fixOptions?: {instantOnly?: boolean}): Promise<FixProposal | null> => {
+          const target = altTargets.get(item.id)
+          if (!target) return null
+
+          // Re-read before proposing anything. The live query behind these
+          // rows can be a few seconds stale, and the likeliest reason a row is
+          // still on screen is that someone just filled this in by hand — same
+          // guard, same reasoning as `proposeLinkFix` in
+          // `linkCheckerFindings.ts`.
+          const current = await client.fetch<unknown>(
+            `*[_id == $id][0].${target.fieldName}.${altFieldName}`,
+            {id: target.documentId},
+          )
+          if (typeof current === 'string' && current.trim()) return null
+
+          const write = (alt: string) => async () => {
+            await client
+              .patch(target.documentId)
+              .set({[`${target.fieldName}.${altFieldName}`]: alt})
+              .commit()
+          }
+
+          if (target.suggestion) {
+            return {summary: `Set alt text to "${target.suggestion}"`, apply: write(target.suggestion)}
+          }
+
+          // Past this line costs the integrator money, so the bulk path —
+          // which always passes `instantOnly` — stops here rather than
+          // fanning one click out into one charge per selected row.
+          if (fixOptions?.instantOnly || !describeImage || !target.imageUrl) return null
+
+          const described = await describeImage({
+            documentId: target.documentId,
+            documentType: target.documentType,
+            fieldName: target.fieldName,
+            title: target.title,
+            // Capped width: the integrator pays for this call, and no vision
+            // model needs the full-resolution original to write one sentence.
+            imageUrl: `${target.imageUrl}?w=1024&fit=max&auto=format`,
+          })
+
+          const alt = described?.trim()
+          // A model that rambles has misunderstood the job — alt text is one
+          // sentence. Drop it rather than write an essay into the field.
+          if (!alt || alt.length > MAX_ALT_LENGTH) return null
+          return {summary: `Set alt text to "${alt}"`, apply: write(alt)}
+        },
+        [altTargets, client],
+      )
+
+      // Memoized rather than a fresh object literal per render: this result is
+      // reported up to the pane and stored as state, so anything in it that
+      // churns identity every render is a render every render (AGENTS.md).
+      return useMemo(
+        () => ({items, loading, error, assign, proposeFix}),
+        [items, loading, error, assign, proposeFix],
+      )
     },
   }
 }

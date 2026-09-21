@@ -182,6 +182,15 @@ function toItem(finding: ScanFinding, fallbackChangedAt: string, schema: ReturnT
     }
   }
 
+  // Only a confirmed-dead link is offered a fix — stripping a merely
+  // `unverifiable` one could be removing a link that's actually fine. And
+  // when it is offered, it costs nothing: the URL is already confirmed dead
+  // by a real HTTP check, so removing it is a deterministic edit with no
+  // model in the loop, which is what also makes it safe in bulk.
+  const linkFixable =
+    finding.result.status === 'broken' &&
+    singleTextFieldEligible(schema, finding.fromType, finding.fieldPath)
+
   return {
     ...base,
     title: finding.href,
@@ -191,11 +200,8 @@ function toItem(finding: ScanFinding, fallbackChangedAt: string, schema: ReturnT
     // here when `includeUnverifiable` is on) is a maybe — coloured less
     // urgently so it never reads as equally certain.
     tone: finding.result.status === 'broken' ? 'critical' : 'caution',
-    // Only a confirmed-dead link is offered a fix — stripping a merely
-    // `unverifiable` one could be removing a link that's actually fine.
-    fixable:
-      finding.result.status === 'broken' &&
-      singleTextFieldEligible(schema, finding.fromType, finding.fieldPath),
+    fixable: linkFixable,
+    quickFixable: linkFixable,
   }
 }
 
@@ -529,11 +535,15 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
       )
 
       const proposeFix = useCallback(
-        async (item: InboxItem): Promise<FixProposal | null> => {
+        async (item: InboxItem, fixOptions?: {instantOnly?: boolean}): Promise<FixProposal | null> => {
           const finding = findingsByKey.get(item.id)
           if (!finding) return null
+          // The link fix needs no round trip to a model, so it stays available
+          // under `instantOnly`; retargeting a reference is a judgement call
+          // that bills per row, so it does not.
           if (finding.kind === 'link') return proposeLinkFix(finding)
           if (finding.kind !== 'reference') return null
+          if (fixOptions?.instantOnly) return null
 
           if (!agentClient) return null
 
