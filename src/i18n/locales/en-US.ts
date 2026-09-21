@@ -185,13 +185,28 @@ const enUS = {
   // this proposes a real change, so it needs its own Apply/Dismiss rather
   // than assess's single answer line. See `InboxSourceResult.proposeFix`.
   'fix.ask': 'Fix with AI',
+  // The same action where no model is involved — a dead URL is already
+  // confirmed dead, a portrait's alt text is already the document's own
+  // title. Offering those as "Fix with AI" was simply untrue, and it made a
+  // free, instant edit look like something worth hesitating over.
+  'fix.quick': 'Quick fix',
   'fix.loading': 'Thinking…',
-  'fix.none': "AI couldn't find a good match.",
+  // Neutral on purpose: both the AI and the no-AI path end here, so this
+  // can't claim a model looked and came back empty.
+  'fix.none': 'Nothing safe to suggest here.',
   'fix.apply': 'Apply',
   'fix.applying': 'Applying…',
   'fix.applied': 'Fixed',
   'fix.dismiss': 'Dismiss',
-  'fix.error': 'Could not reach AI.',
+  'fix.error': 'Could not prepare a fix.',
+  'fix.bulk': 'Quick fix',
+  'fix.bulkDone_one': '{{count}} fixed',
+  'fix.bulkDone_other': '{{count}} fixed',
+  // Named rather than counted away: these rows are still on screen, and the
+  // editor needs to know the action deliberately skipped them rather than
+  // quietly failed on them.
+  'fix.bulkSkipped_one': '{{count}} needs review',
+  'fix.bulkSkipped_other': '{{count}} need review',
 
   // The single entry point grouping every pane-level AI read (Summarize,
   // Suggest todos, Find content gaps) behind one trigger — see

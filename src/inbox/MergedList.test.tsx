@@ -1,4 +1,4 @@
-import {act, cleanup, fireEvent, screen} from '@testing-library/react'
+import {act, cleanup, fireEvent, screen, waitFor} from '@testing-library/react'
 import {useState} from 'react'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
@@ -289,6 +289,79 @@ describe('MergedList', () => {
 
     selectItem('Draft two')
     expect(screen.getByRole('button', {name: 'action.delete'})).toBeTruthy()
+  })
+
+  it('applies every free fix in a selection, and never asks the paid path for one of them', async () => {
+    const apply = vi.fn().mockResolvedValue(undefined)
+    const proposeFix = vi.fn().mockResolvedValue({summary: 'Set alt text', apply})
+    const reports = {
+      assets: report('assets', 'Assets', {
+        open: [
+          item('a1', {title: 'Free one', fixable: true, quickFixable: true}),
+          item('a2', {title: 'Free two', fixable: true, quickFixable: true}),
+          // Fixable, but only by something that bills per row — this is the
+          // row the bulk action must leave alone.
+          item('a3', {title: 'Costs money', fixable: true}),
+        ],
+        proposeFix,
+      }),
+    }
+
+    renderList({reports, order: ['assets']})
+
+    selectItem('Free one')
+    selectItem('Free two')
+    selectItem('Costs money')
+
+    fireEvent.click(screen.getByRole('button', {name: 'fix.bulk'}))
+
+    await waitFor(() => expect(apply).toHaveBeenCalledTimes(2))
+    expect(proposeFix).toHaveBeenCalledTimes(2)
+    // Every call carries the bound. A source that honours it cannot reach a
+    // paid path from here, which is the whole reason the selection bar is
+    // allowed to fan out at all.
+    proposeFix.mock.calls.forEach(([, options]) => expect(options).toEqual({instantOnly: true}))
+    expect(proposeFix).not.toHaveBeenCalledWith(
+      expect.objectContaining({id: 'a3'}),
+      expect.anything(),
+    )
+  })
+
+  it('offers no bulk fix at all for a selection whose fixes all cost money', () => {
+    const reports = {
+      assets: report('assets', 'Assets', {
+        open: [item('a1', {title: 'Costs money', fixable: true})],
+        proposeFix: vi.fn(),
+      }),
+    }
+
+    renderList({reports, order: ['assets']})
+    selectItem('Costs money')
+
+    expect(screen.queryByRole('button', {name: 'fix.bulk'})).toBeNull()
+  })
+
+  it('finishes the rest of a bulk fix when one row fails, and says how many actually landed', async () => {
+    const proposeFix = vi.fn(async (row: InboxItem) => {
+      if (row.id === 'a1') throw new Error('locked')
+      return {summary: 'Set alt text', apply: vi.fn().mockResolvedValue(undefined)}
+    })
+    const reports = {
+      assets: report('assets', 'Assets', {
+        open: [
+          item('a1', {title: 'Doomed', fixable: true, quickFixable: true}),
+          item('a2', {title: 'Fine', fixable: true, quickFixable: true}),
+        ],
+        proposeFix,
+      }),
+    }
+
+    renderList({reports, order: ['assets']})
+    selectItem('Doomed')
+    selectItem('Fine')
+    fireEvent.click(screen.getByRole('button', {name: 'fix.bulk'}))
+
+    await waitFor(() => expect(proposeFix).toHaveBeenCalledTimes(2))
   })
 
   it('offers "Ask AI" in a row\'s own menu rather than a persistent link, and shows the answer inline once asked', async () => {
