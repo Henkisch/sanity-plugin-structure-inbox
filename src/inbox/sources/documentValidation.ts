@@ -89,6 +89,62 @@ export function formatValidationPath(path: unknown[]): string {
     .join('.')
 }
 
+/**
+ * The same `PathSegment[]`, rendered the way Sanity's own edit intent wants
+ * it — `body[_key=="a1b2"].caption`, not `formatValidationPath`'s display
+ * form. The two are deliberately separate functions: one is read by a human
+ * in a row's subtitle, the other is parsed by the Studio to move a cursor,
+ * and quietly using the display string for both is how a row ends up
+ * focusing nothing.
+ *
+ * Returns `null` for a path this can't render exactly — an empty path
+ * (the error is on the document itself, so there is no field to focus) or a
+ * segment shape it doesn't recognize. A wrong path is worse than none: the
+ * Studio would open the document and silently focus nothing, which reads as
+ * the link being broken.
+ *
+ * Exported for its own test.
+ */
+export function toFocusPath(path: unknown[]): string | null {
+  if (path.length === 0) return null
+  // A path has to start at a named field; anything else means this isn't the
+  // shape assumed here.
+  if (typeof path[0] !== 'string') return null
+
+  let out = ''
+  for (const segment of path) {
+    if (typeof segment === 'string') {
+      out += out ? `.${segment}` : segment
+    } else if (typeof segment === 'number') {
+      out += `[${segment}]`
+    } else if (segment && typeof segment === 'object' && '_key' in segment) {
+      const {_key: key} = segment
+      if (typeof key !== 'string') return null
+      out += `[_key=="${key}"]`
+    } else {
+      return null
+    }
+  }
+  return out
+}
+
+/**
+ * Where to send an editor who clicks a row with several validation errors on
+ * it: the first one that names a field. Deliberately the first rather than a
+ * row per marker — a document failing six rules would otherwise become six
+ * rows and swamp the list, and the subtitle already names all of them.
+ *
+ * Exported for its own test.
+ */
+export function firstErrorPath(result: ValidateDocumentResult): string | null {
+  for (const marker of result.markers) {
+    if (marker.level !== 'error') continue
+    const path = toFocusPath(marker.path)
+    if (path) return path
+  }
+  return null
+}
+
 /** One row's own subtitle: every `'error'`-level marker on a document, joined. Exported for its own test. */
 export function summarizeErrors(result: ValidateDocumentResult): string | null {
   const errors = result.markers.filter((marker) => marker.level === 'error')
@@ -341,6 +397,7 @@ export function documentValidation(options: DocumentValidationOptions = {}): Inb
           if (!subtitle) continue
 
           const canonicalId = meta.id.replace(/^drafts\./, '')
+          const focusPath = firstErrorPath(result)
           const assignedTo = assignments.byTarget.get(canonicalId)
           const assignee = assignedTo ? assigneesById.get(assignedTo) : undefined
 
@@ -353,7 +410,11 @@ export function documentValidation(options: DocumentValidationOptions = {}): Inb
             tone: 'critical',
             intent: {
               type: 'edit',
-              params: {id: canonicalId, type: meta.type},
+              params: {
+                id: canonicalId,
+                type: meta.type,
+                ...(focusPath ? {path: focusPath} : {}),
+              },
             },
           }
           rows.push(assignee ? {...row, assignee} : row)

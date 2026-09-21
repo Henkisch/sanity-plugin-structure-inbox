@@ -1,7 +1,7 @@
 import {getFindingKey, type BrokenLink, type BrokenReference, type ScanResult} from 'sanity-plugin-link-checker/core'
 import {describe, expect, it} from 'vitest'
 
-import {toItems} from './linkCheckerFindings'
+import {groupOccurrences, toItems} from './linkCheckerFindings'
 
 function fakeSchema(
   titles: Record<string, string> = {},
@@ -205,5 +205,139 @@ describe('toItems', () => {
 
       expect(items[0].fixable).toBe(false)
     })
+  })
+})
+
+describe('grouping the several findings one dead link produces', () => {
+  it('collapses the same URL in one document into a single row, and counts the rest', () => {
+    // The real shape from the scanner: a `customLink` annotation stores the
+    // same URL under both `external` and `href`, so one broken link arrives
+    // as two findings differing only in the last path segment.
+    const items = toItems(
+      report([
+        brokenLink({fieldPath: 'richText[2].markDefs[0].customLink.external'}),
+        brokenLink({fieldPath: 'richText[2].markDefs[0].customLink.href'}),
+      ]),
+      fakeSchema({post: 'Post'}),
+      false,
+      50,
+    )
+
+    expect(items).toHaveLength(1)
+    expect(items[0].subtitle).toBe('Post · 2 places')
+  })
+
+  it('names the exact field when there is only one of them', () => {
+    const items = toItems(
+      report([brokenLink({fieldPath: 'richText[2].markDefs[0].customLink.href'})]),
+      fakeSchema({post: 'Post'}),
+      false,
+      50,
+    )
+
+    expect(items[0].subtitle).toBe('Post · richText[2].markDefs[0].customLink.href')
+  })
+
+  it('keeps the same dead URL in two different documents as two rows', () => {
+    // Non-vacuous: grouping on href alone would merge these, and they are
+    // genuinely two separate pieces of work.
+    const items = toItems(
+      report([brokenLink({fromId: 'post-1'}), brokenLink({fromId: 'post-2'})]),
+      fakeSchema({post: 'Post'}),
+      false,
+      50,
+    )
+
+    expect(items).toHaveLength(2)
+  })
+
+  it('keeps two different dead URLs in one document as two rows', () => {
+    const items = toItems(
+      report([
+        brokenLink({href: 'https://example.com/a'}),
+        brokenLink({href: 'https://example.com/b'}),
+      ]),
+      fakeSchema({post: 'Post'}),
+      false,
+      50,
+    )
+
+    expect(items).toHaveLength(2)
+  })
+
+  it('never groups references, even two pointing at the same missing document', () => {
+    const items = toItems(
+      report([
+        brokenReference({fieldPath: 'author'}),
+        brokenReference({fieldPath: 'reviewer'}),
+      ]),
+      fakeSchema({post: 'Post'}),
+      false,
+      50,
+    )
+
+    expect(items).toHaveLength(2)
+  })
+
+  it('navigates to the first occurrence, so the row still lands on a real field', () => {
+    const items = toItems(
+      report([
+        brokenLink({fieldPath: 'a.external', focusPath: 'a.external'}),
+        brokenLink({fieldPath: 'a.href', focusPath: 'a.href'}),
+      ]),
+      fakeSchema({post: 'Post'}),
+      false,
+      50,
+    )
+
+    expect(items[0].intent?.params.path).toBe('a.external')
+  })
+
+  it('does not offer a fix on a grouped row, since fixing one occurrence leaves the others', () => {
+    const items = toItems(
+      report([
+        brokenLink({fieldPath: 'url', href: 'https://example.com/dead'}),
+        brokenLink({fieldPath: 'body[0].href', href: 'https://example.com/dead'}),
+      ]),
+      schemaWithTextField('url'),
+      false,
+      50,
+    )
+
+    expect(items).toHaveLength(1)
+    // `url` alone would be fixable — the grouping is what withdraws it.
+    expect(items[0].fixable).toBe(false)
+    expect(items[0].quickFixable).toBe(false)
+  })
+
+  it('applies the row limit after grouping, not before', () => {
+    // Otherwise a limit of 2 spends both slots on one link's two occurrences.
+    const items = toItems(
+      report([
+        brokenLink({href: 'https://example.com/a', fieldPath: 'x.external'}),
+        brokenLink({href: 'https://example.com/a', fieldPath: 'x.href'}),
+        brokenLink({href: 'https://example.com/b', fieldPath: 'y.external'}),
+        brokenLink({href: 'https://example.com/b', fieldPath: 'y.href'}),
+      ]),
+      fakeSchema({post: 'Post'}),
+      false,
+      2,
+    )
+
+    expect(items).toHaveLength(2)
+    expect(items.map((i) => i.title)).toEqual(['https://example.com/a', 'https://example.com/b'])
+  })
+
+  it('counts occurrences without reordering what survives', () => {
+    const grouped = groupOccurrences([
+      brokenLink({href: 'https://example.com/a', fieldPath: 'x'}),
+      brokenLink({href: 'https://example.com/b', fieldPath: 'y'}),
+      brokenLink({href: 'https://example.com/a', fieldPath: 'z'}),
+    ])
+
+    expect(grouped.map((g) => [g.finding.fieldPath, g.occurrences])).toEqual([
+      ['x', 2],
+      ['y', 1],
+    ])
   })
 })

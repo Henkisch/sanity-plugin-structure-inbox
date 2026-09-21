@@ -3,7 +3,9 @@ import {describe, expect, it} from 'vitest'
 import {
   collectReferenceIds,
   documentValidation,
+  firstErrorPath,
   formatValidationPath,
+  toFocusPath,
   mapWithConcurrency,
   summarizeErrors,
 } from './documentValidation'
@@ -141,5 +143,68 @@ describe('mapWithConcurrency', () => {
     })
     expect(results).toEqual([])
     expect(calls).toBe(0)
+  })
+})
+
+describe('toFocusPath', () => {
+  it('renders a plain field path', () => {
+    expect(toFocusPath(['title'])).toBe('title')
+    expect(toFocusPath(['hero', 'alt'])).toBe('hero.alt')
+  })
+
+  it('renders an array item by its _key, the way the Studio expects', () => {
+    // The whole reason this is separate from `formatValidationPath`, which
+    // renders the same segment as the display-only `[abc123]`.
+    expect(toFocusPath(['items', {_key: 'abc123'}, 'name'])).toBe('items[_key=="abc123"].name')
+    expect(formatValidationPath(['items', {_key: 'abc123'}, 'name'])).toBe('items.[abc123].name')
+  })
+
+  it('renders a numeric index', () => {
+    expect(toFocusPath(['items', 2, 'name'])).toBe('items[2].name')
+  })
+
+  it('declines a document-level error, which has no field to focus', () => {
+    expect(toFocusPath([])).toBeNull()
+  })
+
+  it('declines anything it cannot render exactly, rather than guessing', () => {
+    // A wrong path opens the document and focuses nothing, which reads as the
+    // link being broken — worse than sending no path at all.
+    expect(toFocusPath([{weird: true}])).toBeNull()
+    expect(toFocusPath(['items', {_key: 42}])).toBeNull()
+    expect(toFocusPath([0, 'name'])).toBeNull()
+  })
+})
+
+describe('firstErrorPath', () => {
+  const marker = (level: string, path: unknown[]) => ({level, path, message: 'nope'})
+
+  it('picks the first error that names a field', () => {
+    expect(
+      firstErrorPath({
+        markers: [marker('error', ['title']), marker('error', ['body'])],
+      } as never),
+    ).toBe('title')
+  })
+
+  it('skips warnings, which are not what the row is reporting', () => {
+    expect(
+      firstErrorPath({
+        markers: [marker('warning', ['ignored']), marker('error', ['title'])],
+      } as never),
+    ).toBe('title')
+  })
+
+  it('skips a document-level error to find one that can actually be focused', () => {
+    expect(
+      firstErrorPath({
+        markers: [marker('error', []), marker('error', ['slug', 'current'])],
+      } as never),
+    ).toBe('slug.current')
+  })
+
+  it('returns null when nothing has a focusable path', () => {
+    expect(firstErrorPath({markers: [marker('error', [])]} as never)).toBeNull()
+    expect(firstErrorPath({markers: []} as never)).toBeNull()
   })
 })

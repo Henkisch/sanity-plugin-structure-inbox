@@ -155,7 +155,12 @@ function singleTextFieldEligible(
   return field?.type.jsonType === 'string'
 }
 
-function toItem(finding: ScanFinding, fallbackChangedAt: string, schema: ReturnType<typeof useSchema>): InboxItem {
+function toItem(
+  finding: ScanFinding,
+  fallbackChangedAt: string,
+  schema: ReturnType<typeof useSchema>,
+  occurrences = 1,
+): InboxItem {
   const typeTitle = schema.get(finding.fromType)?.title || finding.fromType
   // A finding carries no timestamp of its own — `docStateUpdatedAt` is the
   // *document's* last edit, the closest thing to "when did this become
@@ -202,14 +207,25 @@ function toItem(finding: ScanFinding, fallbackChangedAt: string, schema: ReturnT
   // when it is offered, it costs nothing: the URL is already confirmed dead
   // by a real HTTP check, so removing it is a deterministic edit with no
   // model in the loop, which is what also makes it safe in bulk.
+  //
+  // A grouped row is never offered a fix: `proposeFix` strips this one
+  // occurrence, so a row reading "2 places" would come back still broken and
+  // the editor would have been told it was fixed. Those go to the document
+  // instead, where all of them are visible.
   const linkFixable =
+    occurrences === 1 &&
     finding.result.status === 'broken' &&
     singleTextFieldEligible(schema, finding.fromType, finding.fieldPath)
+
+  // One occurrence names the exact field, which is the useful thing to say.
+  // Several can't — they are in different fields by definition — so the row
+  // says how many instead, and navigates to the first.
+  const where = occurrences > 1 ? `${occurrences} places` : finding.fieldPath
 
   return {
     ...base,
     title: finding.href,
-    subtitle: `${typeTitle} · ${finding.fieldPath}`,
+    subtitle: `${typeTitle} · ${where}`,
     category: 'Broken link',
     // 'broken' is a confirmed dead link; 'unverifiable' (only ever present
     // here when `includeUnverifiable` is on) is a maybe — coloured less
@@ -236,7 +252,56 @@ export function toItems(
   // by "broken".
   const findings = report.findings.filter((finding) => isProblemFinding(finding, {includeUnverifiable}))
 
-  return findings.slice(0, limit).map((finding) => toItem(finding, report.ranAt, schema))
+  return groupOccurrences(findings)
+    .slice(0, limit)
+    .map(({finding, occurrences}) => toItem(finding, report.ranAt, schema, occurrences))
+}
+
+/**
+ * Collapses the several findings one dead URL produces in a single document
+ * into one row.
+ *
+ * The scanner walks every string value in a document and reports each one it
+ * finds a URL in, which is correct — but a link annotation routinely stores
+ * the same URL under more than one key (`customLink.external` *and*
+ * `customLink.href`), so one broken link arrives here as two findings that
+ * differ only in the last segment of their path. Left alone that reads as two
+ * separate problems, and an editor fixing "both" is fixing one.
+ *
+ * Grouped by document *and* URL, not by URL alone: the same dead link in two
+ * different articles really is two pieces of work. The first occurrence keeps
+ * the row (so its `focusPath` is where the row navigates) and the rest are
+ * counted, rather than dropped — fixing `external` does not fix `href`, so
+ * the count is the row admitting there is more than one edit here.
+ *
+ * References are never grouped: each one is a distinct field pointing at a
+ * missing document, even when two point at the same one.
+ *
+ * Exported for its own test.
+ */
+export function groupOccurrences(
+  findings: ScanFinding[],
+): {finding: ScanFinding; occurrences: number}[] {
+  const grouped: {finding: ScanFinding; occurrences: number}[] = []
+  const indexByKey = new Map<string, number>()
+
+  for (const finding of findings) {
+    if (finding.kind !== 'link') {
+      grouped.push({finding, occurrences: 1})
+      continue
+    }
+
+    const key = `${finding.fromId}\u0000${finding.href}`
+    const existing = indexByKey.get(key)
+    if (existing === undefined) {
+      indexByKey.set(key, grouped.length)
+      grouped.push({finding, occurrences: 1})
+    } else {
+      grouped[existing].occurrences += 1
+    }
+  }
+
+  return grouped
 }
 
 /**
