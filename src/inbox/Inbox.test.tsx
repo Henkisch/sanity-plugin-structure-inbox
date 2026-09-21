@@ -78,6 +78,8 @@ vi.mock('../studio/inboxCountLayout', () => ({
   useSharedInboxStore: () => ({
     dismissals: {state: EMPTY_DISMISSALS, dismiss: vi.fn(), restore: vi.fn()},
     snoozes: {state: EMPTY_SNOOZES, snooze: vi.fn(), wake: vi.fn()},
+    sourceRetryKeys: {},
+    retrySource: vi.fn(),
   }),
 }))
 
@@ -193,6 +195,7 @@ describe('BoundedSection', () => {
 function renderFeeds(
   sources: InboxSource[],
   onReport: (name: string, report: SourceReport) => void,
+  resetKey?: unknown,
 ) {
   return render(
     <ThemeProvider theme={theme}>
@@ -201,6 +204,7 @@ function renderFeeds(
           key={source.name}
           now={Date.now()}
           onReport={onReport}
+          resetKey={resetKey}
           snoozes={snoozes}
           source={source}
         />
@@ -227,6 +231,59 @@ describe('BoundedSourceFeed', () => {
     expect(onReport).toHaveBeenCalledWith(
       'good',
       expect.objectContaining({open: [], cleared: [], snoozed: []}),
+    )
+  })
+
+  it('a source that throws once then recovers contributes rows again once resetKey changes', () => {
+    // The boundary logs the caught error via console.error; expected noise.
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    // Mutable, not a fresh source per render: this is exactly the "dropped
+    // listener, one 5xx" shape the plan is about — the same source keeps
+    // failing only until whatever caused it clears, then a remount of the
+    // very same `useItems` succeeds.
+    let shouldThrow = true
+    const flaky: InboxSource = {
+      name: 'flaky',
+      title: 'Flaky',
+      useItems: () => {
+        if (shouldThrow) throw new Error('flaky blew up')
+        return {items: [{id: 'f1', title: 'Recovered item'}]}
+      },
+    }
+
+    const onReport = vi.fn()
+    const {rerender} = renderFeeds([flaky], onReport, 0)
+
+    expect(onReport).toHaveBeenCalledWith(
+      'flaky',
+      expect.objectContaining({error: expect.any(Error)}),
+    )
+
+    onReport.mockClear()
+    shouldThrow = false
+
+    // The pane's own retry click bumps this shared counter (see
+    // `Inbox.tsx`'s `resetKey={sourceRetryKeys[source.name]}`) — simulated
+    // here by rerendering with a new value.
+    rerender(
+      <ThemeProvider theme={theme}>
+        <BoundedSourceFeed
+          key="flaky"
+          now={Date.now()}
+          onReport={onReport}
+          resetKey={1}
+          snoozes={snoozes}
+          source={flaky}
+        />
+      </ThemeProvider>,
+    )
+
+    expect(onReport).toHaveBeenCalledWith(
+      'flaky',
+      expect.objectContaining({
+        open: [expect.objectContaining({id: 'f1', title: 'Recovered item'})],
+      }),
     )
   })
 })

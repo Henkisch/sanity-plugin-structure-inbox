@@ -11,6 +11,30 @@ import {type ResolvedStructureInboxConfig} from '../types'
 interface SharedInboxStore {
   dismissals: Dismissals
   snoozes: Snoozes
+  /**
+   * Per-source reset counters, keyed by `source.name` — passed as
+   * `SectionErrorBoundary`'s `resetKey` prop both here (`OpenCountFeed`'s own
+   * boundary, below) and in `Inbox.tsx` (`BoundedSourceFeed`'s). Owned here,
+   * not in `Inbox.tsx`, because this provider outlives any particular mount
+   * of the pane — a source's entry survives the editor closing and reopening
+   * the Structure tool, so a retry the pane already spent doesn't come back
+   * for free just by remounting `Inbox.tsx`. A source with no entry yet has
+   * simply never been retried.
+   */
+  sourceRetryKeys: Record<string, number>
+  /**
+   * Bumps `sourceRetryKeys[sourceName]`, giving every `SectionErrorBoundary`
+   * watching that key (this provider's own `OpenCountFeed` boundary, and
+   * `Inbox.tsx`'s `BoundedSourceFeed` for the pane, when mounted) a chance to
+   * reset — bounded by each boundary's own independent `MAX_RESETS`, not by
+   * this counter. One user click (the pane's "Try again") therefore also
+   * gives the always-mounted navbar-count boundary a chance to recover the
+   * same source, instead of leaving the badge under-reporting after the
+   * editor already fixed it from the pane. This is the one deliberately
+   * *shared* trigger the plan allows for the count provider — no timer, no
+   * polling, only ever driven by an explicit click somewhere.
+   */
+  retrySource: (sourceName: string) => void
 }
 
 /**
@@ -132,7 +156,15 @@ export function createInboxCountLayout(config: ResolvedStructureInboxConfig) {
       [counts],
     )
 
-    const store = useMemo<SharedInboxStore>(() => ({dismissals, snoozes}), [dismissals, snoozes])
+    const [sourceRetryKeys, setSourceRetryKeys] = useState<Record<string, number>>({})
+    const retrySource = useCallback((sourceName: string) => {
+      setSourceRetryKeys((current) => ({...current, [sourceName]: (current[sourceName] ?? 0) + 1}))
+    }, [])
+
+    const store = useMemo<SharedInboxStore>(
+      () => ({dismissals, snoozes, sourceRetryKeys, retrySource}),
+      [dismissals, snoozes, sourceRetryKeys, retrySource],
+    )
 
     return (
       <SharedInboxStoreContext.Provider value={store}>
@@ -142,6 +174,7 @@ export function createInboxCountLayout(config: ResolvedStructureInboxConfig) {
               fallback={null}
               key={source.name}
               onCatch={() => handleCount(source.name, null)}
+              resetKey={sourceRetryKeys[source.name]}
             >
               <OpenCountFeed now={now} onCount={handleCount} snoozes={snoozes.state} source={source} />
             </SectionErrorBoundary>

@@ -159,6 +159,17 @@ interface MergedListProps {
    * @defaultValue true
    */
   scrollable?: boolean
+  /**
+   * Bumps that source's shared reset counter (`SharedInboxStore.retrySource`
+   * in `inboxCountLayout.tsx`) when the editor clicks "Try again" on one of
+   * `errors` below. `Inbox.tsx` passes this straight through from
+   * `useSharedInboxStore()` and also feeds the same counter into
+   * `BoundedSourceFeed`'s `resetKey` — one click remounts both this pane's
+   * feed for that source and, if it's mounted, the always-mounted count
+   * provider's own feed for it. Optional only for `MergedList.test.tsx`'s
+   * source-less renders; a real caller always passes one.
+   */
+  onRetrySource?: (sourceName: string) => void
 }
 
 /**
@@ -193,6 +204,7 @@ export function MergedList(props: MergedListProps) {
     scrollable = true,
     actions,
     results,
+    onRetrySource,
   } = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
@@ -1020,9 +1032,28 @@ export function MergedList(props: MergedListProps) {
     <Stack gap={3}>
       {errors.map((report) => (
         <Card key={report.source.name} padding={3} radius={2} tone="critical">
-          <Text size={1}>
-            {t(report.source.title)}: {report.error?.message ?? t('source.error.title')}
-          </Text>
+          <Flex align="center" gap={3} justify="space-between">
+            <Text size={1}>
+              {t(report.source.title)}: {report.error?.message ?? t('source.error.title')}
+            </Text>
+            {onRetrySource && (
+              // Ghost mode, same reasoning as `SectionCard`'s own retry
+              // button: recovering from an error is not the primary thing on
+              // this pane. `BoundedSourceFeed`'s boundary (in `Inbox.tsx`)
+              // has its own bounded budget (`SectionErrorBoundary.MAX_RESETS`)
+              // independent of this button staying visible — a spent budget
+              // just means the next click remounts nothing, not that this
+              // control disappears (unlike `SectionCard`'s, this one has no
+              // per-click signal of the boundary's own remaining budget,
+              // since the boundary lives one layer up in `Inbox.tsx`).
+              <Button
+                fontSize={1}
+                mode="ghost"
+                onClick={() => onRetrySource(report.source.name)}
+                text={t('source.error.retry')}
+              />
+            )}
+          </Flex>
         </Card>
       ))}
 

@@ -299,8 +299,8 @@ export function BoundedSection(props: BoundedSectionProps) {
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
   const renderFallback = useCallback(
-    (error: Error): ReactNode => (
-      <SectionCard error={error} title={t(source.title)}>
+    (error: Error, retry: (() => void) | undefined): ReactNode => (
+      <SectionCard error={error} onRetry={retry} title={t(source.title)}>
         {null}
       </SectionCard>
     ),
@@ -326,6 +326,15 @@ interface BoundedSourceFeedProps {
   snoozes: ReturnType<typeof useSnoozes>
   now: number
   onReport: (sourceName: string, report: SourceReport) => void
+  /**
+   * Forwarded straight to the internal `SectionErrorBoundary`'s `resetKey` —
+   * `Inbox.tsx` passes this source's counter from `useSharedInboxStore()`, so
+   * a "Try again" click on this source's error card in `MergedList` (which
+   * bumps that shared counter) remounts `SourceFeed` here. No fallback UI of
+   * its own to hang a retry click on (see this component's own doc comment),
+   * so a resettable `resetKey` is the only path in.
+   */
+  resetKey?: unknown
 }
 
 /**
@@ -340,7 +349,7 @@ interface BoundedSourceFeedProps {
  * this directly without a full Studio source context.
  */
 export function BoundedSourceFeed(props: BoundedSourceFeedProps) {
-  const {source, snoozes, now, onReport} = props
+  const {source, snoozes, now, onReport, resetKey} = props
 
   const handleCatch = useCallback(
     (error: Error) => {
@@ -350,7 +359,7 @@ export function BoundedSourceFeed(props: BoundedSourceFeedProps) {
   )
 
   return (
-    <SectionErrorBoundary fallback={null} onCatch={handleCatch}>
+    <SectionErrorBoundary fallback={null} onCatch={handleCatch} resetKey={resetKey}>
       <SourceFeed now={now} onReport={onReport} snoozes={snoozes} source={source} />
     </SectionErrorBoundary>
   )
@@ -367,7 +376,7 @@ export function Inbox({
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const client = useClient({apiVersion: API_VERSION})
   const schema = useSchema()
-  const {dismissals, snoozes} = useSharedInboxStore()
+  const {dismissals, snoozes, sourceRetryKeys, retrySource} = useSharedInboxStore()
   // Not through `useSharedInboxStore`, unlike dismissals/snoozes: nothing
   // outside this pane needs a cached assessment (no open-count-style
   // always-mounted consumer reads it), so a plain local instance is enough —
@@ -1783,6 +1792,7 @@ export function Inbox({
           key={source.name}
           now={now}
           onReport={handleReport}
+          resetKey={sourceRetryKeys[source.name]}
           snoozes={snoozes}
           source={source}
         />
@@ -1817,6 +1827,7 @@ export function Inbox({
                   getProjectDigest={getProjectDigest}
                   maxHeight={isStacked ? undefined : sidebarHeight}
                   onAskResultChange={setAskResult}
+                  onRetrySource={retrySource}
                   order={mainOrder}
                   reports={reports}
                   results={hasMainColumnResults ? mainColumnResults : undefined}
