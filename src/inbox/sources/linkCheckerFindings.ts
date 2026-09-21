@@ -4,9 +4,7 @@ import {useCallback, useMemo} from 'react'
 import {useObservable} from 'react-rx'
 import {Observable, of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
-// `useUserListWithPermissions` stays out of this named import — see
-// `optionalHook` in `capability.ts`.
-import {useClient, useCurrentUser, useSchema} from 'sanity'
+import {useClient, useSchema} from 'sanity'
 import {
   getFindingKey,
   isProblemFinding,
@@ -31,8 +29,7 @@ import {
   type InboxSource,
   type InboxSourceResult,
 } from '../types'
-import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
-import {useAssignableUsers} from './capability'
+import {targetIdFromItemId, useAssignmentCapability} from './assignmentCapability'
 import {SIMPLE_FIELD_PATH} from './simpleFieldPath'
 
 export interface LinkCheckerFindingsOptions {
@@ -482,13 +479,14 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
       const client = useClient({apiVersion: API_VERSION})
       const agentClient = useAgentClient()
       const schema = useSchema()
-      const currentUser = useCurrentUser()
-      const userId = currentUser?.id
       // `null` documentValue: not scoped to one finding, since any of them
       // could be assigned — every project member able to update documents is
       // a sensible assignee, same reasoning `unpublishedDrafts.ts` uses.
-      const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
-      const assignments = useAssignmentStore(client, ASSIGNMENT_TYPE)
+      // `item.id` is already this source's own finding key (`getFindingKey`)
+      // — see `assignmentCapability.ts`'s own doc comment on `targetIdFromItemId`.
+      const {assigneesById, byTarget, assign} = useAssignmentCapability(client, {
+        targetId: targetIdFromItemId,
+      })
 
       // Runs the actual scan (`runScan`, the same engine the standalone
       // plugin's own "Run scan" button and CLI call) and persists it
@@ -516,44 +514,15 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
         return `Found ${issueCount} issue${issueCount === 1 ? '' : 's'} (${parts.join(', ')}).`
       }, [client])
 
-      // Same shape and reasoning as `unpublishedDrafts.ts`'s own
-      // `assigneesById`: `assignable` has everyone's display name and photo
-      // except a reliable one for the current user, whose own profile fills
-      // that gap instead.
-      const assigneesById = useMemo(() => {
-        const byId = new Map<string, {id: string; label: string; imageUrl?: string}>()
-        for (const user of assignable ?? []) {
-          const isSelf = user.id === userId
-          byId.set(user.id, {
-            id: user.id,
-            label: user.displayName || user.email || user.id,
-            imageUrl: (isSelf && currentUser?.profileImage) || user.imageUrl,
-          })
-        }
-        return byId
-      }, [assignable, userId, currentUser])
-
       const items = useMemo(
         () =>
           result.items.map((item): InboxItem => {
-            const assignedTo = assignments.byTarget.get(item.id)
+            const assignedTo = byTarget.get(item.id)
             const assignee = assignedTo ? assigneesById.get(assignedTo) : undefined
             return assignee ? {...item, assignee} : item
           }),
-        [result.items, assignments.byTarget, assigneesById],
+        [result.items, byTarget, assigneesById],
       )
-
-      const assign = useMemo(() => {
-        if (!assignable) return undefined
-
-        return {
-          users: assignable
-            .filter((user) => user.granted)
-            .map((user) => ({id: user.id, label: user.displayName || user.email || user.id})),
-          toUser: (item: InboxItem, assignedTo: string) => assignments.assign(item.id, assignedTo),
-          unassign: (item: InboxItem) => assignments.unassign(item.id),
-        }
-      }, [assignable, assignments])
 
       // Keyed the same way `toItem` derives `InboxItem.id` (`getFindingKey`),
       // so `assess` below can go from a clicked item straight back to the
