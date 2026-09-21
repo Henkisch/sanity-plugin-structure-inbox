@@ -511,6 +511,17 @@ export function MergedList(props: MergedListProps) {
     (row) => !row.item.quickFixable && row.item.fixable && Boolean(reports[row.sourceName]?.proposeFix),
   ).length
 
+  // A single-row fix confirms itself here rather than on the row, because the
+  // row is usually gone by the time anyone reads it. No undo: this is a real
+  // write to a shared document, the same line `resolveOrClearRows` already
+  // draws between that and this pane's own local state.
+  const handleFixApplied = useCallback(
+    (_item: InboxItem, summary: string) => {
+      showUndoToast({title: summary})
+    },
+    [showUndoToast],
+  )
+
   const confirmQuickFix = useCallback(async () => {
     const targets = quickFixableTargets
     setBusy(true)
@@ -917,6 +928,7 @@ export function MergedList(props: MergedListProps) {
         menuActions={buildMenuActions(row, report)}
         onAssess={onAssess}
         onProposeFix={report?.proposeFix}
+        onFixApplied={handleFixApplied}
         onEdit={
           report?.update
             ? () => setEditingKey(row.key)
