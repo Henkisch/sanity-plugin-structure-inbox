@@ -80,6 +80,18 @@ fallback result, an error, an empty list — belongs at module scope or behind a
 `useMemo`, never built inline. Integrators' own sources are covered by
 `useStableItems`; the built-ins should not be relying on it.
 
+## A new `InboxSourceResult` field must be wired in three places
+
+`SourceFeed.tsx` is the one funnel every source's result passes through
+before `onReport`. A new capability has to be added to the destructure, to
+the `capabilities` ref (twice — initial value and refresh effect), and to its
+own `has*`/fingerprint entry in the report effect's dependency list. Miss any
+and the capability ships as a dead click: this happened four times
+(`proposeFix`, `assigneeReadOnly`, `openDetail`, `reopen`) before the
+`CapabilityKey` mapped type made the first two a `npm run typecheck` failure.
+The fingerprint entry is still by hand — if a capability appears but never
+updates, that is where to look.
+
 ## The `sanity` peer floor is `^6.10.0`, and it is load-bearing
 
 `@sanity/plugin-kit` requires `@sanity/ui` to be a **dependency**, not a peer
