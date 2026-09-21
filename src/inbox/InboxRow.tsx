@@ -1,5 +1,6 @@
 import {EllipsisVerticalIcon} from '@sanity/icons/EllipsisVertical'
 import {SparklesIcon} from '@sanity/icons/Sparkles'
+import {BoltIcon} from '@sanity/icons/Bolt'
 import {UserIcon} from '@sanity/icons/User'
 import {Avatar, Box, Button, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
 import {Menu, MenuButton, MenuDivider, MenuItem} from '@sanity/ui/menu'
@@ -69,12 +70,15 @@ interface InboxRowProps {
   /**
    * The source's `proposeFix`, if it has one and `item.fixable` says this
    * particular row is one of the eligible ones — see
-   * `InboxSourceResult.proposeFix`'s own doc comment. Adds "Fix with AI" to
+   * `InboxSourceResult.proposeFix`'s own doc comment. Adds a fix entry to
    * this same three-dot menu, alongside "Ask AI" — clicking it fetches a
    * proposal and renders it inline (same slot the assess answer uses),
    * with its own Apply/Dismiss rather than writing anything immediately.
+   *
+   * The entry reads "Quick fix" when `item.quickFixable` says the answer is
+   * free and instant, and "Fix with AI" otherwise.
    */
-  onProposeFix?: (item: InboxItem) => Promise<FixProposal | null>
+  onProposeFix?: (item: InboxItem, options?: {instantOnly?: boolean}) => Promise<FixProposal | null>
   /**
    * Opens this one item's edit dialog — only ever set for a row with no
    * `intent` to navigate to instead (a todo has no document), since a row
@@ -329,7 +333,10 @@ export function InboxRow(props: InboxRowProps) {
     proposeFixInFlightRef.current = true
     const requestId = ++proposeFixRequestRef.current
     setFix({status: 'loading'})
-    onProposeFix(item)
+    // A row that advertised a free answer is held to it: asking for anything
+    // costlier here would quietly bill for a fix the menu just promised was
+    // instant.
+    onProposeFix(item, {instantOnly: item.quickFixable})
       .then((proposal) => {
         proposeFixInFlightRef.current = false
         return requestId === proposeFixRequestRef.current
@@ -447,16 +454,19 @@ export function InboxRow(props: InboxRowProps) {
     </Flex>
   )
 
-  // Same trigger/idle rules as `assessRow` above, and the same sparkle
-  // marker — this is still AI-sourced, just the "action" half rather than
-  // the "insight" half. The one real difference: a `'proposed'` (or
-  // `'applying'`) result carries its own Apply/Dismiss right there on the
-  // same line, since unlike `assess` this can actually change the document
-  // — nothing here writes anything until Apply is clicked.
+  // Same trigger/idle rules as `assessRow` above. The marker is the sparkle
+  // only where a model was actually involved — a quick fix gets the bolt,
+  // because the sparkle is this pane's standing signal for "a model produced
+  // this, read it before you trust it", and spending it on a deterministic
+  // edit devalues it everywhere else. The one real difference from `assess`:
+  // a `'proposed'` (or `'applying'`) result carries its own Apply/Dismiss
+  // right there on the same line, since unlike `assess` this can actually
+  // change the document — nothing here writes anything until Apply is
+  // clicked.
   const fixRow = onProposeFix && fix.status !== 'idle' && (
     <Flex align="center" gap={2} onClick={stopPropagation} wrap="wrap">
       <Text muted size={0}>
-        <SparklesIcon />
+        {item.quickFixable ? <BoltIcon /> : <SparklesIcon />}
       </Text>
       {fix.status === 'loading' && (
         <Text muted size={0}>
@@ -649,7 +659,17 @@ export function InboxRow(props: InboxRowProps) {
       ? [{key: 'assess', label: t('assess.ask'), onClick: handleAssess}]
       : []),
     ...(onProposeFix && !compact && item.fixable
-      ? [{key: 'fix', label: t('fix.ask'), onClick: handleProposeFix}]
+      ? [
+          {
+            key: 'fix',
+            // Only the rows that really involve a model say so. A quick fix
+            // is a deterministic edit the plugin already knows the answer
+            // to, and calling that "Fix with AI" was both untrue and a
+            // reason to hesitate over something free and instant.
+            label: item.quickFixable ? t('fix.quick') : t('fix.ask'),
+            onClick: handleProposeFix,
+          },
+        ]
       : []),
     ...(menuActions ?? []),
   ]

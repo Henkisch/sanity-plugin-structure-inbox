@@ -1,3 +1,4 @@
+import {BoltIcon} from '@sanity/icons/Bolt'
 import {CheckmarkIcon} from '@sanity/icons/Checkmark'
 import {ChevronDownIcon} from '@sanity/icons/ChevronDown'
 import {ClockIcon} from '@sanity/icons/Clock'
@@ -118,6 +119,17 @@ interface SelectionActionsProps {
    * removed.
    */
   onDelete?: () => void
+  /**
+   * Offers "Quick fix" — applies every selected row's own deterministic fix
+   * in one go: filling a portrait's missing alt text from the document's
+   * title, stripping a confirmed-dead URL.
+   *
+   * Only ever the free ones. A model-backed proposal bills per row, so a
+   * selection of twenty would be twenty charges from a single click, with
+   * nothing on screen to warn anyone; those rows stay per-row, deliberately.
+   * Absent when nothing selected has a free answer waiting.
+   */
+  onQuickFix?: () => void
 }
 
 /**
@@ -252,6 +264,7 @@ export function SelectionActions(props: SelectionActionsProps) {
     transferableUsers,
     onTransfer,
     onDelete,
+    onQuickFix,
   } = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
@@ -293,6 +306,22 @@ export function SelectionActions(props: SelectionActionsProps) {
 
       {onSnooze && (
         <IconAction disabled={busy} icon={ClockIcon} label={t('action.snooze')} onClick={onSnooze} />
+      )}
+
+      {/* Named rather than an icon, and no confirm step: the action is free,
+          additive, and only ever writes fields that were empty a moment ago,
+          so a dialog here would be ceremony around the one bulk action that
+          cannot lose anything. */}
+      {onQuickFix && (
+        <Button
+          disabled={busy}
+          fontSize={1}
+          icon={BoltIcon}
+          mode="bleed"
+          onClick={onQuickFix}
+          padding={2}
+          text={t('fix.bulk')}
+        />
       )}
 
       {/* Idle: a plain trigger, not an already-resolved answer — clicking it

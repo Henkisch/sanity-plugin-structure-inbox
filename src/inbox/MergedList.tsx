@@ -26,6 +26,7 @@ import {
 import {type SourceReport} from './SourceFeed'
 import {type InboxItem, type InboxView} from './types'
 import {EXIT_ANIMATION_MS, useUndoToast} from './useUndoToast'
+import {mapWithConcurrency} from './concurrency'
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -71,6 +72,9 @@ const HeaderGrid = styled.div<{$hasAsk: boolean}>`
 `
 
 /** The one snooze duration "Snooze" actually applies — see `snoozeRows`'s own doc comment for why there's no picker. */
+/** Patches in flight at once during a bulk quick fix — same reasoning as the project survey's own bound: a two-hundred-row selection is exactly where an unbounded burst stops being theoretical. */
+const QUICK_FIX_CONCURRENCY = 5
+
 const SNOOZE_DEFAULT_PRESET: SnoozePreset = 'tomorrow'
 
 interface MergedListProps {
@@ -491,6 +495,58 @@ export function MergedList(props: MergedListProps) {
       setBusy(false)
     }
   }, [deletableTargets, reports])
+
+  // Only the rows that promised a free, instant answer — `quickFixable`, not
+  // merely `fixable`. A model-backed proposal bills per row, so a selection
+  // bar that took those too would turn one click into one charge per
+  // selected row, which is exactly the thing an editor can't see coming.
+  const quickFixableTargets = selected.filter(
+    (row) => row.item.quickFixable && Boolean(reports[row.sourceName]?.proposeFix),
+  )
+
+  // Rows that can be fixed, but not for free. Counted rather than acted on:
+  // they stay on screen, and the toast says so, because silently leaving
+  // them out reads as the action having half-failed.
+  const needsReviewCount = selected.filter(
+    (row) => !row.item.quickFixable && row.item.fixable && Boolean(reports[row.sourceName]?.proposeFix),
+  ).length
+
+  const confirmQuickFix = useCallback(async () => {
+    const targets = quickFixableTargets
+    setBusy(true)
+    try {
+      // Each item settles inside its own callback rather than letting one
+      // rejection abort the batch — nineteen good fixes should not be lost to
+      // the twentieth document being locked.
+      const results = await mapWithConcurrency(targets, QUICK_FIX_CONCURRENCY, async (row) => {
+        try {
+          const proposal = await reports[row.sourceName]?.proposeFix?.(row.item, {instantOnly: true})
+          // No proposal is a success, not a failure: the likeliest reason is
+          // that someone filled this in by hand between the query and the
+          // click, which is the outcome this action wanted anyway.
+          if (!proposal) return false
+          await proposal.apply()
+          return true
+        } catch (error) {
+          console.error('[sanity-plugin-structure-inbox] could not fix item', error)
+          return false
+        }
+      })
+
+      const fixed = results.filter(Boolean).length
+
+      setSelectedKeys([])
+
+      // No undo. These are real writes to documents the whole team shares,
+      // not this pane's own local state — the same line `resolveOrClearRows`
+      // already draws between the two.
+      const parts = [t('fix.bulkDone', {count: fixed})]
+      if (needsReviewCount > 0) parts.push(t('fix.bulkSkipped', {count: needsReviewCount}))
+      showUndoToast({title: parts.join(' · ')})
+    } finally {
+      setBusy(false)
+    }
+  }, [needsReviewCount, quickFixableTargets, reports, showUndoToast, t])
 
   // Only offered when every selected row shares one source, and that source
   // actually offers `assign`: assigning across sources with different
@@ -1151,6 +1207,9 @@ export function MergedList(props: MergedListProps) {
                   onCancel={clearSelection}
                   onConfirm={confirmSelection}
                   onDelete={deletableTargets.length > 0 ? confirmDelete : undefined}
+                  onQuickFix={
+                    view === 'open' && quickFixableTargets.length > 0 ? confirmQuickFix : undefined
+                  }
                   onSnooze={view === 'open' ? confirmSnooze : undefined}
                   onSnoozeUntil={view === 'open' ? confirmSnoozeUntil : undefined}
                   onSuggestSnooze={canSuggestSnooze ? handleSuggestSnooze : undefined}

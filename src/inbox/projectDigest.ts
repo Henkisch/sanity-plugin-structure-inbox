@@ -2,6 +2,7 @@ import {isDocumentSchemaType} from '@sanity/types'
 import {type SanityClient} from 'sanity'
 
 import {isHiddenType} from './AddMenu'
+import {mapWithConcurrency} from './concurrency'
 
 /** Per-type document count + counts, plus a small text sample cap — mirrors the `[0...20]` candidate cap `proposeFix` already uses elsewhere in this codebase. */
 const SAMPLES_PER_TYPE = 5
@@ -118,26 +119,6 @@ export function strideSample<T>(items: readonly T[], sampleSize: number): T[] {
 
 /** Parallel fetches in flight at once — enough to cut wall-clock time meaningfully on a project with many real content types, low enough to stay well clear of a burst against Sanity's own API rate limits. */
 const SURVEY_CONCURRENCY = 5
-
-async function mapWithConcurrency<T, R>(
-  items: readonly T[],
-  concurrency: number,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = Array.from({length: items.length})
-  let nextIndex = 0
-
-  async function worker(): Promise<void> {
-    while (nextIndex < items.length) {
-      const index = nextIndex++
-      // eslint-disable-next-line no-await-in-loop -- this loop IS the bounded-concurrency mechanism: each of the `concurrency` workers below claims and awaits one item at a time so at most `concurrency` requests are ever in flight together, deliberately not `Promise.all`-ing every item at once (see `SURVEY_CONCURRENCY`'s own doc comment for why an unbounded burst is the thing being avoided).
-      results[index] = await fn(items[index])
-    }
-  }
-
-  await Promise.all(Array.from({length: Math.min(concurrency, items.length)}, worker))
-  return results
-}
 
 /**
  * One cheap `count()` plus a small, stride-sampled text sample per real
