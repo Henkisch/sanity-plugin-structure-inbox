@@ -1,6 +1,18 @@
-import {describe, expect, it} from 'vitest'
+import {type SanityClient} from '@sanity/client'
+import {describe, expect, it, vi} from 'vitest'
 
-import {parseJsonResponse} from './promptJson'
+import {parseJsonResponse, promptJson} from './promptJson'
+
+/**
+ * A stub client whose `agent.action.prompt` is a plain `vi.fn()` — enough to
+ * exercise `promptJson` itself, which every other test in this file (and
+ * both integration suites that `vi.mock('../ai/promptJson')`) leaves
+ * unexecuted. See plan 073: the parser was tested because it's pure and
+ * easy; the function that actually spends the paid call was not.
+ */
+function stubClient(prompt: (args: unknown) => Promise<string>): SanityClient {
+  return {agent: {action: {prompt}}} as unknown as SanityClient
+}
 
 describe('parseJsonResponse', () => {
   it('parses a bare JSON object', () => {
@@ -69,5 +81,48 @@ describe('parseJsonResponse', () => {
   it('still parses an array answer when it is not the first candidate', () => {
     const raw = 'Guess: {oops} then the list is [1, 2, 3]'
     expect(parseJsonResponse<number[]>(raw)).toEqual([1, 2, 3])
+  })
+})
+
+describe('promptJson', () => {
+  it('passes the instruction, instructionParams, and spread extra through to agent.action.prompt verbatim', async () => {
+    const prompt = vi.fn().mockResolvedValue('{"until": "2026-06-01T00:00:00.000Z"}')
+    const client = stubClient(prompt)
+
+    await promptJson(
+      client,
+      'Suggest a snooze date',
+      {document: {type: 'document', documentId: 'doc-1'}},
+      {localeSettings: {locale: 'sv-SE', timeZone: 'Europe/Stockholm'}},
+    )
+
+    // A dropped `localeSettings` is what makes every snooze suggestion
+    // resolve in UTC — see `unpublishedDrafts.ts:327` and plan 073's own
+    // "Current state" notes.
+    expect(prompt).toHaveBeenCalledWith({
+      instruction: 'Suggest a snooze date',
+      instructionParams: {document: {type: 'document', documentId: 'doc-1'}},
+      localeSettings: {locale: 'sv-SE', timeZone: 'Europe/Stockholm'},
+    })
+  })
+
+  it('resolves null for a prose (non-JSON) answer, rather than throwing', async () => {
+    const prompt = vi.fn().mockResolvedValue('I could not find anything to report here.')
+    const client = stubClient(prompt)
+
+    await expect(promptJson(client, 'Assess this document')).resolves.toBeNull()
+  })
+
+  it('rejects when agent.action.prompt itself rejects — a transport failure is not swallowed to null', async () => {
+    const prompt = vi.fn().mockRejectedValue(new Error('Agent Actions request failed'))
+    const client = stubClient(prompt)
+
+    // This is the documented contract (`promptJson.ts:83-85` at authoring
+    // time): a malformed *answer* becomes `null`, a failed *request* still
+    // rejects, so the caller — and ultimately the editor — sees an error
+    // rather than silence.
+    await expect(promptJson(client, 'Assess this document')).rejects.toThrow(
+      'Agent Actions request failed',
+    )
   })
 })

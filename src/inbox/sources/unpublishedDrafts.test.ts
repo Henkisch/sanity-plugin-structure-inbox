@@ -50,15 +50,23 @@ function stubClient(allRows: DraftRow[], userId: string, authoredIds: string[]) 
     of(allRows.slice(0, params.limit)),
   )
   const request = vi.fn().mockResolvedValue(authoredLines(authoredIds, userId))
+  const prompt = vi.fn()
 
   const client = {
     config: () => ({dataset: 'production'}),
     observable: {fetch: observableFetch},
     listen: vi.fn(() => new Subject()),
     request,
+    fetch: vi.fn().mockResolvedValue([]),
+    // `useAgentClient` needs a real `.agent.action.prompt` function and a
+    // `withConfig` to scope onto — present here (unlike the rest of this
+    // stub) purely so `ai` unset can resolve to a defined `assess`/
+    // `suggestSnooze`, the contrast the `ai: false` test below depends on.
+    agent: {action: {prompt}},
+    withConfig: () => client,
   } as unknown as SanityClient
 
-  return {client, observableFetch, request}
+  return {client, observableFetch, request, prompt}
 }
 
 // A single stable reference, not a fresh object per render: `useDraftFetch`'s
@@ -77,8 +85,18 @@ vi.mock('sanity', async (importOriginal) => {
     useClient: useClientMock,
     useSchema: () => stableSchema,
     useCurrentUser: vi.fn(() => ({id: 'user-1'})),
+    useCurrentLocale: vi.fn(() => ({id: 'en-US'})),
   }
 })
+
+// Same reasoning as `assetIssues.proposeFix.test.tsx`'s own mock: assignment
+// reaches Sanity's own `useUserListWithPermissions`, which needs a real
+// Studio `source` context this test has no business standing up — none of
+// these assertions are about assignment.
+vi.mock('./capability', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./capability')>()),
+  useAssignableUsers: () => ({data: undefined}),
+}))
 
 afterEach(() => {
   // Same reasoning as `useDismissals.test.tsx`: `globals: false` means
@@ -158,5 +176,44 @@ describe('typeDisplayName', () => {
   it('falls back to the raw type name when the schema has none, never the document id', () => {
     const schema = {get: () => undefined}
     expect(typeDisplayName(schema, 'post')).toBe('post')
+  })
+})
+
+// The documented `ai: false` opt-out (`unpublishedDrafts.ts`'s own doc
+// comment on the `ai` option: "every press spends an Agent Actions request,
+// and a Studio should be able to turn that off") is implemented entirely by
+// passing the flag through to `useAgentClient({enabled: ai})`. Nothing
+// before plan 073 actually constructed `unpublishedDrafts({ai: false})` and
+// asserted the paid extras come back `undefined` end to end.
+describe('unpublishedDrafts — the `ai` opt-out', () => {
+  afterEach(() => {
+    cleanup()
+    useClientMock.mockReset()
+  })
+
+  it('omits assess and suggestSnooze entirely when ai: false', async () => {
+    const allRows = makeRows(1, new Set())
+    const {client} = stubClient(allRows, 'user-1', [])
+    useClientMock.mockReturnValue(client)
+
+    const source = unpublishedDrafts({ai: false})
+    const {result} = renderHook(() => source.useItems())
+
+    await waitFor(() => expect(result.current.items.length).toBeGreaterThan(0))
+    expect(result.current.assess).toBeUndefined()
+    expect(result.current.suggestSnooze).toBeUndefined()
+  })
+
+  it('offers assess and suggestSnooze when ai is left unset', async () => {
+    const allRows = makeRows(1, new Set())
+    const {client} = stubClient(allRows, 'user-1', [])
+    useClientMock.mockReturnValue(client)
+
+    const source = unpublishedDrafts({})
+    const {result} = renderHook(() => source.useItems())
+
+    await waitFor(() => expect(result.current.items.length).toBeGreaterThan(0))
+    expect(result.current.assess).toBeDefined()
+    expect(result.current.suggestSnooze).toBeDefined()
   })
 })
