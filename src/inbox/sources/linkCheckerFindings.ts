@@ -168,7 +168,22 @@ function toItem(finding: ScanFinding, fallbackChangedAt: string, schema: ReturnT
     id: getFindingKey(finding),
     timestamp: changedAt,
     changedAt,
-    intent: {type: 'edit' as const, params: {id: finding.fromId, type: finding.fromType}},
+    intent: {
+      type: 'edit' as const,
+      params: {
+        id: finding.fromId,
+        type: finding.fromType,
+        // The scanner already worked out exactly where this is, and records
+        // it two ways: `fieldPath` for display (`richText[2].markDefs[0]…`)
+        // and `focusPath` keyed by `_key` for the Studio to focus
+        // (`richText[_key=="a1b2"].markDefs[_key=="c3d4"]`). Only the second
+        // survives an array being reordered between the scan and the click,
+        // which is the whole reason it exists — so it, and never `fieldPath`,
+        // is what goes in the intent. Older cached reports predate it, hence
+        // the conditional: no path is a document-level link, same as before.
+        ...(finding.focusPath ? {path: finding.focusPath} : {}),
+      },
+    },
   }
 
   if (finding.kind === 'reference') {
