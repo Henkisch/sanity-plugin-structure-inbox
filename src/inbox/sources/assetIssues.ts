@@ -558,7 +558,19 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
                 tone: 'caution',
                 timestamp: doc._updatedAt,
                 changedAt: doc._updatedAt,
-                intent: {type: 'edit', params: {id: doc._id, type: field.documentType}},
+                // The alt field's own path, which is the same string
+                // `proposeFix` patches — so "open this" and "fix this" can
+                // never disagree about which field the row is about. Both
+                // segments are `SIMPLE_FIELD_PATH`-guarded and top-level, so
+                // there is no keyed array segment to get wrong here.
+                intent: {
+                  type: 'edit',
+                  params: {
+                    id: doc._id,
+                    type: field.documentType,
+                    path: `${field.fieldName}.${altFieldName}`,
+                  },
+                },
                 // Only ever `true` where there is a real answer waiting: a
                 // deterministic one this plugin can write for free, or an
                 // image an integrator's own model could be asked about.
@@ -584,7 +596,14 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
                 tone: 'caution',
                 timestamp: doc._updatedAt,
                 changedAt: doc._updatedAt,
-                intent: {type: 'edit', params: {id: doc._id, type: field.documentType}},
+                intent: {
+                  type: 'edit',
+                  params: {
+                    id: doc._id,
+                    type: field.documentType,
+                    path: `${field.fieldName}.${altFieldName}`,
+                  },
+                },
               }),
             )
           }
