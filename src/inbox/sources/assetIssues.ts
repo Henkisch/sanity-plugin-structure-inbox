@@ -1,12 +1,13 @@
 import {ImageIcon} from '@sanity/icons/Image'
 import {isDocumentSchemaType, isImageSchemaType} from '@sanity/types'
-import {useCallback, useMemo} from 'react'
+import {useCallback, useMemo, useRef} from 'react'
 import {useObservable} from 'react-rx'
 import {defer, from, of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
 // `useUserListWithPermissions` stays out of this named import — see
 // `optionalHook` in `capability.ts`.
-import {useClient, useCurrentUser, useSchema} from 'sanity'
+import {useClient, useCurrentUser, useSchema, useWorkspace} from 'sanity'
+import {useRouter} from 'sanity/router'
 
 import {API_VERSION} from '../../constants'
 import {isHiddenType} from '../AddMenu'
@@ -17,7 +18,7 @@ import {
   type InboxSourceResult,
 } from '../types'
 import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
-import {useAssignableUsers} from './capability'
+import {optionalHook, useAssignableUsers, useSafely} from './capability'
 import {liveQuery$} from './liveQuery'
 
 /** Real image/file asset documents this project's own dataset holds. */
@@ -213,13 +214,77 @@ export interface AltContext {
   title?: string
 }
 
+/**
+ * Size ceilings per kind of media, because these are not comparable numbers.
+ *
+ * Sanity's dataset has exactly two asset document types —
+ * `sanity.imageAsset` and `sanity.fileAsset` — and `fileAsset` is *everything
+ * else*: PDFs, audio, video, archives, fonts. (`sanity.videoAsset` exists but
+ * belongs to Sanity's Media Library, a separate resource this source cannot
+ * see.) So the kind has to come from `mimeType`, not from the document type.
+ */
+export interface MaxAssetSizes {
+  /** `sanity.imageAsset`. Defaults to 5 MiB — past that a web image has almost certainly skipped a resize. */
+  image?: number
+  /** `video/*`. Defaults to 200 MiB: video is inherently large, and flagging it at image thresholds is just noise. */
+  video?: number
+  /** `audio/*`. Defaults to 30 MiB — roughly a half-hour episode at a sane bitrate. */
+  audio?: number
+  /** `application/pdf`. Defaults to 15 MiB; a print-ready PDF is legitimately heavy. */
+  pdf?: number
+  /** Any other file asset — archives, documents, fonts. Defaults to 25 MiB. */
+  other?: number
+}
+
+const DEFAULT_MAX_SIZES: Required<MaxAssetSizes> = {
+  image: 5 * 1024 * 1024,
+  video: 200 * 1024 * 1024,
+  audio: 30 * 1024 * 1024,
+  pdf: 15 * 1024 * 1024,
+  other: 25 * 1024 * 1024,
+}
+
+/** The asset an unreferenced row is about, as handed to `openAsset`. */
+export interface AssetTarget {
+  id: string
+  type: string
+  url?: string
+  filename?: string
+  size: number
+}
+
 export interface AssetIssuesOptions {
   /** Cap on rows per check (oversized, unused, missing alt text — each capped independently). Defaults to 20. */
   limit?: number
   /** Row category label. Defaults to a translated "Asset issues"; a custom value is shown exactly as given. */
   title?: string
-  /** An asset over this size counts as oversized. Defaults to 5 MiB. */
-  maxSizeBytes?: number
+  /**
+   * What counts as oversized, per kind of media.
+   *
+   * One ceiling for everything is the wrong shape and was the original
+   * mistake here: 4 MB is an alarming JPEG, an unremarkable PDF, a short
+   * podcast episode and a tiny video. A single number made the check either
+   * noisy for documents or blind to images.
+   *
+   * Pass an object to set them separately, or a plain number to apply one
+   * ceiling to every kind (the old behaviour, kept working on purpose).
+   * Anything you leave out keeps its default.
+   */
+  maxSizeBytes?: number | MaxAssetSizes
+  /**
+   * Where an asset row goes when no document uses the asset — an unused
+   * asset, or an oversized orphan.
+   *
+   * There is nothing to open by default: `sanity.imageAsset` is excluded
+   * from Structure Tool's own document-type handling, and a media browser is
+   * a plugin, not a given. Left unset, the row falls back to a media tool
+   * registered in this workspace if there is one, and to opening the file in
+   * a new tab if there isn't.
+   *
+   * Set this to route those rows yourself — into Sanity's own Media Library,
+   * or into whichever asset browser your Studio actually has.
+   */
+  openAsset?: (asset: AssetTarget) => void
   /** The sub-field name on an image field that holds its alt text. Defaults to `'alt'`. */
   altFieldName?: string
   /**
@@ -302,12 +367,67 @@ export function suggestAltText(
 
 interface AssetRow {
   _id: string
+  _type: string
   originalFilename?: string
   size: number
+  /** The file itself — the last rung of the ladder `openDetail` walks down. */
+  url?: string
+  /** How many documents use this asset. Subtitle context only; it is not where the row navigates. */
+  useCount?: number
+  /** The only thing distinguishing a PDF from an MP3 from a zip: all three are `sanity.fileAsset`. */
+  mimeType?: string
 }
 
-const OVERSIZED_QUERY = `*[_type in $assetTypes && size > $maxSizeBytes] | order(size desc)[0...$limit]{_id, originalFilename, size}`
-const UNUSED_QUERY = `*[_type in $assetTypes && count(*[references(^._id)]) == 0] | order(size desc)[0...$limit]{_id, originalFilename, size}`
+/** Normalizes either option shape into one ceiling per kind. */
+export function resolveMaxSizes(option: number | MaxAssetSizes | undefined): Required<MaxAssetSizes> {
+  if (typeof option === 'number') {
+    return {image: option, video: option, audio: option, pdf: option, other: option}
+  }
+  return {...DEFAULT_MAX_SIZES, ...option}
+}
+
+/** Which ceiling applies to an asset — the same split the query does, for labelling a row. */
+export function assetKind(
+  type: string,
+  mimeType: string | undefined,
+): keyof Required<MaxAssetSizes> {
+  if (type === 'sanity.imageAsset') return 'image'
+  if (mimeType?.startsWith('video/')) return 'video'
+  if (mimeType?.startsWith('audio/')) return 'audio'
+  if (mimeType === 'application/pdf') return 'pdf'
+  return 'other'
+}
+
+/** Row category per kind, so a row says which ceiling it tripped rather than a flat "Oversized asset". */
+const OVERSIZED_CATEGORY: Record<keyof Required<MaxAssetSizes>, string> = {
+  image: 'Oversized image',
+  video: 'Oversized video',
+  audio: 'Oversized audio',
+  pdf: 'Oversized PDF',
+  other: 'Oversized file',
+}
+
+// One filter per kind rather than one `size > $max`, because a ceiling that
+// suits a JPEG does not suit a print PDF or a podcast episode. The kind comes
+// from `mimeType` for file assets: the dataset has only `sanity.imageAsset`
+// and `sanity.fileAsset`, and the latter covers PDFs, audio, video, archives
+// and everything else alike.
+//
+// `count(*[references()])` is the exact shape this file's own
+// `UNUSED_ASSET_SCAN_LIMIT` exists to keep off large libraries. It is
+// affordable *here* only because the projection runs after `[0...$limit]`,
+// so it costs at most `limit` (20) reference lookups rather than one per
+// asset in the dataset. Do not lift this projection onto an unsliced query.
+const OVERSIZED_QUERY = `*[_type in $assetTypes && (
+  (_type == "sanity.imageAsset" && size > $maxImage) ||
+  (_type == "sanity.fileAsset" && mimeType match "video/*" && size > $maxVideo) ||
+  (_type == "sanity.fileAsset" && mimeType match "audio/*" && size > $maxAudio) ||
+  (_type == "sanity.fileAsset" && mimeType == "application/pdf" && size > $maxPdf) ||
+  (_type == "sanity.fileAsset" && !(mimeType match "video/*") && !(mimeType match "audio/*") && mimeType != "application/pdf" && size > $maxOther)
+)] | order(size desc)[0...$limit]{_id, _type, originalFilename, size, url, mimeType, "useCount": count(*[references(^._id)])}`
+// No `useCount` here: these rows are the ones nothing references, so asking
+// would be paying a second time for an answer the filter already gave.
+const UNUSED_QUERY = `*[_type in $assetTypes && count(*[references(^._id)]) == 0] | order(size desc)[0...$limit]{_id, _type, originalFilename, size, url, mimeType}`
 const ASSET_COUNT_QUERY = `count(*[_type in $assetTypes])`
 
 interface MissingAltRow {
@@ -352,6 +472,40 @@ interface AltTarget extends AltContext {
   suggestion: string | null
 }
 
+function toAssetTarget(asset: AssetRow): AssetTarget {
+  return {
+    id: asset._id,
+    type: asset._type,
+    url: asset.url,
+    filename: asset.originalFilename,
+    size: asset.size,
+  }
+}
+
+/**
+ * The row says where the click lands before it is clicked — "used in 3
+ * documents" and "not used anywhere" go to visibly different places.
+ */
+export function describeUsage(useCount: number | undefined): string {
+  if (!useCount) return 'not used anywhere'
+  return useCount === 1 ? 'used in 1 document' : `used in ${useCount} documents`
+}
+
+/**
+ * Tool names known to browse dataset assets. Detection, not a dependency:
+ * `sanity-plugin-media` and friends are plugins a Studio may or may not
+ * have, and this source must work either way.
+ */
+const MEDIA_TOOL_NAMES = new Set(['media', 'media-library'])
+
+/** Stable empty list — a fresh array per render would re-run every memo below it. */
+const NO_TOOLS: {name: string}[] = []
+
+// `useTools` is `@hidden`/`@beta` in Sanity's own typings, so it goes through
+// `optionalHook` like every other unstable API this plugin touches — a named
+// import would take the whole barrel down the day it is renamed.
+const useTools = optionalHook<() => {name: string}[]>('useTools', () => NO_TOOLS)
+
 interface AssetIssuesFetch {
   oversized: AssetRow[]
   unused: AssetRow[]
@@ -377,24 +531,52 @@ interface AssetIssuesFetch {
  * is what the integrator's own `describeImage` is for; this source ships no
  * model of its own.
  *
- * Oversized/unused rows have no `intent`: `sanity.imageAsset`/
- * `sanity.fileAsset` are real document types but are deliberately excluded
- * from Structure Tool's own default document-type handling (confirmed by
- * reading that package's own source — see this plan's own Step 1 findings),
- * so there is no safe "open" target for one outside the Media browser.
- * Missing- and poor-alt-text rows are on a real, ordinary document, so
- * those do get the normal `'edit'` intent.
+ * Asset rows report unconditionally and navigate conditionally, which is
+ * worth keeping written down because the constraint behind it is not obvious:
+ *
+ * - `sanity.imageAsset`/`sanity.fileAsset` are real document types that
+ *   Structure Tool deliberately excludes from its own default document-type
+ *   handling, so **there is no way to open an asset document itself** — do
+ *   not add one.
+ * - Sanity's own "Open in Source" cannot help either: the dataset asset
+ *   sources (`createDatasetImageAssetSource`/`…FileAssetSource`) ship no
+ *   `openInSource`, so it declines every dataset asset. Only the Media
+ *   Library source implements it, for assets this source cannot see.
+ * - The one native asset manager — list, Show usage, Delete — is the
+ *   `DatasetAssetSource` browse dialog, rendered by the `@internal`
+ *   `AssetSourceDialog`, and only ever from inside an image/file *input*.
+ * - Assets are immutable anyway: the `_id` embeds a hash of the bytes, so
+ *   "replace this file" exists nowhere. `sanity-plugin-media`'s Replace is a
+ *   reference migration across every referencing document, images only.
+ *
+ * So these rows do not pretend to fix anything. They state what the file is,
+ * how big it is, which ceiling it tripped and how many documents use it —
+ * always — and clicking one takes the first destination that exists in this
+ * Studio (`openDetail`): the integrator's own `openAsset`, then a media tool
+ * actually registered in this workspace (a media browser is a plugin, not a
+ * given), then the file itself in a new tab.
+ *
+ * An earlier version sent these rows into the document using the asset, with
+ * the image field focused. It was removed on maintainer feedback — landing on
+ * a field is not "going to the asset" — and could not have served an unused
+ * asset at all, which has no such document. See `plans/060`.
+ *
+ * Missing- and poor-alt-text rows are different in kind: those are on a real,
+ * ordinary document, and keep the `'edit'` intent they have always had.
  */
 export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
   const {
     limit = 20,
     title = 'source.assetIssues.defaultTitle',
-    maxSizeBytes = 5 * 1024 * 1024,
+    maxSizeBytes,
+    openAsset,
     altFieldName = 'alt',
     altFromTitle,
     suggestAlt,
     describeImage,
   } = options
+
+  const maxSizes = resolveMaxSizes(maxSizeBytes)
 
   if (!SIMPLE_FIELD_PATH.test(altFieldName)) {
     throw new Error(
@@ -437,8 +619,48 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
 
       const altEligibleFields = useMemo(() => findAltEligibleImageFields(schema, altFieldName), [schema])
 
+      // Both of these throw rather than return a fallback when their context
+      // isn't mounted (`Could not find \`source\` context`, `Router: missing
+      // context value`), and both throw from a plain `if (!ctx) throw` after
+      // their single `useContext` has already returned — the exact shape
+      // `useSafely`'s own doc comment says is safe to wrap. A source rendered
+      // outside a Studio router loses the media-tool rung of the ladder and
+      // keeps every other one.
+      const tools = useSafely(useTools, NO_TOOLS)
+      const router = useSafely(useRouter, null)
+      const basePath = useSafely(useWorkspace, undefined)?.basePath ?? ''
+
+      // `navigateUrl` with an absolute path, deliberately not
+      // `navigate({tool})`. Inside a structure pane `useRouter()` is the
+      // structure tool's own *scoped* router, so a tool-level state change
+      // means nothing there: verified live — the call was made, the click
+      // consumed, and the URL never changed. An absolute path escapes the
+      // scope, and it is the same path Sanity's own tool links use
+      // (`<basePath>/<tool name>`).
+      //
+      // Held in a ref, not a dependency: the router context value is rebuilt
+      // whenever router state changes — including on navigations this very
+      // source triggers — and `openDetail` below is part of the result this
+      // source reports upward, where a changing identity is a re-render
+      // (AGENTS.md, three times over).
+      const navigateUrlRef = useRef(router?.navigateUrl)
+      navigateUrlRef.current = router?.navigateUrl
+
+      const mediaToolName = useMemo(
+        () => tools.find((tool) => MEDIA_TOOL_NAMES.has(tool.name))?.name,
+        [tools],
+      )
+
       const fetch$ = useMemo(() => {
-        const params = {assetTypes: ASSET_TYPES, maxSizeBytes, limit}
+        const params = {
+          assetTypes: ASSET_TYPES,
+          limit,
+          maxImage: maxSizes.image,
+          maxVideo: maxSizes.video,
+          maxAudio: maxSizes.audio,
+          maxPdf: maxSizes.pdf,
+          maxOther: maxSizes.other,
+        }
 
         const read$ = defer(() =>
           from(
@@ -485,8 +707,13 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
             of<AssetIssuesFetch>({oversized: [], unused: [], missingAlt: [], poorAlt: [], error}),
           ),
         )
+        // `maxSizes` is resolved once in the source factory, above `useItems`,
+        // so it is a constant for this source's whole lifetime and correctly
+        // absent here — which also means an integrator writing
+        // `maxSizeBytes: {image: 1e6}` inline in their config cannot cause a
+        // refetch loop with a fresh object identity per render (AGENTS.md).
         // eslint-disable-next-line react-hooks/exhaustive-deps -- `altEligibleFields` is a derived, memoized array (schema is stable for this pane's lifetime); re-running this on every render it appears in would defeat the memoization the schema walk is already doing.
-      }, [client, maxSizeBytes, limit])
+      }, [client, limit])
 
       const {oversized, unused, missingAlt, poorAlt, loading, error} = useObservable(fetch$, {
         oversized: [] as AssetRow[],
@@ -506,26 +733,31 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
       // deliberately share a `useMemo`: they are two views of the same rows,
       // and computing them apart is how they drift — a row advertising
       // `quickFixable` that `proposeFix` then can't find anything for.
-      const {items, altTargets} = useMemo(() => {
+      const {items, altTargets, assetsById} = useMemo(() => {
         const rows: InboxItem[] = []
         const targets = new Map<string, AltTarget>()
+        const assets = new Map<string, AssetTarget>()
 
         for (const asset of oversized) {
+          const id = `oversized:${asset._id}`
+          assets.set(id, toAssetTarget(asset))
           rows.push(
             withAssignee({
-              id: `oversized:${asset._id}`,
+              id,
               title: asset.originalFilename || asset._id,
-              subtitle: formatAssetSize(asset.size),
-              category: 'Oversized asset',
+              subtitle: `${formatAssetSize(asset.size)} · ${describeUsage(asset.useCount)}`,
+              category: OVERSIZED_CATEGORY[assetKind(asset._type, asset.mimeType)],
               tone: 'caution',
             }),
           )
         }
 
         for (const asset of unused) {
+          const id = `unused:${asset._id}`
+          assets.set(id, toAssetTarget(asset))
           rows.push(
             withAssignee({
-              id: `unused:${asset._id}`,
+              id,
               title: asset.originalFilename || asset._id,
               subtitle: formatAssetSize(asset.size),
               category: 'Unused asset',
@@ -609,7 +841,7 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
           }
         }
 
-        return {items: rows, altTargets: targets}
+        return {items: rows, altTargets: targets, assetsById: assets}
         // eslint-disable-next-line react-hooks/exhaustive-deps -- `withAssignee` closes over `assignments.byTarget`/`assigneesById`, both already listed; it is redefined every render (not memoized) so including it would just make this dependency list re-describe itself.
       }, [
         oversized,
@@ -636,6 +868,34 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
           },
         }
       }, [assignable, assignments])
+
+      // Where an asset row goes when no document uses it — a ladder, because a
+      // media browser is a plugin, not something every Studio has. The
+      // integrator's own router first, then a tool actually registered in
+      // this workspace, then the file itself. Only a row with no `intent`
+      // ever reaches this (`InboxRow`'s click order), so the used-asset rows
+      // above can't collide with it.
+      const openDetail = useCallback(
+        (item: InboxItem) => {
+          const asset = assetsById.get(item.id)
+          if (!asset) return
+          if (openAsset) {
+            openAsset(asset)
+            return
+          }
+          if (mediaToolName && navigateUrlRef.current) {
+            navigateUrlRef.current({path: `${basePath}/${mediaToolName}`})
+            return
+          }
+          // No deep link into the tool above, and none invented here: whether
+          // a given media plugin accepts an asset id in its route is that
+          // plugin's business, and a guessed route is a broken destination
+          // dressed up as a working one.
+          if (asset.url) window.open(asset.url, '_blank', 'noopener,noreferrer')
+        },
+        // `openAsset` is this source's own option, fixed for the source's lifetime, so it is deliberately not a dependency.
+        [assetsById, mediaToolName, basePath],
+      )
 
       const proposeFix = useCallback(
         async (item: InboxItem, fixOptions?: {instantOnly?: boolean}): Promise<FixProposal | null> => {
@@ -692,8 +952,8 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
       // reported up to the pane and stored as state, so anything in it that
       // churns identity every render is a render every render (AGENTS.md).
       return useMemo(
-        () => ({items, loading, error, assign, proposeFix}),
-        [items, loading, error, assign, proposeFix],
+        () => ({items, loading, error, assign, proposeFix, openDetail}),
+        [items, loading, error, assign, proposeFix, openDetail],
       )
     },
   }
