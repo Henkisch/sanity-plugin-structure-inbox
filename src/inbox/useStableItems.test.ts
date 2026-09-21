@@ -1,8 +1,16 @@
 import {renderHook} from '@testing-library/react'
-import {describe, expect, it} from 'vitest'
+import {beforeEach, describe, expect, it, vi} from 'vitest'
 
+import {resetWarnings} from '../warnOnce'
 import {type InboxItem} from './types'
 import {sameItems, useStableItems} from './useStableItems'
+
+// `warnOnce` dedupes by message for the process lifetime, so the freeze
+// test's assertion on `console.warn` would only pass once per run without
+// this — see `wrapStructure.test.ts` for the same convention.
+beforeEach(() => {
+  resetWarnings()
+})
 
 function item(overrides: Partial<InboxItem> = {}): InboxItem {
   return {
@@ -94,10 +102,11 @@ describe('useStableItems', () => {
   })
 })
 
-describe('an item value that can never compare equal', () => {
+describe('an item value allocated fresh every render', () => {
   // `sameValue` falls back to `===` for anything that is not a primitive, a
   // plain object or an array, so an item carrying a freshly-allocated function
-  // compares unequal *forever*. Without a bound, this hook's own render-phase
+  // compares unequal *forever* — unless, like `icon`, it is compared by name
+  // instead (see below). Without a bound, this hook's own render-phase
   // `setStable` then runs on every render — a loop upstream of every other
   // guard in the pane. `icon?: ComponentType` is exactly that shape and is
   // documented public API, so this is reachable, not theoretical: it shipped in
@@ -114,5 +123,52 @@ describe('an item value that can never compare equal', () => {
     for (let n = 1; n <= 8; n++) rerender({n})
 
     expect(result.current[0]?.title).toBe('v8')
+  })
+
+  // The case above no longer reaches the freeze at all — `sameValue` compares
+  // two functions by name (`useStableItems.ts:39-41`), added specifically so a
+  // per-render inline `icon` stops freezing a source. What still falls through
+  // to `sameValue`'s unconditional `return false` is a `Date`, a `Map`, a
+  // `Set`, or a class instance — none of which `InboxItem` (`./types.ts`) has
+  // a field typed to accept directly (its only non-primitive fields are
+  // `intent`/`assignee`, both compared structurally, and `icon`, compared by
+  // name). So this test reaches the same permanent-inequality fallthrough
+  // through a function whose *name* is unique on every single invocation
+  // (including the internal render-phase retries `setStable` triggers within
+  // one external rerender, not just once per rerender call) — that is exactly
+  // as unrepresentable to `sameValue` as a fresh `Date` would be, and for the
+  // same reason: nothing here can ever consider two such values equal.
+  it('freezes after MAX_CONSECUTIVE_ADOPTIONS rather than looping forever', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    let uniqueIconCount = 0
+    function freshlyNamedIcon() {
+      uniqueIconCount += 1
+      const name = `Icon${uniqueIconCount}`
+      // Computed property name so the returned function's own `.name` is
+      // unique per call — an inline `() => null` would infer the name
+      // `'icon'` every time (from the property key it's assigned to) and
+      // settle immediately, the same as the legitimate case above.
+      return {[name]: () => null}[name]
+    }
+
+    const {result, rerender} = renderHook(
+      ({n}) => useStableItems([item({title: `v${n}`, icon: freshlyNamedIcon()})], 'churningFreeze'),
+      {initialProps: {n: 0}},
+    )
+
+    for (let n = 1; n <= 3; n++) rerender({n})
+
+    const frozen = result.current
+    // A further rerender must not un-freeze it, and must not warn again —
+    // `warnOnce` already fired, and the freeze branch never touches
+    // `adoptions.current`, so it stays latched.
+    rerender({n: 999})
+
+    expect(result.current).toBe(frozen)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0]?.[0]).toContain('never compare equal')
+
+    warn.mockRestore()
   })
 })

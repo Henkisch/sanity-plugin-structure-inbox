@@ -1,5 +1,9 @@
 import {SearchIcon} from '@sanity/icons/Search'
-import {cleanup, fireEvent, screen} from '@testing-library/react'
+import {ThemeProvider} from '@sanity/ui'
+import {buildTheme} from '@sanity/ui/theme'
+import {ToastProvider} from '@sanity/ui/toast'
+import {cleanup, fireEvent, render, screen} from '@testing-library/react'
+import {route, RouterProvider} from 'sanity/router'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {EMPTY_DISMISSALS} from '../store/dismissals'
@@ -278,5 +282,85 @@ describe('InboxSection', () => {
 
     expect(screen.queryByText('selection.selectAll')).toBeNull()
     expect(document.querySelector('input[type="checkbox"]')).toBeNull()
+  })
+
+  // Plan 065's documentation of a gap, not a fix: `InboxSection` is the
+  // `aside` renderer, and unlike `SourceFeed` (the `main` renderer) it calls
+  // `source.useItems()` directly, with no `useStableItems` wrapping — see
+  // `useStableItems.ts`'s own doc comment and AGENTS.md's "must not churn
+  // identity per render" note. This asserts the aside path is nonetheless
+  // safe *today*, and why: this component only ever reports `open.length` — a
+  // plain number — up to the pane via `onCount`, never the `items` array
+  // itself, so a fresh, never-equal-by-identity `items` array every render
+  // never becomes a report every render the way it did for `main`. If a
+  // later change makes this component report the items themselves instead,
+  // this test is what would catch the loop that change would reintroduce —
+  // it is a guard against that becoming untrue, not proof it can never
+  // happen.
+  it('renders an aside source whose items churn every render without throwing or looping', () => {
+    let calls = 0
+    const source: InboxSource = {
+      name: 'churningAside',
+      title: 'Churning aside',
+      placement: 'aside',
+      useItems: () => {
+        calls += 1
+        return {
+          items: [
+            item('1', {
+              title: 'Row',
+              // Freshly allocated every call, and never equal to any other
+              // call's icon by reference — the same non-comparable shape
+              // `useStableItems.test.ts`'s own freeze test uses, just with
+              // nothing here to absorb it.
+              icon: () => null,
+            }),
+          ],
+        }
+      },
+    }
+
+    // `renderWithTheme` wraps the theme/toast/router providers around its
+    // argument and returns the render result of that *whole* wrapped tree —
+    // RTL's `rerender` replaces that whole tree, so a bare `<InboxSection>`
+    // rerender loses the providers `useUndoToast`/`useRouter` need. Built
+    // directly with RTL's own `render` instead, wrapping the same way
+    // `renderWithTheme` does, so every render (initial and repeated) sees an
+    // identically-shaped tree. Duplicated locally rather than exporting a
+    // "wrap" helper from `renderWithTheme.tsx`, which is out of this plan's
+    // scope.
+    const theme = buildTheme()
+    const router = route.create('/')
+    function wrapped() {
+      return (
+        <ThemeProvider theme={theme}>
+          <ToastProvider>
+            <RouterProvider onNavigate={() => {}} router={router} state={{}}>
+              <InboxSection
+                dismissals={fakeDismissals()}
+                onCount={() => {}}
+                snoozes={fakeSnoozes()}
+                source={source}
+                view="open"
+              />
+            </RouterProvider>
+          </ToastProvider>
+        </ThemeProvider>
+      )
+    }
+
+    const rendered = render(wrapped())
+
+    expect(() => {
+      for (let i = 0; i < 20; i++) {
+        rendered.rerender(wrapped())
+      }
+    }).not.toThrow()
+
+    // One `useItems()` call per external render, and no more — no
+    // self-triggered cascade of extra renders hiding behind a passing
+    // assertion.
+    expect(calls).toBe(21)
+    expect(screen.getByText('Row')).toBeTruthy()
   })
 })
