@@ -3,6 +3,7 @@ import {type SanityClient} from 'sanity'
 
 import {isHiddenType} from './AddMenu'
 import {mapWithConcurrency} from './concurrency'
+import {SIMPLE_FIELD_PATH} from './sources/simpleFieldPath'
 
 /** Per-type document count + counts, plus a small text sample cap — mirrors the `[0...20]` candidate cap `proposeFix` already uses elsewhere in this codebase. */
 const SAMPLES_PER_TYPE = 5
@@ -66,7 +67,12 @@ export function getRealDocumentTypeNames(schema: {
  * `singleTextFieldEligible` (`linkCheckerFindings.ts`) already uses for the
  * same reason: a schema-agnostic "is this field text" test, not a guess at
  * a specific field name like `title`/`body`, which not every project uses.
- * Returns `undefined` when the type has no such field (nothing sampleable).
+ * Returns `undefined` when the type has no such field (nothing sampleable),
+ * and also when the field's own name fails `SIMPLE_FIELD_PATH` — this name
+ * comes from the integrator's own schema, and one odd field name should cost
+ * that type its samples, not get spliced into the query text `surveyContentTypes`
+ * builds from it below. Skip rather than throw: `surveyContentTypes` already
+ * treats `undefined` as "no samples for this type."
  */
 export function findSampleFieldName(
   schema: {get: (name: string) => {fields?: {name: string; type: {jsonType?: string}}[]} | undefined},
@@ -74,7 +80,9 @@ export function findSampleFieldName(
 ): string | undefined {
   const objectType = schema.get(typeName)
   if (!objectType?.fields) return undefined
-  return objectType.fields.find((field) => field.type.jsonType === 'string')?.name
+  const fieldName = objectType.fields.find((field) => field.type.jsonType === 'string')?.name
+  if (fieldName === undefined || !SIMPLE_FIELD_PATH.test(fieldName)) return undefined
+  return fieldName
 }
 
 /**

@@ -98,6 +98,11 @@ describe('findSampleFieldName', () => {
     const schema = schemaWith([])
     expect(findSampleFieldName(schema, 'missing')).toBeUndefined()
   })
+
+  it('rejects a field name that fails SIMPLE_FIELD_PATH, the same as having no eligible field at all', () => {
+    const schema = schemaWith([{name: 'post', fields: [{name: 'bad}name', type: {jsonType: 'string'}}]}])
+    expect(findSampleFieldName(schema, 'post')).toBeUndefined()
+  })
 })
 
 describe('findReferencedTypes', () => {
@@ -233,6 +238,46 @@ describe('surveyContentTypes', () => {
 
     const [summary] = await surveyContentTypes({fetch}, schema)
     expect(summary.description).toBeUndefined()
+  })
+
+  it('skips sampling a hostile field name rather than interpolating it into the query', async () => {
+    const schema = schemaWith([
+      {name: 'post', title: 'Post', fields: [{name: 'bad}name', type: {jsonType: 'string'}}]},
+    ])
+    // Only the `count()` call is ever expected — a rejected field name must
+    // never reach the sample fetch at all, so there is nothing for a second
+    // `mockResolvedValueOnce` to satisfy.
+    const fetch = vi.fn().mockResolvedValueOnce(3)
+
+    const [summary] = await surveyContentTypes({fetch}, schema)
+    expect(summary.samples).toEqual([])
+    expect(fetch).toHaveBeenCalledTimes(1)
+    for (const call of fetch.mock.calls) {
+      expect(String(call[0])).not.toContain('bad}name')
+    }
+  })
+
+  it('still samples a normal field name at this same call site (happy path unchanged)', async () => {
+    const schema = schemaWith([{name: 'post', title: 'Post', fields: [{name: 'title', type: {jsonType: 'string'}}]}])
+    const fetch = vi.fn().mockResolvedValueOnce(2).mockResolvedValueOnce(['Post A', 'Post B'])
+
+    const [summary] = await surveyContentTypes({fetch}, schema)
+    expect(summary.samples).toEqual(['Post A', 'Post B'])
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('short-circuits before any field lookup when count is 0', async () => {
+    // A field name that would fail SIMPLE_FIELD_PATH if `findSampleFieldName`
+    // ever ran on it — proving the `count > 0` guard above short-circuits
+    // before that lookup, not merely that its result later goes unused.
+    const schema = schemaWith([{name: 'post', title: 'Post', fields: [{name: 'bad}name', type: {jsonType: 'string'}}]}])
+    const fetch = vi.fn().mockResolvedValueOnce(0)
+
+    const [summary] = await surveyContentTypes({fetch}, schema)
+
+    expect(summary.samples).toEqual([])
+    // Only the `count()` call — a second fetch would mean a sample query ran.
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 })
 

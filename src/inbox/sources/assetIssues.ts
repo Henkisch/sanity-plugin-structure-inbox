@@ -19,12 +19,10 @@ import {
 import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
 import {useAssignableUsers} from './capability'
 import {liveQuery$} from './liveQuery'
+import {SIMPLE_FIELD_PATH} from './simpleFieldPath'
 
 /** Real image/file asset documents this project's own dataset holds. */
 const ASSET_TYPES = ['sanity.imageAsset', 'sanity.fileAsset']
-
-/** A plain field name — no `[index]`/`.nested`/`->` — the only shape safe to interpolate directly into a GROQ query string. Same guard `linkCheckerFindings.ts` uses for the equivalent interpolation. */
-const SIMPLE_FIELD_PATH = /^[a-zA-Z0-9_]+$/
 
 /**
  * Above this many total assets, `unused` is skipped (reports zero rows)
