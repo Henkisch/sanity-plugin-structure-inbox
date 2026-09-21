@@ -74,7 +74,18 @@ export default defineConfig({
         // default would make this workspace look broken while testing.
         unpublishedDrafts({olderThanDays: 0}),
         documentValidation(),
-        assetIssues(),
+        assetIssues({
+          // An author's portrait is a picture of that author, so their own
+          // name is the correct alt text — free, instant, and bulk-able.
+          // `post.heroImage` and `event.coverImage` deliberately stay out of
+          // this: a hero image is not a picture of its headline.
+          altFromTitle: ['author.portrait'],
+          // Stands in for a real vision model, so the per-row paid path is
+          // reachable in this workspace without wiring up an API key. The
+          // point being exercised is *when* this is called, not what it says.
+          describeImage: async ({documentType, fieldName}) =>
+            `A photograph illustrating this ${documentType}'s ${fieldName}`,
+        }),
         // Everyone's unresolved comment threads, not just this editor's
         // own mentions — same reasoning as `openTasks({onlyMine: false})`
         // above, and the only way this workspace's own single-editor
