@@ -107,6 +107,37 @@ describe('useDismissals', () => {
     expect(result.current.state.dismissed.tasks?.['task-1']).toBeTruthy()
   })
 
+  it('keeps a restore ("Mark as not done") made before a late load resolves, instead of resurrecting it', async () => {
+    // The regression this plan exists for: the server still has the item
+    // dismissed (from before this mount), the editor restores it locally, and
+    // then the in-flight load resolves with that stale dismissed value. A
+    // pure-union merge would put it right back — the tombstone must win.
+    const fetch = deferred<string | null>()
+    const {client} = mockClient(fetch.promise)
+    useClientMock.mockReturnValue(client)
+
+    const {result} = renderHook(() => useDismissals())
+
+    act(() => result.current.dismiss('tasks', 'task-1'))
+    act(() => result.current.restore('tasks', 'task-1'))
+    expect(result.current.state.dismissed.tasks?.['task-1']).toBeFalsy()
+
+    // The stale server value: dismissed at a time before the local restore.
+    const staleServerValue = JSON.stringify({
+      version: 1,
+      dismissed: {tasks: {'task-1': '2020-01-01T00:00:00.000Z'}},
+    })
+    fetch.resolve(staleServerValue)
+    // Await the promise itself (not just `waitFor(client.fetch called)`,
+    // which is already true from the initial mount and would let this
+    // assertion race ahead of the merge's `.then()` actually running).
+    await act(async () => {
+      await fetch.promise
+    })
+
+    expect(result.current.state.dismissed.tasks?.['task-1']).toBeFalsy()
+  })
+
   it('persists a dismissal once the load has settled', async () => {
     const {client, transaction} = mockClient(Promise.resolve(null))
     useClientMock.mockReturnValue(client)
