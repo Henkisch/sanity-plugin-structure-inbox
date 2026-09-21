@@ -1,5 +1,13 @@
 # Plan 058: Let an editor fill missing alt text from the Inbox, one row or twenty
 
+> **Status: DONE** — shipped in `ad37f56`, `3b69267`, `c32d396`. Two
+> deviations from the plan as written, both deliberate: an empty string from
+> `suggestAlt` is treated as a decline rather than a fall-through to
+> `altFromTitle` (a callback written `x ?? ''` must not silently inherit the
+> default), and the plan's `allowAi` option was renamed `instantOnly`, since
+> the cost it bounds is no longer Sanity's to bill. `mapWithConcurrency` moved
+> out of `projectDigest.ts` into `concurrency.ts`, now shared.
+>
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
