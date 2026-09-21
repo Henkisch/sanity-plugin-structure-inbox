@@ -3,7 +3,7 @@ import {useMemo} from 'react'
 // `useUserListWithPermissions` stays out of this named import — see
 // `optionalHook` in `capability.ts`. `useCurrentUser` is a stable, public
 // export, so a plain named import is fine, same as every source already does.
-import {useCurrentUser} from 'sanity'
+import {type UserListWithPermissionsHookValue, useCurrentUser} from 'sanity'
 
 import {warnOnce} from '../../warnOnce'
 import {type InboxItem, type InboxSourceResult} from '../types'
@@ -81,14 +81,22 @@ export const targetIdFromIntentParamsId = (item: InboxItem): string | undefined 
  * flows through `SourceFeed`'s fingerprint machinery into `Inbox`'s own
  * state; an identity that churns every render is the "Maximum update depth
  * exceeded" class of bug `AGENTS.md` records three times over.
+ *
+ * Deliberately does **not** take a `suggestAssignee` option. The two sources
+ * that offer one (`unpublishedDrafts`, `unresolvedComments`) each derive it
+ * from state this hook has no business knowing about (document authorship,
+ * a comment thread's own `@mention`) and need the raw `assignable` list back
+ * to check a candidate is actually granted — exposed below for exactly that,
+ * rather than reintroducing a second `useAssignableUsers` call (a second live
+ * permissions read) just to get it. Both compose their own final `assign` by
+ * spreading this hook's `assign` and adding `suggestAssignee` themselves —
+ * see either source for the pattern.
  */
 export function useAssignmentCapability(
   client: SanityClient,
   options: {
     /** Which id this source's `assign` should write against. Required — see this function's own doc comment on why there is no default. */
     targetId: (item: InboxItem) => string | undefined
-    /** Only two built-in sources have one (`unpublishedDrafts`, `unresolvedComments`) — pass a referentially-stable function (e.g. `useCallback`) so it does not itself churn `assign`'s identity. */
-    suggestAssignee?: AssignCapability['suggestAssignee']
   },
 ): {
   assigneesById: Map<string, AssigneeInfo>
@@ -105,8 +113,16 @@ export function useAssignmentCapability(
    */
   byTarget: Map<string, string>
   assign: AssignCapability | undefined
+  /**
+   * The raw permission-checked user list `assign.users` was already filtered
+   * from — see this function's own doc comment on why a source that needs
+   * more than `assign` alone (a granted-only id set, for `suggestAssignee`)
+   * reads it from here rather than calling `useAssignableUsers` a second
+   * time.
+   */
+  assignable: UserListWithPermissionsHookValue['data']
 } {
-  const {targetId, suggestAssignee} = options
+  const {targetId} = options
 
   const currentUser = useCurrentUser()
   const userId = currentUser?.id
@@ -129,7 +145,7 @@ export function useAssignmentCapability(
   const assign = useMemo((): AssignCapability | undefined => {
     if (!assignable) return undefined
 
-    const capability: AssignCapability = {
+    return {
       users: assignable
         .filter((user) => user.granted)
         .map((user) => ({id: user.id, label: user.displayName || user.email || user.id})),
@@ -154,12 +170,10 @@ export function useAssignmentCapability(
         await assignments.unassign(id)
       },
     }
-    if (suggestAssignee) capability.suggestAssignee = suggestAssignee
-    return capability
-  }, [assignable, assignments, targetId, suggestAssignee])
+  }, [assignable, assignments, targetId])
 
   return useMemo(
-    () => ({assigneesById, byTarget: assignments.byTarget, assign}),
-    [assigneesById, assignments.byTarget, assign],
+    () => ({assigneesById, byTarget: assignments.byTarget, assign, assignable}),
+    [assigneesById, assignments.byTarget, assign, assignable],
   )
 }
