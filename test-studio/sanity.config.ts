@@ -1,4 +1,5 @@
 import {visionTool} from '@sanity/vision'
+import {media} from 'sanity-plugin-media'
 import {defineConfig} from 'sanity'
 import {
   assetIssues,
@@ -46,6 +47,15 @@ export default defineConfig({
   dataset,
   plugins: [
     structureTool({structure}),
+    // The real `sanity-plugin-media`, behind an env toggle, because
+    // `assetIssues` has to work in *both* states: it detects a media tool at
+    // runtime (`useTools`) rather than depending on one, and the only honest
+    // way to test a runtime detection is to actually install the thing and
+    // then turn it off. Off by default — "no media plugin" is the state most
+    // consuming Studios are in.
+    //
+    // Run with it: `SANITY_STUDIO_MEDIA_PLUGIN=1 npm run dev`
+    ...(process.env.SANITY_STUDIO_MEDIA_PLUGIN ? [media()] : []),
     // `linkChecker()`, the standalone plugin's own Studio tool, is
     // deliberately NOT registered here: `linkCheckerFindings()` below
     // reads and runs scans directly from that plugin's headless `core`
@@ -75,6 +85,13 @@ export default defineConfig({
         unpublishedDrafts({olderThanDays: 0}),
         documentValidation(),
         assetIssues({
+          // Deliberately far below every default. This dataset's largest
+          // asset is ~1.1 MB and `fixtures/example-press-kit.pdf` is ~17 KB,
+          // so real ceilings (5 MiB images, 15 MiB PDFs) would make the
+          // oversized check — and the navigation hanging off it —
+          // unreachable in this workspace. Set per kind rather than as one
+          // number so this config also demonstrates the option's real shape.
+          maxSizeBytes: {image: 500_000, pdf: 10_000, audio: 10_000, other: 10_000},
           // An author's portrait is a picture of that author, so their own
           // name is the correct alt text — free, instant, and bulk-able.
           // `post.heroImage` and `event.coverImage` deliberately stay out of

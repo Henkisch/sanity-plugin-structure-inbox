@@ -20,6 +20,7 @@
   },
   "devDependencies": {
     "@sanity/blueprints": "0.24.0",
-    "@sanity/functions": "1.7.3"
+    "@sanity/functions": "1.7.3",
+    "sanity-plugin-media": "^6.2.0"
   }
 }
