@@ -5,6 +5,19 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.1.0](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v2.0.0...v2.1.0) (2026-09-21)
+
+### Features
+
+- fill missing alt text from the Inbox, one row or a whole selection ([31a05b8](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/31a05b8ac403b1c3c360fa15b4d1f3624c9b0f54))
+- group a link's repeated occurrences, and focus the failing field ([ca42bef](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/ca42befd15fac6e2c055da8eb6deb6d1c88f022a))
+- open the offending field, not just the document it lives in ([cd91745](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/cd91745a184e037dc64dd8ae437590040b38f224))
+
+### Bug Fixes
+
+- make a completed fix read as done, and confirm it somewhere that lasts ([127116f](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/127116f9d811403095d9b70efb3877490b588662))
+- resolve the image asset path for wrapper-object image fields ([fd5c74e](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/fd5c74ef9c1e2c43da0819c32eca11c1b213b28a))
+
 ## [2.0.0](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v1.0.6...v2.0.0) (2026-09-19)
 
 ### ⚠ BREAKING CHANGES
