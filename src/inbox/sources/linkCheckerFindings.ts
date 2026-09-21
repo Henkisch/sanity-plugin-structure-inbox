@@ -33,6 +33,7 @@ import {
 } from '../types'
 import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
 import {useAssignableUsers} from './capability'
+import {SIMPLE_FIELD_PATH} from './simpleFieldPath'
 
 export interface LinkCheckerFindingsOptions {
   /** Cap on rows shown, after filtering. Defaults to 50 — a report can carry far more findings than a pane should ever list at once. */
@@ -129,9 +130,6 @@ export function validateChosenReference(
 
   return {id: trimmed, label, reason}
 }
-
-/** A plain top-level field name — no `[index]`/`.nested` — the only shape `singleReferenceTargetType` below knows how to resolve or `proposeFix` knows how to patch. */
-const SIMPLE_FIELD_PATH = /^[a-zA-Z0-9_]+$/
 
 /**
  * The one document type a broken reference's own field could point back
