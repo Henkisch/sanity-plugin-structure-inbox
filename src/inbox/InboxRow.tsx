@@ -1,6 +1,7 @@
 import {EllipsisVerticalIcon} from '@sanity/icons/EllipsisVertical'
 import {SparklesIcon} from '@sanity/icons/Sparkles'
 import {BoltIcon} from '@sanity/icons/Bolt'
+import {CheckmarkCircleIcon} from '@sanity/icons/CheckmarkCircle'
 import {UserIcon} from '@sanity/icons/User'
 import {Avatar, Box, Button, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
 import {Menu, MenuButton, MenuDivider, MenuItem} from '@sanity/ui/menu'
@@ -79,6 +80,8 @@ interface InboxRowProps {
    * free and instant, and "Fix with AI" otherwise.
    */
   onProposeFix?: (item: InboxItem, options?: {instantOnly?: boolean}) => Promise<FixProposal | null>
+  /** Called once a proposal has really been written, so the list can confirm it somewhere that outlives this row. */
+  onFixApplied?: (item: InboxItem, summary: string) => void
   /**
    * Opens this one item's edit dialog — only ever set for a row with no
    * `intent` to navigate to instead (a todo has no document), since a row
@@ -228,6 +231,7 @@ export function InboxRow(props: InboxRowProps) {
     onAssess,
     initialAssessment,
     onProposeFix,
+  onFixApplied,
     onEdit,
     onReassign,
     assignableUsers,
@@ -370,6 +374,12 @@ export function InboxRow(props: InboxRowProps) {
       .then(() => {
         applyFixInFlightRef.current = false
         setFix({status: 'applied'})
+        // The row itself usually leaves within a second, as soon as the
+        // source's own live query notices the finding is gone — which means
+        // the green "Fixed" line can flash past too fast to read. The toast
+        // is what survives that, the same way every other action in this pane
+        // confirms itself.
+        onFixApplied?.(item, proposal.summary)
         return undefined
       })
       .catch(() => {
@@ -377,13 +387,17 @@ export function InboxRow(props: InboxRowProps) {
         setFix({status: 'error'})
         return undefined
       })
-  }, [fix])
+  }, [fix, item, onFixApplied])
 
   const handleDismissFix = useCallback(() => setFix({status: 'idle'}), [])
 
   // A done row drops its own tone: the point of showing it is that it is
-  // finished, and a caution-coloured finished row still reads as urgent.
-  const tone = done || item.tone === 'default' ? undefined : item.tone
+  // finished, and a caution-coloured finished row still reads as urgent. A
+  // just-fixed row is the same case — it usually leaves on the next live-query
+  // tick, but until it does, "Missing alt text" in amber directly contradicts
+  // the "Fixed" line underneath it.
+  const fixApplied = fix.status === 'applied'
+  const tone = done || fixApplied ? 'positive' : item.tone === 'default' ? undefined : item.tone
 
   // A row on its way out (marked done or snoozed) fades rather than blinking
   // out the instant the action bar fires — the mutation it's fading towards
@@ -465,9 +479,11 @@ export function InboxRow(props: InboxRowProps) {
   // clicked.
   const fixRow = onProposeFix && fix.status !== 'idle' && (
     <Flex align="center" gap={2} onClick={stopPropagation} wrap="wrap">
-      <Text muted size={0}>
-        {item.quickFixable ? <BoltIcon /> : <SparklesIcon />}
-      </Text>
+      {!fixApplied && (
+        <Text muted size={0}>
+          {item.quickFixable ? <BoltIcon /> : <SparklesIcon />}
+        </Text>
+      )}
       {fix.status === 'loading' && (
         <Text muted size={0}>
           {t('fix.loading')}
@@ -502,10 +518,15 @@ export function InboxRow(props: InboxRowProps) {
           />
         </>
       )}
-      {fix.status === 'applied' && (
-        <Text muted size={0}>
-          {t('fix.applied')}
-        </Text>
+      {fixApplied && (
+        <Card padding={1} radius={2} tone="positive">
+          <Flex align="center" gap={2}>
+            <Text size={0}>
+              <CheckmarkCircleIcon />
+            </Text>
+            <Text size={0}>{t('fix.applied')}</Text>
+          </Flex>
+        </Card>
       )}
       {fix.status === 'error' && (
         <Card padding={1} radius={2} tone="critical">
