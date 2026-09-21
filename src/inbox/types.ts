@@ -85,6 +85,23 @@ export interface InboxItem {
    * release in the Releases tool (`params: {id: <short release id>}`, not a
    * document id) — see `upcomingReleases.ts`, the one built-in source that
    * uses it.
+   *
+   * `params` is an open string map because Sanity's own intents take more
+   * than `id`/`type`, and two of them are worth knowing about:
+   *
+   * - `path` opens the document with that field focused, cursor in it, rather
+   *   than at the top — `'title'`, `'hero.alt'`, or an array item keyed by
+   *   `_key` (`'body[_key=="a1b2"].caption'`). Key it by `_key` rather than
+   *   by index wherever the value came from a scan or a cached report: an
+   *   index silently points at the wrong item once someone reorders the
+   *   array. A path that doesn't resolve focuses nothing, so send none rather
+   *   than a guess.
+   * - `inspect: 'sanity/comments'` plus `comment: <id>` opens the Comments
+   *   panel scrolled to one thread — see `unresolvedComments.ts`.
+   *
+   * A source that knows which field its row is about should say so here. It
+   * is the difference between "this article has a broken link somewhere" and
+   * landing on the link.
    */
   intent?: {
     type: 'edit' | 'create' | 'release'

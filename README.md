@@ -174,6 +174,32 @@ need. Return `resolve` to make a tick complete the item for real (see below); re
 offer an "Add" dialog; return `remove` for sources with no `resolve` that still need a way to clear
 an item out for good.
 
+### Landing on the field, not just the document
+
+An `intent` takes more than an id and a type. If your source knows which field
+the row is about, pass a `path` and the Studio opens the document with that
+field focused and the cursor already in it:
+
+```tsx
+intent: {
+  type: 'edit',
+  params: {
+    id: row._id,
+    type: row._type,
+    path: 'hero.alt', // or 'body[_key=="a1b2"].caption'
+  },
+}
+```
+
+Key array items by `_key`, not by index, wherever the path came from a scan or
+a cached report — an index silently points at a different item once someone
+reorders the array. A path that doesn't resolve focuses nothing, which reads as
+a broken link, so send no path rather than a guess.
+
+The built-in sources do this wherever they can: a broken link opens on the
+link, a missing alt text opens on the alt field, a validation failure opens on
+the first field that failed.
+
 ### Offering a fix
 
 A source can also return `proposeFix`, which turns a row from a report into something an editor can
