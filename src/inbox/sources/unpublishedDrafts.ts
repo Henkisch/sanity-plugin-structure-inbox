@@ -192,6 +192,10 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
         }
       }
 
+      // The `map` to `InboxSourceResult` now lives inside `fetch$` itself,
+      // not after `liveQuery$` — so `onFetchError`'s empty result and a
+      // successful fetch's mapped result are the same shape by the time
+      // either reaches `startWith`/`catchError` below.
       const fetch$ = client.observable.fetch<DraftRow[]>(QUERY, params).pipe(
         switchMap((rows) => {
           // Without a user there is nobody to filter by, so listing
@@ -206,10 +210,10 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
             ),
           ).pipe(map((mine) => rows.filter((row) => mine.has(row._id)).slice(0, limit)))
         }),
+        map((rows): InboxSourceResult => ({items: rows.map(toItem)})),
       )
 
-      return liveQuery$(client, QUERY, params, fetch$).pipe(
-        map((rows): InboxSourceResult => ({items: rows.map(toItem)})),
+      return liveQuery$(client, QUERY, params, fetch$, (error) => ({items: [], error})).pipe(
         startWith<InboxSourceResult>({items: [], loading: true}),
         catchError((error: Error) => of<InboxSourceResult>({items: [], error})),
       )
