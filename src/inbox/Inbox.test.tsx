@@ -474,3 +474,90 @@ describe('Inbox source stability', () => {
     expect(screen.getByText('An unanswered enquiry')).toBeTruthy()
   })
 })
+
+describe('Inbox runSourceAction', () => {
+  // The `action` object is built once, outside `useItems`, and referenced by
+  // closure rather than recreated per call — same reasoning as `TODOS_ITEMS`/
+  // `TODOS_CREATE` above: a fresh object every render would make `sameReport`
+  // (`SourceFeed.tsx`) see a "new" report on every pass and re-fire `onReport`
+  // forever, the exact "Maximum update depth exceeded" class of bug this
+  // repo's own doctrine warns about, not the thing this test means to cover.
+  function actionSource(
+    name: string,
+    title: string,
+    action: {label: string; run: () => Promise<string | void>},
+  ): InboxSource {
+    return {name, title, useItems: () => ({items: [], action})}
+  }
+
+  // Plan 066: `runSourceAction` was guarded only by `disabled={running}`, a
+  // `useState` read that is stale for both clicks landing in the same React
+  // batch — the same class of race `summarizeInFlightRef` documents. Its own
+  // `.finally` also cleared the running flag unconditionally, which is a
+  // second, related bug this guard also has to close (see the concurrent-
+  // source case below).
+  it('runs a source action only once even when both clicks land in the same React batch', async () => {
+    let resolveRun!: (value?: string) => void
+    const run = vi.fn(
+      () =>
+        new Promise<string | void>((resolve) => {
+          resolveRun = resolve
+        }),
+    )
+    const action = {label: 'scan.action', run}
+
+    renderWithTheme(<Inbox sources={[actionSource('scan', 'Scan', action)]} />)
+
+    const button = screen.getByRole('button', {name: 'scan.action'})
+
+    act(() => {
+      fireEvent.click(button)
+      fireEvent.click(button)
+    })
+
+    expect(run).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolveRun()
+      await Promise.resolve()
+    })
+  })
+
+  // The guard must be keyed by source name, not a single boolean: several
+  // `main` sources can each offer their own action (see the comment above
+  // `actionSources` in `Inbox.tsx`), and a single boolean would let the
+  // first source's in-flight action swallow a second, unrelated source's
+  // click.
+  it("lets a different source's action run concurrently, not blocked by another source's in-flight action", async () => {
+    let resolveA!: (value?: string) => void
+    const runA = vi.fn(
+      () =>
+        new Promise<string | void>((resolve) => {
+          resolveA = resolve
+        }),
+    )
+    const runB = vi.fn().mockResolvedValue(undefined)
+    const actionA = {label: 'scanA.action', run: runA}
+    const actionB = {label: 'scanB.action', run: runB}
+
+    renderWithTheme(
+      <Inbox
+        sources={[actionSource('scanA', 'Scan A', actionA), actionSource('scanB', 'Scan B', actionB)]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', {name: 'scanA.action'}))
+    expect(runA).toHaveBeenCalledTimes(1)
+
+    // Source A's own action is still in flight (its promise hasn't resolved)
+    // when source B's is clicked — this is what proves the guard is keyed
+    // per source rather than a single shared boolean.
+    fireEvent.click(screen.getByRole('button', {name: 'scanB.action'}))
+    expect(runB).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolveA()
+      await Promise.resolve()
+    })
+  })
+})

@@ -364,6 +364,45 @@ describe('MergedList', () => {
     await waitFor(() => expect(proposeFix).toHaveBeenCalledTimes(2))
   })
 
+  // Plan 066: `confirmQuickFix` had no in-flight guard at all — only
+  // `setBusy(true)`, a `useState` write, which (like every other case this
+  // repo has hit) is stale for both clicks in the same React batch. Without
+  // a guard this fires the whole batch twice: 2 selected rows * 2 clicks = 4
+  // `proposeFix` calls, not 2 — real double writes to shared documents. This
+  // asserts the *per-row* count, not just "was called," since a single
+  // over-eager handler call wouldn't catch a bulk action re-running its own
+  // internal fan-out.
+  it('applies each selected row\'s fix only once, even when both clicks land in the same React batch', async () => {
+    const apply = vi.fn().mockResolvedValue(undefined)
+    const proposeFix = vi.fn().mockResolvedValue({summary: 'Set alt text', apply})
+    const reports = {
+      assets: report('assets', 'Assets', {
+        open: [
+          item('a1', {title: 'Free one', fixable: true, quickFixable: true}),
+          item('a2', {title: 'Free two', fixable: true, quickFixable: true}),
+        ],
+        proposeFix,
+      }),
+    }
+
+    renderList({reports, order: ['assets']})
+
+    selectItem('Free one')
+    selectItem('Free two')
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', {name: 'fix.bulk'}))
+      fireEvent.click(screen.getByRole('button', {name: 'fix.bulk'}))
+    })
+
+    await waitFor(() => expect(proposeFix).toHaveBeenCalledTimes(2))
+    // Give any second, un-guarded batch a chance to also settle before
+    // asserting the count stays put.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(proposeFix).toHaveBeenCalledTimes(2)
+    expect(apply).toHaveBeenCalledTimes(2)
+  })
+
   it('offers "Ask AI" in a row\'s own menu rather than a persistent link, and shows the answer inline once asked', async () => {
     const assess = vi.fn().mockResolvedValue({message: 'Looks fine.'})
     const reports = {
@@ -958,6 +997,31 @@ describe('suggested snooze date', () => {
     expect(await screen.findByText('action.snooze.suggested')).toBeTruthy()
     expect(suggestSnooze).toHaveBeenCalledTimes(1)
     expect(suggestSnooze).toHaveBeenCalledWith(expect.objectContaining({id: 'd1'}))
+  })
+
+  // Plan 066: `handleSuggestSnooze` had `snoozeSuggestionRequestRef` (a
+  // bump-then-compare guard deciding which *response* wins) but no
+  // in-flight boolean stopping a second *request* — and `suggestSnooze`
+  // bills a real AI credit per call, so a double-click was a double charge.
+  // Two clicks landing in the same React batch both read the pre-commit
+  // `snoozeSuggestion.status === 'idle'`, so a state check alone (the
+  // button's own idle-only rendering) isn't enough here either.
+  it('calls suggestSnooze only once even when both clicks land in the same React batch', async () => {
+    const suggestSnooze = vi.fn().mockResolvedValue({until: '2026-07-01T00:00:00.000Z', reason: 'Event soon.'})
+    const reports = {
+      drafts: report('drafts', 'Drafts', {open: [item('d1', {title: 'Draft one'})], suggestSnooze}),
+    }
+    renderList({reports, order: ['drafts']})
+
+    selectItem('Draft one')
+
+    act(() => {
+      fireEvent.click(screen.getByText('snooze.suggest.ask'))
+      fireEvent.click(screen.getByText('snooze.suggest.ask'))
+    })
+
+    expect(await screen.findByText('action.snooze.suggested')).toBeTruthy()
+    expect(suggestSnooze).toHaveBeenCalledTimes(1)
   })
 
   it('renders the "none" state, not silence, when the suggestion resolves null', async () => {

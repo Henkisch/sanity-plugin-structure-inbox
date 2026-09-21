@@ -522,7 +522,17 @@ export function MergedList(props: MergedListProps) {
     [showUndoToast],
   )
 
+  // `busy` drives the disabled state; this ref is what actually closes the
+  // race. Two clicks landing in the same React batch both read the
+  // pre-commit `busy === false`, so a state check alone lets both run the
+  // whole batch — which for this action means every selected row's fix
+  // applied twice, to real shared documents. See `Inbox.tsx`'s own note
+  // above `summarizeInFlightRef` for the full reasoning.
+  const quickFixInFlightRef = useRef(false)
+
   const confirmQuickFix = useCallback(async () => {
+    if (quickFixInFlightRef.current) return
+    quickFixInFlightRef.current = true
     const targets = quickFixableTargets
     setBusy(true)
     try {
@@ -555,6 +565,7 @@ export function MergedList(props: MergedListProps) {
       if (needsReviewCount > 0) parts.push(t('fix.bulkSkipped', {count: needsReviewCount}))
       showUndoToast({title: parts.join(' · ')})
     } finally {
+      quickFixInFlightRef.current = false
       setBusy(false)
     }
   }, [needsReviewCount, quickFixableTargets, reports, showUndoToast, t])
@@ -662,6 +673,10 @@ export function MergedList(props: MergedListProps) {
 
   const [snoozeSuggestion, setSnoozeSuggestion] = useState<SnoozeSuggestionState>({status: 'idle'})
   const snoozeSuggestionRequestRef = useRef(0)
+  // Distinct from the request ref above, which only decides *which response*
+  // wins. This one stops the second *request* — and this call bills a real AI
+  // credit, so a double-click is a double charge.
+  const snoozeSuggestionInFlightRef = useRef(false)
 
   // Reset to idle whenever the single-selected row changes, so a stale
   // suggestion from a previous row never lingers under a new one — same
@@ -680,6 +695,8 @@ export function MergedList(props: MergedListProps) {
   // this file, this must never fire on its own.
   const handleSuggestSnooze = useCallback(() => {
     if (!suggestSnoozeForRow || !singleSelectedRow) return
+    if (snoozeSuggestionInFlightRef.current) return
+    snoozeSuggestionInFlightRef.current = true
     const requestId = ++snoozeSuggestionRequestRef.current
     setSnoozeSuggestion({status: 'loading'})
 
@@ -692,6 +709,9 @@ export function MergedList(props: MergedListProps) {
       .catch((error: unknown) => {
         console.error('[sanity-plugin-structure-inbox] suggest-snooze failed', error)
         if (requestId === snoozeSuggestionRequestRef.current) setSnoozeSuggestion({status: 'error'})
+      })
+      .finally(() => {
+        snoozeSuggestionInFlightRef.current = false
       })
   }, [suggestSnoozeForRow, singleSelectedRow])
 
