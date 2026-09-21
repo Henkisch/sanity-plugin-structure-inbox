@@ -4,9 +4,7 @@ import {useCallback, useMemo} from 'react'
 import {useObservable} from 'react-rx'
 import {defer, from, of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
-// `useUserListWithPermissions` stays out of this named import — see
-// `optionalHook` in `capability.ts`.
-import {useClient, useCurrentUser, useSchema} from 'sanity'
+import {useClient, useSchema} from 'sanity'
 
 import {API_VERSION} from '../../constants'
 import {isHiddenType} from '../AddMenu'
@@ -16,8 +14,7 @@ import {
   type InboxSource,
   type InboxSourceResult,
 } from '../types'
-import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
-import {useAssignableUsers} from './capability'
+import {targetIdFromItemId, useAssignmentCapability} from './assignmentCapability'
 import {liveQuery$} from './liveQuery'
 import {SIMPLE_FIELD_PATH} from './simpleFieldPath'
 
@@ -411,27 +408,15 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
     useItems(): InboxSourceResult {
       const client = useClient({apiVersion: API_VERSION})
       const schema = useSchema()
-      const currentUser = useCurrentUser()
-      const userId = currentUser?.id
       // "Who's fixing this" — a task like any other, delegable even though
       // an asset (unlike a draft) can be referenced by zero or many
       // documents, so there's no single natural owner to fall back to.
-      // Same shared record every assignable source writes through.
-      const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
-      const assignments = useAssignmentStore(client, ASSIGNMENT_TYPE)
-
-      const assigneesById = useMemo(() => {
-        const byId = new Map<string, {id: string; label: string; imageUrl?: string}>()
-        for (const user of assignable ?? []) {
-          const isSelf = user.id === userId
-          byId.set(user.id, {
-            id: user.id,
-            label: user.displayName || user.email || user.id,
-            imageUrl: (isSelf && currentUser?.profileImage) || user.imageUrl,
-          })
-        }
-        return byId
-      }, [assignable, userId, currentUser])
+      // Same shared record every assignable source writes through. `item.id`
+      // is already this source's own row id (see `withAssignee` below) — see
+      // `assignmentCapability.ts`'s own doc comment on `targetIdFromItemId`.
+      const {assigneesById, byTarget, assign} = useAssignmentCapability(client, {
+        targetId: targetIdFromItemId,
+      })
 
       const altEligibleFields = useMemo(() => findAltEligibleImageFields(schema, altFieldName), [schema])
 
@@ -506,7 +491,7 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
       })
 
       const withAssignee = (row: InboxItem): InboxItem => {
-        const assignedTo = assignments.byTarget.get(row.id)
+        const assignedTo = byTarget.get(row.id)
         const assignee = assignedTo ? assigneesById.get(assignedTo) : undefined
         return assignee ? {...row, assignee} : row
       }
@@ -619,32 +604,16 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
         }
 
         return {items: rows, altTargets: targets}
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- `withAssignee` closes over `assignments.byTarget`/`assigneesById`, both already listed; it is redefined every render (not memoized) so including it would just make this dependency list re-describe itself.
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- `withAssignee` closes over `byTarget`/`assigneesById`, both already listed; it is redefined every render (not memoized) so including it would just make this dependency list re-describe itself.
       }, [
         oversized,
         unused,
         missingAlt,
         poorAlt,
         altEligibleFields,
-        assignments.byTarget,
+        byTarget,
         assigneesById,
       ])
-
-      const assign = useMemo(() => {
-        if (!assignable) return undefined
-
-        return {
-          users: assignable
-            .filter((user) => user.granted)
-            .map((user) => ({id: user.id, label: user.displayName || user.email || user.id})),
-          toUser: async (item: InboxItem, assignedTo: string) => {
-            await assignments.assign(item.id, assignedTo)
-          },
-          unassign: async (item: InboxItem) => {
-            await assignments.unassign(item.id)
-          },
-        }
-      }, [assignable, assignments])
 
       const proposeFix = useCallback(
         async (item: InboxItem, fixOptions?: {instantOnly?: boolean}): Promise<FixProposal | null> => {
