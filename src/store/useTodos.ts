@@ -1,4 +1,4 @@
-import {ClientError} from '@sanity/client'
+import {ClientError, type SanityClient} from '@sanity/client'
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {useClient, useCurrentUser} from 'sanity'
 
@@ -43,6 +43,72 @@ export interface Todos {
    * another either.
    */
   transferTo: (id: string, toUserId: string) => Promise<void>
+}
+
+/**
+ * Fetch-merge-write against one todos document, revision-guarded and retried
+ * on conflict rather than a blind `.set()`. Shared by `transferTo` (which
+ * merges a handed-off todo into the recipient's list) and the persist effect
+ * (which merges this editor's own local list over whatever else has landed
+ * since it loaded) — the only two writers of a todos document, and the only
+ * part that differs between them is *how* the fetched server state is merged
+ * with what the caller wants to write, which is why `merge` is a parameter
+ * rather than this being two near-identical copies of the loop.
+ *
+ * A blind `.set()` here is data loss, not a lost preference: a todo is
+ * content the editor typed, with no document behind it, unlike the
+ * dismissals/snoozes/assessments stores, whose last-write-wins is a
+ * deliberate, accepted trade-off (see `useDismissals.ts`). If someone later
+ * "harmonises" the four per-editor stores, that distinction — todos are
+ * authored content, the other three are preferences — is the thing not to
+ * lose.
+ */
+async function writeTodosMerged(
+  client: SanityClient,
+  documentId: string,
+  merge: (serverState: TodosState) => TodosState,
+): Promise<void> {
+  const MAX_ATTEMPTS = 5
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    // This loop IS a fetch-merge-write retry: each attempt must see
+    // whatever the *previous* attempt (or someone else's concurrent
+    // write) actually committed before deciding what to write next, so
+    // the three awaits below are inherently sequential, not a burst to
+    // parallelize — see `mapWithConcurrency` in `projectDigest.ts` for
+    // the same reasoning applied to a different loop.
+    // eslint-disable-next-line no-await-in-loop -- see comment above
+    const existing = await client.fetch<{_rev: string; value: string | null} | null>(
+      `*[_id == $id][0]{_rev, "value": ${TODOS_FIELD}}`,
+      {id: documentId},
+    )
+    const serverState = parseTodos(
+      typeof existing?.value === 'string' ? JSON.parse(existing.value) : null,
+    )
+    const value = JSON.stringify(merge(serverState))
+
+    try {
+      if (existing) {
+        // eslint-disable-next-line no-await-in-loop -- see the comment above the fetch, same reasoning
+        await client
+          .patch(documentId)
+          .ifRevisionId(existing._rev)
+          .set({[TODOS_FIELD]: value})
+          .commit({visibility: 'async'})
+      } else {
+        // eslint-disable-next-line no-await-in-loop -- see the comment above the fetch, same reasoning
+        await client.create(
+          {_id: documentId, _type: TODOS_TYPE, [TODOS_FIELD]: value},
+          {visibility: 'async'},
+        )
+      }
+      return
+    } catch (error) {
+      const isConflict = error instanceof ClientError && error.statusCode === 409
+      if (!isConflict || attempt === MAX_ATTEMPTS) throw error
+      // Otherwise: someone else's write landed first — loop and retry
+      // against a fresh fetch of whatever they just wrote.
+    }
+  }
 }
 
 /**
@@ -96,13 +162,17 @@ export function useTodos(): Todos {
   useEffect(() => {
     if (!dirtyRef.current || !documentId || !loadedRef.current) return
 
-    const value = JSON.stringify(state)
-
-    client
-      .transaction()
-      .createIfNotExists({_id: documentId, _type: TODOS_TYPE, [TODOS_FIELD]: value})
-      .patch(documentId, (patch) => patch.set({[TODOS_FIELD]: value}))
-      .commit({visibility: 'async'})
+    // Fetch-merge-write (see `writeTodosMerged`), not a blind `.set()`: a
+    // second tab (or the same editor on a second device) may have persisted
+    // its own edits to this same document since this tab's copy loaded, and
+    // a blind overwrite would silently discard them. `state` here is this
+    // editor's own local list; the fetched `serverState` is whatever else
+    // has actually landed — merging keeps both rather than one clobbering
+    // the other. Order matters for `mergeTodos`' tie-break: on an id present
+    // in both with no `updatedAt` difference, its first argument wins, so
+    // `serverState` (already-committed work) wins a tie over `state` (this
+    // tab's in-memory copy) rather than the other way around.
+    writeTodosMerged(client, documentId, (serverState) => mergeTodos(serverState, state))
       .then(() => {
         dirtyRef.current = false
         return undefined
@@ -140,56 +210,16 @@ export function useTodos(): Todos {
 
       const toDocumentId = todosDocumentId(toUserId)
 
-      // Fetch-merge-write, revision-guarded and retried on conflict rather
-      // than a blind `.set()` — two `transferTo` calls landing on the same
-      // recipient close together (two editors handing off to the same
-      // third person, or one editor transferring two todos back-to-back)
-      // would otherwise race: the second call's own fetch can read a state
-      // that doesn't yet reflect the first call's still-in-flight write,
-      // and a blind overwrite would silently discard it. A handful of
-      // attempts is enough for that realistic contention; failing after
-      // that is a real, surfaced error rather than an undetectable loss.
-      const MAX_ATTEMPTS = 5
-      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-        // This loop IS a fetch-merge-write retry: each attempt must see
-        // whatever the *previous* attempt (or someone else's concurrent
-        // write) actually committed before deciding what to write next, so
-        // the three awaits below are inherently sequential, not a burst to
-        // parallelize — see `mapWithConcurrency` in `projectDigest.ts` for
-        // the same reasoning applied to a different loop.
-        // eslint-disable-next-line no-await-in-loop -- see comment above
-        const existing = await client.fetch<{_rev: string; value: string | null} | null>(
-          `*[_id == $id][0]{_rev, "value": ${TODOS_FIELD}}`,
-          {id: toDocumentId},
-        )
-        const targetState = parseTodos(
-          typeof existing?.value === 'string' ? JSON.parse(existing.value) : null,
-        )
-        const value = JSON.stringify(withTransferredTodo(targetState, item))
-
-        try {
-          if (existing) {
-            // eslint-disable-next-line no-await-in-loop -- see the comment above the fetch, same reasoning
-            await client
-              .patch(toDocumentId)
-              .ifRevisionId(existing._rev)
-              .set({[TODOS_FIELD]: value})
-              .commit({visibility: 'async'})
-          } else {
-            // eslint-disable-next-line no-await-in-loop -- see the comment above the fetch, same reasoning
-            await client.create(
-              {_id: toDocumentId, _type: TODOS_TYPE, [TODOS_FIELD]: value},
-              {visibility: 'async'},
-            )
-          }
-          break
-        } catch (error) {
-          const isConflict = error instanceof ClientError && error.statusCode === 409
-          if (!isConflict || attempt === MAX_ATTEMPTS) throw error
-          // Otherwise: someone else's write landed first — loop and retry
-          // against a fresh fetch of whatever they just wrote.
-        }
-      }
+      // Two `transferTo` calls landing on the same recipient close together
+      // (two editors handing off to the same third person, or one editor
+      // transferring two todos back-to-back) would otherwise race: the
+      // second call's own fetch can read a state that doesn't yet reflect
+      // the first call's still-in-flight write, and a blind overwrite would
+      // silently discard it. `writeTodosMerged` fetches, merges and retries
+      // on conflict instead.
+      await writeTodosMerged(client, toDocumentId, (serverState) =>
+        withTransferredTodo(serverState, item),
+      )
 
       dirtyRef.current = true
       hasLocalEditRef.current = true
