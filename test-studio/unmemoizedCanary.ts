@@ -59,3 +59,29 @@ export function unmemoizedCanary(): InboxSource {
     },
   }
 }
+
+/**
+ * The same canary as `unmemoizedCanary` above, but in the `aside` column
+ * instead of `main`.
+ *
+ * `InboxSection.tsx` — the `aside` renderer — calls `source.useItems()`
+ * directly with no `useStableItems` wrapping; `SourceFeed.tsx` (the `main`
+ * renderer) is `useStableItems`' only caller. Plan 065's own `InboxSection`
+ * test (`src/inbox/InboxSection.test.tsx`) covers this in vitest already and
+ * found the aside column safe today for a structural reason — it reports
+ * only `open.length`, a number, never the `items` array itself — but that is
+ * exactly the kind of fact that stops being true silently if someone later
+ * changes what `onCount` reports. This export is this workspace's own
+ * from-scratch, this-columns's-own confirmation of the same thing: if an
+ * unmemoized `aside` source ever does take a real Structure tool down, it
+ * will be because that changed, and this is the fixture that would show it.
+ */
+export function unmemoizedAsideCanary(): InboxSource {
+  const canary = unmemoizedCanary()
+  return {
+    ...canary,
+    name: 'unmemoizedAsideCanary',
+    title: 'Unmemoized canary (aside)',
+    placement: 'aside',
+  }
+}
