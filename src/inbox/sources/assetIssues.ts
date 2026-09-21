@@ -470,14 +470,25 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
               return {oversized, unused, missingAlt, poorAlt}
             })(),
           ),
+        ).pipe(
+          // The `map` to `AssetIssuesFetch` now lives inside `read$` itself,
+          // not after `liveQuery$` — so `onFetchError`'s empty result and a
+          // successful fetch's mapped result are the same shape by the time
+          // either reaches `startWith`/`catchError` below.
+          map((result): AssetIssuesFetch => ({...result, loading: false})),
         )
 
         // Any change to an asset or an eligible document type could add,
         // remove, or fix a finding — refetch everything rather than try to
         // patch one check's own result in place.
         const listenTypes = [...ASSET_TYPES, ...altEligibleFields.map((f) => f.documentType)]
-        return liveQuery$(client, `_type in $types`, {types: listenTypes}, read$).pipe(
-          map((result): AssetIssuesFetch => ({...result, loading: false})),
+        return liveQuery$(client, `_type in $types`, {types: listenTypes}, read$, (error) => ({
+          oversized: [],
+          unused: [],
+          missingAlt: [],
+          poorAlt: [],
+          error,
+        })).pipe(
           startWith<AssetIssuesFetch>({oversized: [], unused: [], missingAlt: [], poorAlt: [], loading: true}),
           catchError((error: Error) =>
             of<AssetIssuesFetch>({oversized: [], unused: [], missingAlt: [], poorAlt: [], error}),

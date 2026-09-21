@@ -432,10 +432,18 @@ export function documentValidation(options: DocumentValidationOptions = {}): Inb
 
       const fetch$ = useMemo(() => {
         const params = {limit, types: types ?? null}
-        const readDrafts$ = defer(() => from(client.fetch<Record<string, unknown>[]>(QUERY, params)))
-
-        return liveQuery$(client, '*[_id in path("drafts.**")]', {}, readDrafts$).pipe(
+        // The `map` to `DraftsFetch` now lives inside `readDrafts$` itself,
+        // not after `liveQuery$` — so `onFetchError`'s empty result and a
+        // successful fetch's mapped result are the same shape by the time
+        // either reaches `startWith`/`catchError` below.
+        const readDrafts$ = defer(() => from(client.fetch<Record<string, unknown>[]>(QUERY, params))).pipe(
           map((drafts): DraftsFetch => ({drafts})),
+        )
+
+        return liveQuery$(client, '*[_id in path("drafts.**")]', {}, readDrafts$, (error) => ({
+          drafts: [],
+          error,
+        })).pipe(
           startWith<DraftsFetch>({drafts: [], loading: true}),
           catchError((error: Error) => of<DraftsFetch>({drafts: [], error})),
         )

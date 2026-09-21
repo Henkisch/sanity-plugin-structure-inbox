@@ -1,7 +1,7 @@
 import {TaskIcon} from '@sanity/icons/Task'
 import {useMemo} from 'react'
 import {useObservable} from 'react-rx'
-import {of} from 'rxjs'
+import {defer, of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
 // `useAddonDataset` and `useUserListWithPermissions` stay out of this named
 // import — see `optionalHook` below. `useCurrentUser` is public and stable,
@@ -241,46 +241,64 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
       // eslint-disable-next-line react/purity -- see `unpublishedDrafts.ts`'s own `before`: read once per recompute, not a live clock.
       const clearedSince = new Date(Date.now() - clearedWithinDays * 24 * 60 * 60 * 1000).toISOString()
       const params = {assignedTo, limit, clearedSince}
-      const fetch$ = client.observable.fetch<TaskQueryResult>(QUERY, params)
+      // The `map` to `RawTaskResult` now lives inside `fetch$` itself, not
+      // after `liveQuery$` — so a failed refetch's `onFetchError` value and
+      // a successful fetch's mapped value are the same shape by the time
+      // either reaches `startWith`/`catchError` below. Wrapped in `defer`,
+      // same reasoning as `assignmentStore.ts`'s own `fetch$`: a synchronous
+      // throw building this pipeline becomes a catchable observable error
+      // instead of an exception escaping the `useMemo`.
+      const fetch$ = defer(() =>
+        client.observable.fetch<TaskQueryResult>(QUERY, params).pipe(
+          map(({open, cleared}): RawTaskResult => {
+            const rows = [...open, ...cleared]
+            return {
+              items: rows.map((row): InboxItem => {
+                const subtitleKey = dueSubtitleKey(row.dueBy)
+                return {
+                  id: row._id,
+                  title: row.title || row._id,
+                  subtitle: subtitleKey ? t(subtitleKey) : undefined,
+                  timestamp: row.dueBy || row._updatedAt,
+                  changedAt: row._updatedAt,
+                  tone: isOverdue(row.dueBy) ? 'critical' : 'default',
+                  overdue: isOverdue(row.dueBy),
+                  // A task's own title is thin ("Follow up: X") — the document
+                  // it targets is the substantial thing to look at, so clicking
+                  // the row opens that instead of an editor for the task itself.
+                  intent:
+                    row.targetId && row.targetType
+                      ? {type: 'edit', params: {id: row.targetId, type: row.targetType}}
+                      : undefined,
+                  // Real, Sanity-confirmed evidence, not a dismissal — see `cleared`
+                  // on `InboxItem`. This is the one source that can set it at all.
+                  cleared: row.status === 'closed',
+                }
+              }),
+              // Row-level `assignedTo` from the query, kept alongside `items`
+              // rather than folded into them here: resolving it to a
+              // label/photo needs `assignable` (and the current user's own
+              // profile for a self-match), neither of which this pipe closes
+              // over — see the `items` memo below, the same two-step split
+              // `unpublishedDrafts.ts` uses for the same reason.
+              rowAssignees: new Map(rows.map((row) => [row._id, row.assignedTo])),
+            }
+          }),
+        ),
+      )
 
       // Live rather than fetched once: a task closed, reassigned, or its due
       // date changed by someone else used to only leave (or enter) this list
-      // once the editor navigated away and back.
-      return liveQuery$(client, QUERY, params, fetch$).pipe(
-        map(({open, cleared}): RawTaskResult => {
-          const rows = [...open, ...cleared]
-          return {
-            items: rows.map((row): InboxItem => {
-              const subtitleKey = dueSubtitleKey(row.dueBy)
-              return {
-                id: row._id,
-                title: row.title || row._id,
-                subtitle: subtitleKey ? t(subtitleKey) : undefined,
-                timestamp: row.dueBy || row._updatedAt,
-                changedAt: row._updatedAt,
-                tone: isOverdue(row.dueBy) ? 'critical' : 'default',
-                overdue: isOverdue(row.dueBy),
-                // A task's own title is thin ("Follow up: X") — the document
-                // it targets is the substantial thing to look at, so clicking
-                // the row opens that instead of an editor for the task itself.
-                intent:
-                  row.targetId && row.targetType
-                    ? {type: 'edit', params: {id: row.targetId, type: row.targetType}}
-                    : undefined,
-                // Real, Sanity-confirmed evidence, not a dismissal — see `cleared`
-                // on `InboxItem`. This is the one source that can set it at all.
-                cleared: row.status === 'closed',
-              }
-            }),
-            // Row-level `assignedTo` from the query, kept alongside `items`
-            // rather than folded into them here: resolving it to a
-            // label/photo needs `assignable` (and the current user's own
-            // profile for a self-match), neither of which this pipe closes
-            // over — see the `items` memo below, the same two-step split
-            // `unpublishedDrafts.ts` uses for the same reason.
-            rowAssignees: new Map(rows.map((row) => [row._id, row.assignedTo])),
-          }
-        }),
+      // once the editor navigated away and back. A failed refetch recovers
+      // to the same empty `RawTaskResult` the outer `catchError` below
+      // already used to hand a `listen`-channel error — the live
+      // subscription now survives the far more common refetch failure
+      // instead of dying with it.
+      return liveQuery$(client, QUERY, params, fetch$, (error) => ({
+        items: [],
+        error,
+        rowAssignees: new Map(),
+      })).pipe(
         startWith<RawTaskResult>({items: [], loading: true, rowAssignees: new Map()}),
         catchError((error: Error) => of<RawTaskResult>({items: [], error, rowAssignees: new Map()})),
       )

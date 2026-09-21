@@ -16,6 +16,23 @@ function coldFetch(produce: () => string) {
   })
 }
 
+/**
+ * A cold observable that re-runs `produce` on every subscription and either
+ * emits its result or errors, like `coldFetch` above but for the recovery
+ * tests below, which need some subscriptions to fail and others to succeed.
+ */
+function coldFetchMaybeFailing(produce: () => string | Error) {
+  return new Observable<string>((subscriber) => {
+    const result = produce()
+    if (result instanceof Error) {
+      subscriber.error(result)
+    } else {
+      subscriber.next(result)
+      subscriber.complete()
+    }
+  })
+}
+
 beforeEach(() => {
   vi.useFakeTimers()
 })
@@ -132,5 +149,140 @@ describe('liveQuery$', () => {
     await vi.advanceTimersByTimeAsync(500)
 
     expect(values).toEqual(['rows-1', 'rows-2'])
+  })
+
+  describe('recovering from a failed refetch', () => {
+    it('recovers on the next refetch after one fails, instead of staying dead for the rest of the session', async () => {
+      const events = new Subject<unknown>()
+      const client = fakeClient(events)
+      let call = 0
+      const values: string[] = []
+
+      liveQuery$(
+        client,
+        'QUERY',
+        {},
+        coldFetchMaybeFailing(() => {
+          call += 1
+          return call === 1 ? new Error('transient 503') : `rows-${call}`
+        }),
+        (error) => `error: ${error.message}`,
+      ).subscribe((v) => values.push(v))
+
+      // First fetch (the initial, unconditional one) fails.
+      await vi.advanceTimersByTimeAsync(500)
+      expect(values).toEqual(['error: transient 503'])
+
+      // A second `listen` event triggers a second refetch, which succeeds.
+      // Before this plan, the first failure would have terminated the whole
+      // observable and this value would never arrive.
+      events.next({type: 'mutation'})
+      await vi.advanceTimersByTimeAsync(500)
+
+      expect(values).toEqual(['error: transient 503', 'rows-2'])
+    })
+
+    it('does not complete the stream when a refetch fails', async () => {
+      const events = new Subject<unknown>()
+      const client = fakeClient(events)
+      const completeSpy = vi.fn()
+
+      liveQuery$(
+        client,
+        'QUERY',
+        {},
+        coldFetchMaybeFailing(() => new Error('boom')),
+        () => 'recovered',
+      ).subscribe({complete: completeSpy})
+
+      await vi.advanceTimersByTimeAsync(500)
+
+      expect(completeSpy).not.toHaveBeenCalled()
+    })
+
+    it('recovers more than once — fail, succeed, fail, succeed', async () => {
+      const events = new Subject<unknown>()
+      const client = fakeClient(events)
+      let call = 0
+      const values: string[] = []
+
+      // Odd calls fail, even calls succeed — this is the shape that catches
+      // a missing `defer`: without it, the underlying observable is only
+      // ever subscribed to (and its error replayed) once, so a *second*
+      // recovery after a *second* failure would not actually re-run the
+      // fetch.
+      liveQuery$(
+        client,
+        'QUERY',
+        {},
+        coldFetchMaybeFailing(() => {
+          call += 1
+          return call % 2 === 1 ? new Error(`fail-${call}`) : `rows-${call}`
+        }),
+        (error) => error.message,
+      ).subscribe((v) => values.push(v))
+
+      await vi.advanceTimersByTimeAsync(500) // call 1: fails
+      expect(values).toEqual(['fail-1'])
+
+      events.next({type: 'mutation'})
+      await vi.advanceTimersByTimeAsync(500) // call 2: succeeds
+      expect(values).toEqual(['fail-1', 'rows-2'])
+
+      events.next({type: 'mutation'})
+      await vi.advanceTimersByTimeAsync(500) // call 3: fails again
+      expect(values).toEqual(['fail-1', 'rows-2', 'fail-3'])
+
+      events.next({type: 'mutation'})
+      await vi.advanceTimersByTimeAsync(500) // call 4: succeeds again
+      expect(values).toEqual(['fail-1', 'rows-2', 'fail-3', 'rows-4'])
+    })
+
+    it('propagates a failed fetch when no onFetchError is supplied, preserving existing behaviour for an unmigrated caller', async () => {
+      const events = new Subject<unknown>()
+      const client = fakeClient(events)
+      const values: string[] = []
+      const errors: unknown[] = []
+
+      liveQuery$(client, 'QUERY', {}, coldFetchMaybeFailing(() => new Error('boom'))).subscribe({
+        next: (v) => values.push(v),
+        error: (e) => errors.push(e),
+      })
+
+      await vi.advanceTimersByTimeAsync(500)
+
+      expect(values).toEqual([])
+      expect(errors).toHaveLength(1)
+      expect((errors[0] as Error).message).toBe('boom')
+    })
+
+    it('still propagates a listen-channel error to the outer pipe, even with onFetchError supplied', async () => {
+      const events = new Subject<unknown>()
+      const client = fakeClient(events)
+      const values: string[] = []
+      const errors: unknown[] = []
+
+      liveQuery$(
+        client,
+        'QUERY',
+        {},
+        coldFetch(() => 'rows'),
+        () => 'recovered-from-fetch-error',
+      ).subscribe({
+        next: (v) => values.push(v),
+        error: (e) => errors.push(e),
+      })
+
+      await vi.advanceTimersByTimeAsync(500)
+      expect(values).toEqual(['rows'])
+
+      // The `listen` channel itself errors — not a fetch failure. This is
+      // not what `onFetchError` guards against, so it must still reach the
+      // consumer's own outer `catchError`.
+      events.error(new Error('listen channel died'))
+
+      expect(errors).toHaveLength(1)
+      expect((errors[0] as Error).message).toBe('listen channel died')
+    })
   })
 })
