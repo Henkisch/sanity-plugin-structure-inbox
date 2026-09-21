@@ -2,6 +2,7 @@ import {ClientError} from '@sanity/client'
 import {act, cleanup, renderHook, waitFor} from '@testing-library/react'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
+import {parseTodos} from './todos'
 import {useTodos} from './useTodos'
 
 function deferred<T>() {
@@ -104,14 +105,20 @@ function clientForTodosDocument(
   return {fetch, patch, create, ifRevisionCalls}
 }
 
-const {useClientMock} = vi.hoisted(() => ({useClientMock: vi.fn()}))
+const {useClientMock, useCurrentUserMock} = vi.hoisted(() => ({
+  useClientMock: vi.fn(),
+  // A hoisted mock rather than an inline `vi.fn(() => ({id: 'user-1'}))`, so
+  // a test can override which editor is "current" — needed to prove two
+  // different editors get two different document ids.
+  useCurrentUserMock: vi.fn(() => ({id: 'user-1'})),
+}))
 
 vi.mock('sanity', async (importOriginal) => {
   const actual = await importOriginal<typeof import('sanity')>()
   return {
     ...actual,
     useClient: useClientMock,
-    useCurrentUser: vi.fn(() => ({id: 'user-1'})),
+    useCurrentUser: useCurrentUserMock,
   }
 })
 
@@ -120,6 +127,10 @@ const DOCUMENT_ID = 'structureInbox.todos.user-1'
 afterEach(() => {
   cleanup()
   useClientMock.mockReset()
+  // Restore the default editor identity for every other test in the file —
+  // only the distinct-id test below ever changes it.
+  useCurrentUserMock.mockReset()
+  useCurrentUserMock.mockImplementation(() => ({id: 'user-1'}))
 })
 
 describe('useTodos', () => {
@@ -152,6 +163,54 @@ describe('useTodos', () => {
 
     await waitFor(() => expect(doc.getItems()).toHaveLength(1))
     expect((doc.getItems()[0] as {title: string}).title).toBe('Write the launch email')
+
+    // The real shape: a per-editor document id derived from the user id, and
+    // the (unregistered) document type this hook writes. Hardcoded rather
+    // than recomputed the way the implementation builds it, so a dropped
+    // user suffix — every editor colliding on one shared document — would
+    // actually fail this assertion instead of passing along with it. No
+    // existing document yet, so this write goes through `create`, not `patch`.
+    expect(client.create).toHaveBeenCalledTimes(1)
+    const written = client.create.mock.calls[0][0] as unknown as {
+      _id: string
+      _type: string
+      items: string
+    }
+    expect(written._id).toBe('structureInbox.todos.user-1')
+    expect(written._type).toBe('structureInbox.todos')
+
+    // The payload round-trips: what the hook sent to `create(...)` parses
+    // back into exactly the state `add()` produced.
+    expect(parseTodos(JSON.parse(written.items))).toEqual(result.current.state)
+  })
+
+  it('writes to a document id unique to this editor, never a shared one', async () => {
+    useCurrentUserMock.mockReturnValue({id: 'user-1'})
+    const docA = fakeTodosDocument()
+    const clientA = clientForTodosDocument(docA, 'structureInbox.todos.user-1')
+    useClientMock.mockReturnValue(clientA)
+
+    const {result: resultA, unmount: unmountA} = renderHook(() => useTodos())
+    await waitFor(() => expect(clientA.fetch).toHaveBeenCalled())
+    act(() => resultA.current.add({title: 'Write the launch email'}))
+    await waitFor(() => expect(docA.getItems()).toHaveLength(1))
+    const idA = (clientA.create.mock.calls[0][0] as {_id: string})._id
+    unmountA()
+
+    useCurrentUserMock.mockReturnValue({id: 'user-2'})
+    const docB = fakeTodosDocument()
+    const clientB = clientForTodosDocument(docB, 'structureInbox.todos.user-2')
+    useClientMock.mockReturnValue(clientB)
+
+    const {result: resultB} = renderHook(() => useTodos())
+    await waitFor(() => expect(clientB.fetch).toHaveBeenCalled())
+    act(() => resultB.current.add({title: 'Write the launch email'}))
+    await waitFor(() => expect(docB.getItems()).toHaveLength(1))
+    const idB = (clientB.create.mock.calls[0][0] as {_id: string})._id
+
+    expect(idA).toBe('structureInbox.todos.user-1')
+    expect(idB).toBe('structureInbox.todos.user-2')
+    expect(idA).not.toBe(idB)
   })
 
   it('does not persist over a read it never actually saw', async () => {
@@ -167,7 +226,12 @@ describe('useTodos', () => {
 
     act(() => result.current.add({title: 'Write the launch email'}))
 
-    await new Promise((r) => setTimeout(r, 10))
+    // Let the hook's own `.catch()` run to completion — deterministically,
+    // not by outrunning a real 10ms timer — before confirming `loadedRef`
+    // never settled, so the persist effect never got to write.
+    await client.fetch.mock.results[0].value.catch(() => undefined)
+    await Promise.resolve()
+
     expect(client.patch).not.toHaveBeenCalled()
     expect(client.create).not.toHaveBeenCalled()
   })
