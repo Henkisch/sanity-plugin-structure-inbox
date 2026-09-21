@@ -485,10 +485,18 @@ export function Inbox({
       return next
     })
   }, [])
+  // Keyed by source name: several `main` sources can each offer an action
+  // (see the note above `actionSources`), so one boolean would let a second
+  // source's action be swallowed by the first's. State alone is not enough
+  // for the same-batch case either — see `summarizeInFlightRef`.
+  const runningActionsRef = useRef<Set<string>>(new Set())
+
   const runSourceAction = useCallback((report: SourceReport) => {
     const {action} = report
     if (!action) return
     const {name} = report.source
+    if (runningActionsRef.current.has(name)) return
+    runningActionsRef.current.add(name)
     setRunningActions((current) => ({...current, [name]: true}))
     dismissActionResult(name)
     action
@@ -502,6 +510,7 @@ export function Inbox({
         setActionResults((current) => ({...current, [name]: {status: 'error'}}))
       })
       .finally(() => {
+        runningActionsRef.current.delete(name)
         setRunningActions((current) => ({...current, [name]: false}))
       })
   }, [dismissActionResult])
