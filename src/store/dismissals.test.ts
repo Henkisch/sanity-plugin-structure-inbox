@@ -39,6 +39,40 @@ describe('parseDismissals', () => {
 
     expect(Object.keys(parsed.dismissed)).toEqual(['good'])
   })
+
+  it('parses a stored value with no `removed` field — the shape every document written before tombstones existed has', () => {
+    // The backwards-compatibility gate: without this, an upgrade would need
+    // every existing editor's stored document to already carry the new
+    // field, which none of them do.
+    const stored = {version: 1, dismissed: {drafts: {'doc-1': '2026-01-01T00:00:00.000Z'}}}
+
+    const parsed = parseDismissals(stored)
+
+    expect(parsed).toEqual({version: 1, dismissed: {drafts: {'doc-1': '2026-01-01T00:00:00.000Z'}}})
+    expect(parsed.removed).toBeUndefined()
+  })
+
+  it('drops individual removed sources that are the wrong shape, keeping dismissed intact', () => {
+    const parsed = parseDismissals({
+      version: 1,
+      dismissed: {good: {'item-1': '2026-01-01T00:00:00.000Z'}},
+      removed: {good: {'item-2': 42}},
+    })
+
+    expect(parsed.removed).toBeUndefined()
+  })
+
+  it('round-trips a tombstone', () => {
+    const stored = withoutDismissal(
+      withDismissal(EMPTY_DISMISSALS, 'tasks', 'task-1', '2026-01-01T00:00:00.000Z'),
+      'tasks',
+      'task-1',
+      '2026-01-02T00:00:00.000Z',
+    )
+
+    expect(parseDismissals(stored)).toEqual(stored)
+    expect(stored.removed).toEqual({tasks: {'task-1': '2026-01-02T00:00:00.000Z'}})
+  })
 })
 
 describe('pruneDismissals', () => {
@@ -101,6 +135,38 @@ describe('pruneDismissals', () => {
     }
 
     expect(pruneDismissals(state, now).dismissed).toEqual({})
+  })
+
+  it('prunes tombstones on the same TTL as entries', () => {
+    const state = {
+      version: 1 as const,
+      dismissed: {},
+      removed: {drafts: {fresh: iso(1), stale: iso(DISMISSAL_TTL_DAYS + 1)}},
+    }
+
+    expect(pruneDismissals(state, now).removed).toEqual({drafts: {fresh: iso(1)}})
+  })
+
+  it('drops the `removed` field entirely once every tombstone has expired', () => {
+    const state = {
+      version: 1 as const,
+      dismissed: {},
+      removed: {drafts: {old: iso(365)}},
+    }
+
+    expect(pruneDismissals(state, now).removed).toBeUndefined()
+  })
+
+  it('exempts a never-expire source\'s tombstones from the TTL too', () => {
+    const state = {
+      version: 1 as const,
+      dismissed: {},
+      removed: {todos: {old: iso(DISMISSAL_TTL_DAYS + 1)}},
+    }
+
+    expect(pruneDismissals(state, now, ['todos']).removed).toEqual({
+      todos: {old: iso(DISMISSAL_TTL_DAYS + 1)},
+    })
   })
 })
 
@@ -235,5 +301,51 @@ describe('mergeDismissals', () => {
 
     expect(mergeDismissals(EMPTY_DISMISSALS, state)).toEqual(state)
     expect(mergeDismissals(state, EMPTY_DISMISSALS)).toEqual(state)
+  })
+
+  describe('tombstones', () => {
+    it('the regression: a key removed locally stays removed after merging a server value that still has it', () => {
+      const server = withDismissal(EMPTY_DISMISSALS, 'drafts', 'doc-1', '2026-01-01T00:00:00.000Z')
+      const local = withoutDismissal(server, 'drafts', 'doc-1', '2026-01-02T00:00:00.000Z')
+
+      const merged = mergeDismissals(server, local)
+
+      expect(merged.dismissed.drafts?.['doc-1']).toBeUndefined()
+    })
+
+    it('the inverse still works: a key the local side has never seen is adopted from the server', () => {
+      const server = withDismissal(EMPTY_DISMISSALS, 'drafts', 'doc-1', '2026-01-01T00:00:00.000Z')
+
+      const merged = mergeDismissals(server, EMPTY_DISMISSALS)
+
+      expect(merged.dismissed.drafts?.['doc-1']).toBe('2026-01-01T00:00:00.000Z')
+    })
+
+    it('a tombstone older than a server entry loses, because the entry was re-created after the removal', () => {
+      const removedEarly = withoutDismissal(EMPTY_DISMISSALS, 'drafts', 'doc-1', '2026-01-01T00:00:00.000Z')
+      const reDismissedLater = withDismissal(EMPTY_DISMISSALS, 'drafts', 'doc-1', '2026-01-02T00:00:00.000Z')
+
+      const merged = mergeDismissals(removedEarly, reDismissedLater)
+
+      expect(merged.dismissed.drafts?.['doc-1']).toBe('2026-01-02T00:00:00.000Z')
+      expect(merged.removed?.drafts?.['doc-1']).toBeUndefined()
+    })
+
+    it('a tombstone newer than a server entry wins, keeping the item removed', () => {
+      const dismissedEarly = withDismissal(EMPTY_DISMISSALS, 'drafts', 'doc-1', '2026-01-01T00:00:00.000Z')
+      const removedLater = withoutDismissal(EMPTY_DISMISSALS, 'drafts', 'doc-1', '2026-01-02T00:00:00.000Z')
+
+      const merged = mergeDismissals(dismissedEarly, removedLater)
+
+      expect(merged.dismissed.drafts?.['doc-1']).toBeUndefined()
+      expect(merged.removed?.drafts?.['doc-1']).toBe('2026-01-02T00:00:00.000Z')
+    })
+
+    it('omits `removed` entirely when nothing is tombstoned', () => {
+      const a = withDismissal(EMPTY_DISMISSALS, 'drafts', 'doc-1', '2026-01-01T00:00:00.000Z')
+      const b = withDismissal(EMPTY_DISMISSALS, 'releases', 'rel-1', '2026-01-02T00:00:00.000Z')
+
+      expect(mergeDismissals(a, b).removed).toBeUndefined()
+    })
   })
 })

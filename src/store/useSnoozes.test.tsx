@@ -94,6 +94,38 @@ describe('useSnoozes', () => {
     expect(result.current.state.snoozed.tasks?.['task-1']).toBeTruthy()
   })
 
+  it('keeps a "Wake now" made before a late load resolves, instead of resurrecting the snooze', async () => {
+    // The regression this plan exists for: the server still has the item
+    // snoozed (from before this mount, still active), the editor wakes it
+    // locally, and then the in-flight load resolves with that stale snoozed
+    // value. A pure-union merge would put it right back.
+    const fetch = deferred<string | null>()
+    const {client} = mockClient(fetch.promise)
+    useClientMock.mockReturnValue(client)
+    const until = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+
+    const {result} = renderHook(() => useSnoozes())
+
+    act(() => result.current.snooze('tasks', 'task-1', until))
+    act(() => result.current.wake('tasks', 'task-1'))
+    expect(result.current.state.snoozed.tasks?.['task-1']).toBeUndefined()
+
+    // The stale server value: set before the local wake.
+    const staleServerValue = JSON.stringify({
+      version: 1,
+      snoozed: {tasks: {'task-1': {at: '2020-01-01T00:00:00.000Z', until}}},
+    })
+    fetch.resolve(staleServerValue)
+    // Await the promise itself, not just `waitFor(client.fetch called)` —
+    // that's already true from the initial mount and would let this
+    // assertion race ahead of the merge's `.then()` actually running.
+    await act(async () => {
+      await fetch.promise
+    })
+
+    expect(result.current.state.snoozed.tasks?.['task-1']).toBeUndefined()
+  })
+
   it('persists a snooze once the load has settled', async () => {
     const {client, transaction} = mockClient(Promise.resolve(null))
     useClientMock.mockReturnValue(client)
