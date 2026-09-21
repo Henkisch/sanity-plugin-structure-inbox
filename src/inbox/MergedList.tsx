@@ -25,6 +25,7 @@ import {
 } from './SelectionActions'
 import {type SourceReport} from './SourceFeed'
 import {type InboxItem, type InboxView} from './types'
+import {useAiRead} from './useAiRead'
 import {EXIT_ANIMATION_MS, useUndoToast} from './useUndoToast'
 import {mapWithConcurrency} from './concurrency'
 
@@ -526,8 +527,8 @@ export function MergedList(props: MergedListProps) {
   // race. Two clicks landing in the same React batch both read the
   // pre-commit `busy === false`, so a state check alone lets both run the
   // whole batch — which for this action means every selected row's fix
-  // applied twice, to real shared documents. See `Inbox.tsx`'s own note
-  // above `summarizeInFlightRef` for the full reasoning.
+  // applied twice, to real shared documents. See `useAiRead.ts`'s own
+  // doc comment for the general in-flight-ref-vs-state reasoning.
   const quickFixInFlightRef = useRef(false)
 
   const confirmQuickFix = useCallback(async () => {
@@ -671,12 +672,31 @@ export function MergedList(props: MergedListProps) {
     ? reports[singleSelectedRow.sourceName]?.suggestSnooze
     : undefined
 
-  const [snoozeSuggestion, setSnoozeSuggestion] = useState<SnoozeSuggestionState>({status: 'idle'})
-  const snoozeSuggestionRequestRef = useRef(0)
-  // Distinct from the request ref above, which only decides *which response*
-  // wins. This one stops the second *request* — and this call bills a real AI
-  // credit, so a double-click is a double charge.
-  const snoozeSuggestionInFlightRef = useRef(false)
+  // The AI genuinely finding no date to suggest is a real, non-error
+  // outcome (`SnoozeSuggestionState`'s own `'none'` status below) — distinct
+  // from `useAiRead`'s own `null`-means-`'error'` convention (see its doc
+  // comment), so a resolved "nothing to suggest" is encoded inside `T`
+  // (`found: false`) instead of as `null`, and mapped to `'none'` only in
+  // the `snoozeSuggestion` derivation just below.
+  const runSuggestSnooze = useCallback(async (): Promise<
+    {found: true; until: string; reason?: string} | {found: false} | null
+  > => {
+    // Belt-and-suspenders against a direct call some other code path might
+    // make: `handleSuggestSnooze` below already guards on the same
+    // condition before ever calling `start()`.
+    if (!suggestSnoozeForRow || !singleSelectedRow) return null
+    const result = await suggestSnoozeForRow(singleSelectedRow.item)
+    return result ? {found: true, ...result} : {found: false}
+  }, [suggestSnoozeForRow, singleSelectedRow])
+
+  const snoozeSuggestionRead = useAiRead(runSuggestSnooze, 'suggest-snooze failed')
+
+  const snoozeSuggestion: SnoozeSuggestionState =
+    snoozeSuggestionRead.state.status === 'done'
+      ? snoozeSuggestionRead.state.data.found
+        ? {status: 'done', until: snoozeSuggestionRead.state.data.until, reason: snoozeSuggestionRead.state.data.reason}
+        : {status: 'none'}
+      : snoozeSuggestionRead.state
 
   // Reset to idle whenever the single-selected row changes, so a stale
   // suggestion from a previous row never lingers under a new one — same
@@ -685,7 +705,8 @@ export function MergedList(props: MergedListProps) {
   // that only ever happens from `handleSuggestSnooze`, below, on an explicit
   // click.
   useEffect(() => {
-    setSnoozeSuggestion({status: 'idle'})
+    snoozeSuggestionRead.reset()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `snoozeSuggestionRead.reset` is referentially stable; `snoozeSuggestionRead` itself is not.
   }, [singleSelectedRow?.key])
 
   // The one place `suggestSnooze` is ever actually called — an explicit
@@ -695,24 +716,8 @@ export function MergedList(props: MergedListProps) {
   // this file, this must never fire on its own.
   const handleSuggestSnooze = useCallback(() => {
     if (!suggestSnoozeForRow || !singleSelectedRow) return
-    if (snoozeSuggestionInFlightRef.current) return
-    snoozeSuggestionInFlightRef.current = true
-    const requestId = ++snoozeSuggestionRequestRef.current
-    setSnoozeSuggestion({status: 'loading'})
-
-    suggestSnoozeForRow(singleSelectedRow.item)
-      .then((result) => {
-        if (requestId !== snoozeSuggestionRequestRef.current) return undefined
-        setSnoozeSuggestion(result ? {status: 'done', ...result} : {status: 'none'})
-        return undefined
-      })
-      .catch((error: unknown) => {
-        console.error('[sanity-plugin-structure-inbox] suggest-snooze failed', error)
-        if (requestId === snoozeSuggestionRequestRef.current) setSnoozeSuggestion({status: 'error'})
-      })
-      .finally(() => {
-        snoozeSuggestionInFlightRef.current = false
-      })
+    snoozeSuggestionRead.start()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `snoozeSuggestionRead.start` is referentially stable; `snoozeSuggestionRead` itself is not.
   }, [suggestSnoozeForRow, singleSelectedRow])
 
   // The trigger and its resolved state are only ever meaningful together —
