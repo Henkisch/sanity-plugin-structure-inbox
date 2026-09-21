@@ -14,6 +14,7 @@ import {parseSnoozeSuggestion} from '../../ai/snoozeSuggestion'
 import {useAgentClient} from '../../ai/useAgentClient'
 import {API_VERSION} from '../../constants'
 import {type SnoozeState} from '../../store/snoozes'
+import {warnOnce} from '../../warnOnce'
 import {splitItems} from '../splitItems'
 import {type InboxAssessment, type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
@@ -208,7 +209,25 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
               rows.map((row) => row._id),
               userId,
             ),
-          ).pipe(map((mine) => rows.filter((row) => mine.has(row._id)).slice(0, limit)))
+          ).pipe(
+            map((mine) => rows.filter((row) => mine.has(row._id)).slice(0, limit)),
+            catchError((error: unknown) => {
+              // The source's own posture, two branches up: listing everything
+              // beats listing nothing. A failed history read should cost the
+              // `onlyMine` filter, not the whole card — the history endpoint
+              // varies by plan and retention, and this batches up to
+              // `limit * ONLY_MINE_OVERFETCH_MULTIPLIER` ids into one URL.
+              warnOnce(
+                'unpublishedDrafts could not read document history, so `onlyMine` is not being applied — ' +
+                  "showing everyone's drafts instead of none.",
+              )
+              console.error('[sanity-plugin-structure-inbox] onlyMine filter failed', error)
+              // The over-fetch (`ONLY_MINE_OVERFETCH_MULTIPLIER`) exists only
+              // because the filter is expected to remove rows — without this
+              // cap, a failure would show up to 5x the requested count.
+              return of(rows.slice(0, limit))
+            }),
+          )
         }),
         map((rows): InboxSourceResult => ({items: rows.map(toItem)})),
       )
@@ -355,7 +374,20 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
           // that person isn't (or is no longer) assignable, the same
           // fallback `assignedTo` already gets elsewhere in this source.
           suggestAssignee: async (item: InboxItem) => {
-            const authors = await fetchDocumentAuthors(client, [item.id])
+            let authors: Map<string, string[]>
+            try {
+              authors = await fetchDocumentAuthors(client, [item.id])
+            } catch (error) {
+              // No suggestion beats a wrong one, and beats an error the
+              // editor cannot act on: this is an optional convenience on top
+              // of the same history endpoint `onlyMine` reads, so the same
+              // degradation applies — lose the feature, not the row.
+              warnOnce(
+                'unpublishedDrafts could not read document history, so suggestAssignee is unavailable.',
+              )
+              console.error('[sanity-plugin-structure-inbox] suggestAssignee history read failed', error)
+              return null
+            }
             const mostRecentAuthor = authors.get(item.id)?.[0]
             if (!mostRecentAuthor || !grantedIds.has(mostRecentAuthor)) return null
             return {userId: mostRecentAuthor, reason: 'lastEditor' as const}

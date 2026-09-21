@@ -1,9 +1,10 @@
 import {type SanityClient} from '@sanity/client'
 import {cleanup, renderHook, waitFor} from '@testing-library/react'
 import {of, Subject} from 'rxjs'
-import {afterEach, describe, expect, it, vi} from 'vitest'
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {EMPTY_SNOOZES} from '../../store/snoozes'
+import {resetWarnings} from '../../warnOnce'
 import {typeDisplayName, unpublishedDrafts} from './unpublishedDrafts'
 
 interface DraftRow {
@@ -69,14 +70,37 @@ function stubClient(allRows: DraftRow[], userId: string, authoredIds: string[]) 
   return {client, observableFetch, request, prompt}
 }
 
+/**
+ * Just the fields `unpublishedDrafts.ts` actually reads off an assignable
+ * user (`.granted`, `.displayName`, `.email`, `.imageUrl`, `.id`) — not the
+ * full, `@beta` `UserWithPermission` shape, which needs a real Studio `User`
+ * this test has no business constructing.
+ */
+interface StubAssignableUser {
+  id: string
+  displayName?: string
+  email?: string
+  imageUrl?: string
+  granted: boolean
+}
+
 // A single stable reference, not a fresh object per render: `useDraftFetch`'s
 // own `useMemo` depends on `[client, schema, userId]`, so a `useSchema` mock
 // that returned a new object every call would recompute (and re-subscribe)
 // the whole fetch pipeline on every render, forever.
-const {useClientMock, stableSchema} = vi.hoisted(() => ({
-  useClientMock: vi.fn(),
-  stableSchema: {get: () => undefined},
-}))
+const {useClientMock, stableSchema, useAssignableUsersMock} = vi.hoisted(() => {
+  return {
+    useClientMock: vi.fn(),
+    stableSchema: {get: () => undefined},
+    // A `vi.fn()`, not a plain arrow, so the `suggestAssignee` degradation
+    // test below can override it to return a real, granted user for one test
+    // and nothing else has to change: every other test still gets the same
+    // `{data: undefined}` this returns by default. Typed explicitly (rather
+    // than inferred from the default `{data: undefined}` literal) so
+    // `mockReturnValue` can later be given a real user array.
+    useAssignableUsersMock: vi.fn<() => {data: StubAssignableUser[] | undefined}>(() => ({data: undefined})),
+  }
+})
 
 vi.mock('sanity', async (importOriginal) => {
   const actual = await importOriginal<typeof import('sanity')>()
@@ -95,7 +119,7 @@ vi.mock('sanity', async (importOriginal) => {
 // these assertions are about assignment.
 vi.mock('./capability', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./capability')>()),
-  useAssignableUsers: () => ({data: undefined}),
+  useAssignableUsers: useAssignableUsersMock,
 }))
 
 afterEach(() => {
@@ -105,6 +129,10 @@ afterEach(() => {
   // later test.
   cleanup()
   useClientMock.mockReset()
+  // Restore the default `{data: undefined}` rather than `mockReset()`: the
+  // latter would leave the mock with no implementation at all, and
+  // `useItems()` destructures its return value unconditionally.
+  useAssignableUsersMock.mockReturnValue({data: undefined})
 })
 
 describe('unpublishedDrafts onlyMine over-fetch', () => {
@@ -158,6 +186,96 @@ describe('unpublishedDrafts onlyMine over-fetch', () => {
     renderHook(() => source.useOpenCount!(EMPTY_SNOOZES, Date.now()))
 
     expect(observableFetch).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({limit: 4}))
+  })
+})
+
+// Plan 080: a failed `onlyMine` history read used to reach the outer
+// `catchError` and turn the whole card into `{items: [], error}` — the
+// filter's own failure, not the query's, costing the entire card. These
+// assert the degradation instead: the enrichment (`onlyMine`, `suggestAssignee`)
+// degrades, the underlying rows do not disappear.
+describe('unpublishedDrafts — onlyMine degrades instead of erroring', () => {
+  beforeEach(() => {
+    resetWarnings()
+  })
+
+  afterEach(() => {
+    cleanup()
+    useClientMock.mockReset()
+    useAssignableUsersMock.mockReturnValue({data: undefined})
+  })
+
+  it('still returns rows, with no error, when the onlyMine history read rejects', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const allRows = makeRows(5, new Set([4]))
+    const {client, request} = stubClient(allRows, 'user-1', ['drafts.doc-4'])
+    request.mockRejectedValue(new Error('history endpoint unavailable'))
+    useClientMock.mockReturnValue(client)
+
+    const source = unpublishedDrafts({onlyMine: true, limit: 2})
+    const {result} = renderHook(() => source.useItems())
+
+    await waitFor(() => expect(result.current.items.length).toBeGreaterThan(0))
+    // The bug this plan fixes is exactly this combination: `{items: [], error}`.
+    expect(result.current.items.length).toBeGreaterThan(0)
+    expect(result.current.error).toBeUndefined()
+  })
+
+  it('caps the degraded fallback at limit, not the over-fetched raw limit', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const allRows = makeRows(15, new Set())
+    const {client, request} = stubClient(allRows, 'user-1', [])
+    request.mockRejectedValue(new Error('history endpoint unavailable'))
+    useClientMock.mockReturnValue(client)
+
+    const source = unpublishedDrafts({onlyMine: true, limit: 3})
+    const {result} = renderHook(() => source.useItems())
+
+    await waitFor(() => expect(result.current.items.length).toBeGreaterThan(0))
+    expect(result.current.items.length).toBe(3)
+  })
+
+  it('warns once via warnOnce rather than spamming console.warn', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const allRows = makeRows(3, new Set())
+    const {client, request} = stubClient(allRows, 'user-1', [])
+    request.mockRejectedValue(new Error('history endpoint unavailable'))
+    useClientMock.mockReturnValue(client)
+
+    const source = unpublishedDrafts({onlyMine: true, limit: 2})
+    const {result} = renderHook(() => source.useItems())
+
+    await waitFor(() => expect(result.current.items.length).toBeGreaterThan(0))
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  // The happy path (filter succeeds) is already covered end to end by
+  // `unpublishedDrafts onlyMine over-fetch` above — its first two `it`s
+  // assert exact post-filter counts — so this block only adds the failure
+  // path, not a duplicate of the success path.
+
+  it('suggestAssignee resolves with no suggestion, rather than rejecting, when the author history read fails', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    useAssignableUsersMock.mockReturnValue({
+      data: [{id: 'user-1', displayName: 'User One', email: 'user-1@example.com', granted: true}],
+    })
+
+    const allRows = makeRows(1, new Set())
+    const {client, request} = stubClient(allRows, 'user-1', [])
+    request.mockRejectedValue(new Error('history endpoint unavailable'))
+    useClientMock.mockReturnValue(client)
+
+    const source = unpublishedDrafts({})
+    const {result} = renderHook(() => source.useItems())
+
+    await waitFor(() => expect(result.current.items.length).toBeGreaterThan(0))
+    expect(result.current.assign).toBeDefined()
+
+    await expect(result.current.assign?.suggestAssignee?.(result.current.items[0])).resolves.toBeNull()
   })
 })
 
