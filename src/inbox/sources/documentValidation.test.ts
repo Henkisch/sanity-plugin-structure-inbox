@@ -1,4 +1,5 @@
-import {describe, expect, it} from 'vitest'
+import {type SanityClient} from '@sanity/client'
+import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {
   collectReferenceIds,
@@ -7,8 +8,20 @@ import {
   formatValidationPath,
   toFocusPath,
   mapWithConcurrency,
+  runValidation,
   summarizeErrors,
 } from './documentValidation'
+
+// `runValidation` is a plain async function, not a hook — see its own doc
+// comment — so it can be exercised directly with a stub client and a mocked
+// `@sanity/validation`, the same reasoning `openTasks.test.ts`'s
+// `dueSubtitleKey` comment gives for why this file's own tests avoid
+// rendering `useItems()`.
+const {validateDocumentMock} = vi.hoisted(() => ({validateDocumentMock: vi.fn()}))
+
+vi.mock('@sanity/validation', () => ({
+  validateDocument: validateDocumentMock,
+}))
 
 // Plan 040: the factory's own `title` is now a translation key by default —
 // no need to render `useItems()` (or mock its `useClient`/`useSchema`
@@ -143,6 +156,128 @@ describe('mapWithConcurrency', () => {
     })
     expect(results).toEqual([])
     expect(calls).toBe(0)
+  })
+})
+
+// Plan 069: the existence prefetch (`client.fetch`) and the validation pass
+// (`mapWithConcurrency`) were both awaited with no `try`/`catch`, inside a
+// `void run()` with no `.catch`. A rejection anywhere left `results` as it
+// was — empty on a cold pane — so the source emitted zero rows while
+// `loading` was already `false` and `error` was `undefined`: a confident
+// "no validation problems" card when drafts were really failing, or when the
+// run itself never completed.
+describe('runValidation', () => {
+  afterEach(() => {
+    validateDocumentMock.mockReset()
+  })
+
+  function stubClient(fetchImpl: () => Promise<string[]>) {
+    return {fetch: vi.fn(fetchImpl)} as unknown as SanityClient
+  }
+
+  it('a rejecting existence prefetch: non-reference rules still evaluate, never an empty result with no error', async () => {
+    // A reference field forces `runValidation` to attempt the prefetch at
+    // all — with none, `referenceIds.size` would be 0 and the prefetch would
+    // never run.
+    const draft = {
+      _id: 'drafts.doc-1',
+      _type: 'post',
+      author: {_type: 'reference', _ref: 'author-1'},
+    }
+    const client = stubClient(() => Promise.reject(new Error('network down')))
+
+    // Stands in for a non-reference rule (e.g. a missing required title)
+    // failing regardless of whether reference existence could be proven —
+    // option (a): an unproven prefetch degrades to `getDocumentExists:
+    // undefined`, not to "skip every rule".
+    validateDocumentMock.mockImplementation(
+      async ({getDocumentExists}: {getDocumentExists?: (o: {id: string}) => Promise<boolean>}) => {
+        expect(getDocumentExists).toBeUndefined()
+        return {status: 'failed', markers: [{level: 'error', message: 'Required', path: ['title']}]}
+      },
+    )
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const run = await runValidation(client, {} as never, null, [draft])
+
+    // The bug this plan fixes, stated as its own assertion: this combination
+    // reads as "no validation problems" and must never be what a failed
+    // prefetch produces.
+    expect(run).not.toEqual({results: new Map(), error: undefined})
+    expect(run.error).toBeUndefined()
+    expect(run.results.get('drafts.doc-1')?.status).toBe('failed')
+
+    errorSpy.mockRestore()
+  })
+
+  it('logs a rejecting prefetch via console.error with the plugin prefix', async () => {
+    const client = stubClient(() => Promise.reject(new Error('network down')))
+    validateDocumentMock.mockResolvedValue({status: 'passed', markers: []})
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await runValidation(
+      client,
+      {} as never,
+      null,
+      [{_id: 'drafts.doc-1', _type: 'post', author: {_type: 'reference', _ref: 'author-1'}}],
+    )
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[sanity-plugin-structure-inbox] could not prefetch reference existence',
+      expect.any(Error),
+    )
+
+    errorSpy.mockRestore()
+  })
+
+  it('a validation pass that rejects outside withTimeout (a synchronous throw) is caught and surfaced, not left unhandled', async () => {
+    // No reference fields — the prefetch resolves trivially, isolating this
+    // test to the second unprotected await: `mapWithConcurrency`.
+    const draft = {_id: 'drafts.doc-1', _type: 'post'}
+    const client = stubClient(() => Promise.resolve([]))
+
+    // A plain (non-async) throw here happens while `validateDocument({...})`
+    // is still being evaluated as withTimeout's argument — before
+    // `withTimeout` ever receives a promise to protect — so this is the
+    // "non-timeout-able" rejection `mapWithConcurrency` itself surfaces.
+    validateDocumentMock.mockImplementation(() => {
+      throw new Error('validator crashed')
+    })
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const run = await runValidation(client, {} as never, null, [draft])
+
+    expect(run.results.size).toBe(0)
+    expect(run.error).toBeInstanceOf(Error)
+    expect(run.error?.message).toBe('validator crashed')
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[sanity-plugin-structure-inbox] validation run failed',
+      expect.any(Error),
+    )
+
+    errorSpy.mockRestore()
+  })
+
+  it('happy path: a resolving prefetch feeds a real Set to getDocumentExists', async () => {
+    const client = stubClient(() => Promise.resolve(['author-1']))
+    validateDocumentMock.mockImplementation(
+      async ({getDocumentExists}: {getDocumentExists?: (o: {id: string}) => Promise<boolean>}) => {
+        const exists = await getDocumentExists?.({id: 'author-1'})
+        return {status: exists ? 'passed' : 'failed', markers: []}
+      },
+    )
+
+    const run = await runValidation(
+      client,
+      {} as never,
+      null,
+      [{_id: 'drafts.doc-1', _type: 'post', author: {_type: 'reference', _ref: 'author-1'}}],
+    )
+
+    expect(run.error).toBeUndefined()
+    expect(run.results.get('drafts.doc-1')?.status).toBe('passed')
   })
 })
 
