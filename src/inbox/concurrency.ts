@@ -1,7 +1,8 @@
 /**
  * Bounded-concurrency `map`, shared by every caller that fans out over a list
- * of documents — the project survey (`projectDigest.ts`) and the selection
- * bar's bulk quick fix (`MergedList.tsx`).
+ * of documents — the project survey (`projectDigest.ts`), the selection
+ * bar's bulk quick fix (`MergedList.tsx`), and the drafts validation source
+ * (`documentValidation.ts`).
  *
  * Extracted rather than duplicated because the reason for the bound is the
  * same in both places and easy to lose: firing one request per item at once is
@@ -28,6 +29,11 @@ export async function mapWithConcurrency<T, R>(
     }
   }
 
-  await Promise.all(Array.from({length: Math.min(concurrency, items.length)}, worker))
+  // `concurrency <= 0` (or fractional) would otherwise spawn zero or a
+  // fractional count of workers, resolving an array of holes instead of
+  // mapping anything — every call site passes a literal `5`, so this is a
+  // guard against a future caller, not a live bug.
+  const workers = Math.max(1, Math.floor(concurrency))
+  await Promise.all(Array.from({length: Math.min(workers, items.length)}, worker))
   return results
 }

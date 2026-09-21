@@ -14,6 +14,7 @@ import {catchError, map, startWith} from 'rxjs/operators'
 import {useClient, useCurrentUser, useSchema} from 'sanity'
 
 import {API_VERSION} from '../../constants'
+import {mapWithConcurrency} from '../concurrency'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
 import {optionalExport, useAssignableUsers} from './capability'
@@ -190,33 +191,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: T): Promise<
       },
     )
   })
-}
-
-/**
- * Runs `mapper` over `items` with at most `concurrency` in flight at once —
- * a bad custom validator on one document (an arbitrary async `rule.custom`)
- * should slow this down, never let an unbounded `Promise.all` pile up every
- * document's own validation at once. Exported for its own test.
- */
-export async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  mapper: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = Array.from({length: items.length})
-  let next = 0
-
-  async function worker(): Promise<void> {
-    while (next < items.length) {
-      const index = next
-      next += 1
-      // eslint-disable-next-line no-await-in-loop -- the whole point of a worker: process its own share one at a time, sequentially; concurrency comes from running `concurrency` workers in parallel, not from overlapping awaits within one.
-      results[index] = await mapper(items[index])
-    }
-  }
-
-  await Promise.all(Array.from({length: Math.min(concurrency, items.length)}, worker))
-  return results
 }
 
 export interface DocumentValidationOptions {

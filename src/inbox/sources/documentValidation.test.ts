@@ -7,7 +7,6 @@ import {
   firstErrorPath,
   formatValidationPath,
   toFocusPath,
-  mapWithConcurrency,
   runValidation,
   summarizeErrors,
 } from './documentValidation'
@@ -121,41 +120,6 @@ describe('summarizeErrors', () => {
         ],
       }),
     ).toBe('title: Required · hero.alt: Required')
-  })
-})
-
-describe('mapWithConcurrency', () => {
-  it('maps every item, preserving order regardless of resolution order', async () => {
-    const results = await mapWithConcurrency([3, 1, 2], 2, async (n) => {
-      await new Promise((resolve) => setTimeout(resolve, n))
-      return n * 10
-    })
-    expect(results).toEqual([30, 10, 20])
-  })
-
-  it('never runs more than `concurrency` mappers at once', async () => {
-    let active = 0
-    let maxActive = 0
-
-    await mapWithConcurrency([1, 2, 3, 4, 5, 6], 2, async () => {
-      active += 1
-      maxActive = Math.max(maxActive, active)
-      await new Promise((resolve) => setTimeout(resolve, 5))
-      active -= 1
-      return null
-    })
-
-    expect(maxActive).toBeLessThanOrEqual(2)
-  })
-
-  it('returns an empty array for an empty input, calling the mapper zero times', async () => {
-    let calls = 0
-    const results = await mapWithConcurrency<number, number>([], 3, async (n) => {
-      calls += 1
-      return n
-    })
-    expect(results).toEqual([])
-    expect(calls).toBe(0)
   })
 })
 

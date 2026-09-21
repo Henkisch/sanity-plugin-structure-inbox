@@ -74,8 +74,8 @@ async function writeTodosMerged(
     // whatever the *previous* attempt (or someone else's concurrent
     // write) actually committed before deciding what to write next, so
     // the three awaits below are inherently sequential, not a burst to
-    // parallelize — see `mapWithConcurrency` in `projectDigest.ts` for
-    // the same reasoning applied to a different loop.
+    // parallelize — see `mapWithConcurrency` in `src/inbox/concurrency.ts`
+    // for the same reasoning applied to a different loop.
     // eslint-disable-next-line no-await-in-loop -- see comment above
     const existing = await client.fetch<{_rev: string; value: string | null} | null>(
       `*[_id == $id][0]{_rev, "value": ${TODOS_FIELD}}`,
