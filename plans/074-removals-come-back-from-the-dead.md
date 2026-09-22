@@ -1,4 +1,69 @@
-# Plan 074: Give removals a tombstone, so "Mark as not done" stops silently undoing itself
+# Plan 074: Make a todo deletion actually stick
+
+> **REWRITTEN 2026-09-22.** The original plan is stale in three ways and
+> mis-framed the problem. Everything below the "## Original plan" heading is
+> kept for the reasoning, not as instructions — **follow this header, not the
+> steps below it.**
+>
+> **Steps 1 and 2 are already done.** Commit `fca9c0e` gave dismissals and
+> snoozes tombstones (`dismissals.ts:26`, `snoozes.ts:39`, pruned on
+> `DISMISSAL_TTL_DAYS = 90`). `plans/README.md` knows; this file did not. The
+> original drift check would STOP immediately on line numbers that no longer
+> point at the described code.
+>
+> **This was filed as a storage-policy decision. It is not.** It is a P1 data
+> bug, and the "decision" was blocking the fix:
+>
+> - **Every todo deletion silently fails to persist.** Not a race. The persist
+>   effect writes `mergeTodos(serverState, state)` on *every* persisted change
+>   (`useTodos.ts:175`), re-fetching the server document first. `mergeTodos`
+>   (`todos.ts:160-173`) is a pure union by id, so the server's still-present
+>   copy is restored and written back. The repo already has a test that
+>   **asserts** this — `useTodos.test.tsx:411`, "a locally-removed todo comes
+>   back from the merge — known limitation, see plan 074".
+> - **Every `transferTo` duplicates instead of moving** (unreported until now).
+>   `useTodos.ts:220-226` writes the recipient's document, then calls
+>   `withoutTodo` on the sender's local state — whose persist merge restores
+>   the sender's copy. The todo ends up permanently on both lists.
+>   `useTodos.ts:38-43`'s own doc comment promises "worst case it briefly
+>   exists on both lists". That is false; it is permanent.
+>
+> **The growth worry that blocked this does not survive measurement.** A
+> tombstone is 67–84 bytes and replaces a 113–246-byte entry that today never
+> leaves the document, so tombstones *shrink* it. An active editor deleting
+> ~200 todos/year costs ~15 KB/year. And a TTL would contradict
+> `src/inbox/sources/todos.ts:82`'s `neverExpireDismissals: true`, whose reason
+> (`dismissals.ts:99-110`) is that a todo has nothing else to mark it finished,
+> so ageing its record out looks like data loss.
+>
+> **Do this instead**: an in-memory removed-id set (`useRef<Set<string>>`) in
+> `useTodos`, subtracted in **both** merge call sites (`useTodos.ts:148` and
+> `:175`). It fixes deletion and transfer with no stored-shape change, no
+> back-compat risk, no growth and no TTL question. Its one remaining hole is a
+> *second tab* that still holds the todo in its own state; a persisted
+> tombstone (id → ISO map, no expiry) can be layered on later if that is ever
+> actually reported.
+>
+> **The existing test at `useTodos.test.tsx:411` must be inverted**, not
+> deleted: it currently asserts the bug. Rewrite it to assert the removal
+> persists, and keep its comment history pointing here. Add a second test that
+> `transferTo` leaves the sender's list without the item after the persist
+> settles.
+>
+> **Test-suite warning**: `await waitFor(() => expect(client.fetch).toHaveBeenCalled())`
+> does **not** wait for the merge — `fetch` was already called at mount, so
+> such a test passes vacuously. Await the write instead.
+>
+> **Verification warning**: confirm `node_modules/.bin/tsc --version` prints a
+> version before believing any green result. An empty `node_modules` makes
+> `npm run typecheck` and `npm run lint` exit 0 having done nothing.
+
+## Original plan
+
+Kept for its reasoning about dismissals and snoozes, which shipped. Its
+todos-specific framing is superseded above.
+
+# (original) Give removals a tombstone, so "Mark as not done" stops silently undoing itself
 
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving on. If

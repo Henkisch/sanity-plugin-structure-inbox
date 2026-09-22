@@ -1,5 +1,76 @@
 # Plan 076: Stop listing comments on Sanity tasks as content-comment rows that go nowhere
 
+> **AMENDED 2026-09-22.** Follow this header where it contradicts the steps
+> below it.
+>
+> **No live Studio check is needed. Withdraw that STOP condition.** The plan
+> said the mechanism "needs live confirmation in a Studio with both Tasks and
+> field comments, and must not be guessed from bundled source alone". It has
+> now been read, not guessed — and from *both branches of the single function*
+> that writes these documents in the installed `sanity@6.13.0`, which is
+> stronger evidence than one live document:
+>
+> - `node_modules/sanity/lib/WorkspaceLoader-C5fpcxpj.js:494-570` is the
+>   comment `createOperation`. `type === "task"` (`:496-520`) writes
+>   `target: {document, documentVersionId, documentType}` — **no `target.path`**,
+>   no `context.intent`, no `contentSnapshot`. `type === "field"` (`:520-565`)
+>   writes `target.path: {field, selection}` and `context.intent`.
+> - `documentType` for a task comment is literally `"tasks.task"`
+>   (`TasksStudioActiveToolLayout-BQBG050a.js:2128-2133`).
+> - Sanity's own reader agrees: `WorkspaceLoader-C5fpcxpj.js:1015-1027` uses
+>   `fieldPath: ""` for tasks and `target.path?.field` for fields.
+>
+> **The rows never clear, which strengthens the case.** Task comments are
+> created `status: "open"` (`TasksStudioActiveToolLayout-BQBG050a.js:1475,
+> :1490`) and that bundle contains **zero** occurrences of "resolved" — there
+> is no resolve affordance in the Tasks activity feed. So these dead rows
+> accumulate permanently rather than ageing out.
+>
+> **Why the row is dead**: the intent built at `unresolvedComments.ts:277-286`
+> navigates to `type: 'tasks.task'`, which is registered only in a separate
+> `addon-dataset-<name>` source (`TasksStudioActiveToolLayout:2389-2400`),
+> never the main workspace — and `target.document._ref` points into the addon
+> dataset, so the id does not exist in the content dataset either. The editor
+> gets Sanity's "The document was not found".
+>
+> **The discriminating data is already in the projection.** The query
+> (`unresolvedComments.ts:171-176`) projects `target` **whole**, so
+> `target.documentType` and `target.path` both arrive client-side today. A
+> filter needs no query change at all if placed client-side.
+>
+> **The original test plan cannot be executed as written.** It asks for four
+> tests against a GROQ-only change. `QUERY` is not exported and `useItems` has
+> deliberately no render harness — the file says so at `:44-52` and `:57-61`,
+> which is exactly why `commentsFetchLimit` and `selectUnresolvedComments`
+> were extracted as pure functions. This dictates *where* the filter goes.
+>
+> **Do this**: the predicate in **both** places — `defined(target.path)` in the
+> GROQ (so task comments stop consuming the `commentsFetchLimit` ×5
+> over-fetch budget before `onlyMine` filtering), and the same predicate plus
+> a `target.document._ref` presence guard inside `selectUnresolvedComments`
+> (`:63-72`), where it is testable today. One line each; the duplication is
+> the price of having both the budget and the test.
+>
+> Prefer the **allowlist** (`defined(target.path)`) over a
+> `target.documentType != "tasks.task"` denylist: it survives Sanity adding
+> another non-content comment target. It fails closed (a real row would
+> disappear) rather than open, and no creation path in 6.13.0 writes a field
+> comment without `path` — but Sanity's own reader uses `target.path?.field`
+> defensively, so keep that trade-off in mind.
+>
+> **Line numbers in the steps below are off by ~9.** The query is `:171-176`
+> (not `:168-174`); the intent is `:277-286` (not `:282-290`); the
+> `navigateIntent` call is `InboxRow.tsx:271`.
+>
+> **Out of scope, but worth knowing**: a Studio setting `beta.comments.v2`
+> writes `_type: "sanity.comment"` through `client.collaboration.comments`,
+> and this source returns zero rows silently. Default is v1, so this plan's
+> premise holds. Do not try to fix v2 here.
+>
+> **Verification warning**: confirm `node_modules/.bin/tsc --version` prints a
+> version first. An empty `node_modules` makes typecheck and lint exit 0
+> having done nothing.
+
 > **Executor instructions**: Follow every step and its verification. On a STOP
 > condition, stop and report. When done, update this plan's row in
 > `plans/README.md`.

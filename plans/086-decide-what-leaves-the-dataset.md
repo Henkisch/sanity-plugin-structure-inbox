@@ -1,5 +1,60 @@
 # Plan 086: Decide — and document — which field values leave the dataset on an AI read
 
+> **AMENDED 2026-09-22 — Step 1 has been run, and its STOP condition fired.**
+> Follow this header where it contradicts the steps below.
+>
+> **The decision is made: option A**, plus Step 4's README section regardless.
+> No maintainer input is outstanding.
+>
+> **What Step 1 found.** `findSampleFieldName`
+> (`src/inbox/projectDigest.ts:77-86`) picks a **title-ish field on every type
+> in `test-studio`'s schema**:
+>
+> | Type | First `jsonType === 'string'` field | Title-ish? |
+> |---|---|---|
+> | `author` | `name` | yes |
+> | `event` | `title` | yes |
+> | `post` | `title` | yes |
+> | `siteSettings` | `title` | yes |
+>
+> That is not luck — schema authors put the title first by convention, because
+> it is what shows in list previews. So the plan's own STOP condition applies
+> verbatim: *"Step 1 shows the picked field is almost always title-ish already.
+> Then option A is nearly free and the finding is smaller than it looked — say
+> so plainly rather than building an opt-out nobody needs."*
+>
+> **Say it plainly, then**: the exposure is real but narrower than the plan
+> implies. It needs a schema whose *first* string field is sensitive — a
+> `lead` type with `email` before `name`. Worst case remains 30 types × 5
+> values = **150 real field values** per click, plus each type's schema
+> `description`.
+>
+> **Option A is the decision**: prefer `title` / `name` / `label` when present,
+> sample nothing when absent. It costs nothing, needs no new API, is not a
+> breaking change, and picks better samples anyway — a title is a more useful
+> signal for `contentGaps` than an arbitrary first string field.
+>
+> **Option B (per-type opt-in config) is explicitly declined**: it adds public
+> API for a case the measurement does not support. **Option C (sample nothing)
+> is declined**: it would gut what plan 042 added the samples for.
+>
+> **Record this under a `## Decision` heading in this file**, with today's date
+> and the table above, so it is not re-litigated by the next audit.
+>
+> **Step 4 happens regardless and is the durable half.** The README does not
+> today say what an AI read sends, and that is the indefensible part whatever
+> the sampling rule is. Fill in the real constants: `MAX_SURVEYED_TYPES = 30`
+> (`projectDigest.ts:31`), `SAMPLES_PER_TYPE = 5` (`:9`), `SAMPLE_WINDOW_SIZE
+> = 100` (`:23`).
+>
+> **Do not touch** `SIMPLE_FIELD_PATH` — that guard is plan 078's, already
+> shipped, and it exists for injection safety rather than privacy. Option A
+> layers on top of it; the field name must still pass it.
+>
+> **Verification warning**: confirm `node_modules/.bin/tsc --version` prints a
+> version first. An empty `node_modules` makes typecheck and lint exit 0
+> having done nothing.
+
 > **Executor instructions**: This is a **design plan**, not a build plan. Its
 > output is a decision, a short written rationale, and only then whatever code
 > the decision implies. Do not implement an API before Step 3 has an answer
