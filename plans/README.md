@@ -847,7 +847,7 @@ not re-audited from scratch:
   never verifies a write against it before trusting a lookup. Effort M.
 - **Persist-effect `dirtyRef` cleared before the write actually succeeds**
   — **→ Plan 036** (2026-09-16 batch).
-- **`package.json`'s `inlinedDependencies.get-it` is stale build metadata**
+- **`package.json`'s `inlinedDependencies.get-it` is stale build metadata** — **RESOLVED 2026-09-22**: `pkg-utils build --clean` regenerates the field and drops `get-it`, exactly as this entry predicted. The corrected manifest is committed; the pipeline's field-sync step was not buggy, the committed value was simply out of date. Original note follows.
   — not present in the actual built `dist/` bundle (confirmed by string
   search across every built file); the sibling `rxjs`/`react-rx`/`tslib`
   entries are all independently confirmed present. Re-running the build
