@@ -40,12 +40,17 @@
       "source": "./src/link-checker.ts",
       "default": "./dist/link-checker.js"
     },
+    "./node": {
+      "source": "./src/node.ts",
+      "default": "./dist/node.js"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "exports": {
       ".": "./dist/index.js",
       "./link-checker": "./dist/link-checker.js",
+      "./node": "./dist/node.js",
       "./package.json": "./package.json"
     },
     "access": "public"

@@ -302,7 +302,7 @@ message) a job for a [Sanity Function](https://www.sanity.io/docs/content-lake/w
 something this package ships, but `buildDigest` is exported to make writing one straightforward:
 
 ```ts
-import {buildDigest, parseSnoozes} from 'sanity-plugin-structure-inbox'
+import {buildDigest, parseSnoozes} from 'sanity-plugin-structure-inbox/node'
 
 const editors = await fetchEditorsWithParsedState(client) // your own fetch + parseSnoozes per editor
 const sources = await fetchConfiguredSourceItems(client) // your own fetch, shaped as {name, items}[]
@@ -317,7 +317,7 @@ The per-editor documents above persist forever once created. `findStaleEditorDoc
 against your project's current membership so you can clean up orphaned ones on your own schedule:
 
 ```ts
-import {EDITOR_DOC_TYPES, findStaleEditorDocuments} from 'sanity-plugin-structure-inbox'
+import {EDITOR_DOC_TYPES, findStaleEditorDocuments} from 'sanity-plugin-structure-inbox/node'
 
 const docs = await client.fetch(`*[_type in $types]{_id, _type}`, {types: EDITOR_DOC_TYPES})
 const activeUserIds = await fetchCurrentProjectMemberIds() // your own fetch, e.g. Sanity's project members API
@@ -326,6 +326,19 @@ const staleIds = findStaleEditorDocuments(docs, activeUserIds)
 // staleIds: string[] — delete however and whenever you like, e.g.:
 // await client.delete({query: '*[_id in $ids]', params: {ids: staleIds}})
 ```
+
+#### Why these two recipes import from `/node`
+
+Both recipes above run outside a Studio, in a Node program with no DOM lib. The main entry point
+necessarily carries `@sanity/client`'s type graph, and `@sanity/client` ships an ambient
+`declare global {interface File {}}`. In a Studio that is harmless — the DOM lib is always there and
+the empty interface just merges into the real `File`. In a DOM-less `tsconfig` it is not: it injects
+an empty global `File` where there was none, so `const f: File = …` quietly compiles instead of being
+rejected. `sanity-plugin-structure-inbox/node` re-exports the same pure, dependency-free functions
+with no ambient declarations and none of the React or Studio types a Node program has no use for.
+
+Every symbol on `/node` is **also** still exported from the main entry point, and will stay that way —
+this is a smaller door into the same room, not a migration you have to make.
 
 ## Options
 
