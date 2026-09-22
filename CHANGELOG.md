@@ -5,6 +5,12 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.2.0](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v2.1.0...v2.2.0) (2026-09-22)
+
+### Features
+
+- give an oversized asset row somewhere to go ([#5](https://github.com/Henkisch/sanity-plugin-structure-inbox/issues/5)) ([f69e51f](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/f69e51fbd6ebc65d31677dcad5f9276aae82e5e3))
+
 ## [2.1.0](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v2.0.0...v2.1.0) (2026-09-21)
 
 ### Features
