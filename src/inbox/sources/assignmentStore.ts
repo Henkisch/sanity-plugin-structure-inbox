@@ -1,7 +1,7 @@
 import {type SanityClient} from '@sanity/client'
 import {useMemo, useRef, useState} from 'react'
 import {useObservable} from 'react-rx'
-import {defer, of} from 'rxjs'
+import {defer, type Observable, of} from 'rxjs'
 import {catchError, map} from 'rxjs/operators'
 
 import {liveQuery$} from './liveQuery'
@@ -72,6 +72,54 @@ interface AssignmentRow {
 }
 
 /**
+ * The parts of a Sanity client `useAssignmentStore` actually calls,
+ * declared structurally instead of as `@sanity/client`'s own `SanityClient`.
+ *
+ * This is not a style preference: `useAssignmentStore` is exported from the
+ * package barrel, and naming the real `SanityClient` type in its exported
+ * signature made the build inline that client's entire type graph —
+ * `SanityClient`, `ObservableSanityClient`, `Patch`, `Transaction`,
+ * `ReleasesClient`, `AgentActionsClient`, plus rxjs's own `Observable`,
+ * `Subscriber`, `Subscription` — into every consumer's published types.
+ * That turned an ~11,000-line `dist/index.d.ts` into hundreds of lines.
+ * See AGENTS.md's "published type surface" note.
+ *
+ * A real `SanityClient` satisfies this structurally with no changes needed
+ * at any call site — this only narrows what the *published* signature
+ * requires, not what a caller may pass.
+ *
+ * Deliberately not written as a `Pick` of `SanityClient`'s own members
+ * either — an indexed access into `SanityClient` still names it, which is
+ * enough for the declaration bundler to inline the whole graph right back
+ * in. Every member below is spelled out instead.
+ *
+ * `transaction` and `delete` are typed loosely (`unknown`, not the real
+ * `Transaction` class) on purpose, not just for the graph reason above: the
+ * real `Transaction.patch`'s callback overload returns the real `Patch`
+ * class, which carries a private field, so nothing structural can ever
+ * satisfy that return position — a fully-typed structural mirror of
+ * `transaction()` is not just verbose, it is impossible. `assign`/`unassign`
+ * below cast back to the real `SanityClient` at the point they actually
+ * drive a transaction, the one place this hook's implementation still needs
+ * the real thing — narrowing stops at the exported signature, not the
+ * implementation.
+ *
+ * @public
+ */
+export interface AssignmentStoreClient {
+  observable: {
+    fetch<T>(query: string, params?: Record<string, unknown>): Observable<T>
+  }
+  listen(
+    query: string,
+    params: Record<string, unknown>,
+    options: {enableResume: boolean; events: string[]},
+  ): Observable<unknown>
+  transaction(): unknown
+  delete(id: string): Promise<unknown>
+}
+
+/**
  * @public
  */
 export interface AssignmentStore {
@@ -114,7 +162,7 @@ export interface AssignmentStore {
  *
  * @public
  */
-export function useAssignmentStore(client: SanityClient, docType: string): AssignmentStore {
+export function useAssignmentStore(client: AssignmentStoreClient, docType: string): AssignmentStore {
   const query = `*[_type == $docType && defined(assignedTo)]{targetId, assignedTo}`
 
   const byTarget$ = useMemo(() => {
@@ -197,7 +245,8 @@ export function useAssignmentStore(client: SanityClient, docType: string): Assig
         setOverrides((current) => new Map(current).set(targetId, assignedTo))
         const docId = assignmentDocId(docType, targetId)
         try {
-          await client
+          // eslint-disable-next-line no-unsafe-type-assertion -- cast back to the real client here; see `AssignmentStoreClient`'s own comment for why `transaction()` can't be typed richly enough (its `patch` callback would have to return the real `Patch` class, which has a private field, so no structural type can ever satisfy it) to drive this chain without a cast. Every real caller passes a genuine `SanityClient`, which is exactly what this recovers.
+          await (client as unknown as SanityClient)
             .transaction()
             .createIfNotExists({_id: docId, _type: docType, targetId, assignedTo})
             .patch(docId, (patch) => patch.set({assignedTo}))
@@ -223,7 +272,8 @@ export function useAssignmentStore(client: SanityClient, docType: string): Assig
       unassign: async (targetId: string) => {
         setOverrides((current) => new Map(current).set(targetId, null))
         try {
-          await client.delete(assignmentDocId(docType, targetId))
+          // eslint-disable-next-line no-unsafe-type-assertion -- same reasoning as `assign`'s own cast above.
+          await (client as unknown as SanityClient).delete(assignmentDocId(docType, targetId))
         } catch (error) {
           // Same reasoning as `assign`'s own catch above.
           setOverrides((current) => {

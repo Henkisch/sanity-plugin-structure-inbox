@@ -20,6 +20,7 @@ export {
   assignmentDocId,
   useAssignmentStore,
   type AssignmentStore,
+  type AssignmentStoreClient,
 } from './inbox/sources/assignmentStore'
 export {
   assetIssues,
