@@ -5,6 +5,22 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.3.0](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v2.2.1...v2.3.0) (2026-09-22)
+
+### Features
+
+- give Node consumers an entry point with no ambient globals ([d65fbf8](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/d65fbf86f63a4eaf2b3f4cc86b97b74cfc44201e))
+- publish CreateItemInput and SectionCardProps, and only those ([1a83825](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/1a838258c7af62856cae91c322c725c1d632d9a2))
+
+### Bug Fixes
+
+- count dismissals in the badge, the way the pane already does ([a6213e4](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/a6213e4286428e14a17e99663c94fc8eb18baa64))
+- drop the stale get-it entry from inlinedDependencies ([012baaf](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/012baafdacb0c2d0f95f717b20a6fe085bb2e47c))
+- sample only a title-ish field for the project survey ([a523b65](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/a523b65fafe5f0cf67025a2735db2fd2e1fab246))
+- stop a removed or transferred todo coming back from the merge ([d2f7827](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/d2f782739a9d1e2d070552de6438ebbeafd51532))
+- stop listing comments on Sanity tasks as dead inbox rows ([6b554cd](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/6b554cd928f851e073643f21cfd8469f61a42a3a))
+- stop publishing @sanity/client's type graph through useAssignmentStore ([546a333](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/546a333f7d30e5e1c71392ff7b88961baece34ca))
+
 ## [2.2.1](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v2.2.0...v2.2.1) (2026-09-22)
 
 ### Bug Fixes
