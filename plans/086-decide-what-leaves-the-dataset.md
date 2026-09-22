@@ -73,6 +73,74 @@
 - **Category**: direction / security (data minimisation)
 - **Planned at**: commit `3893ae5`, 2026-09-21
 
+## Decision
+
+**2026-09-22 — Option A, plus the README section. Options B and C declined.**
+
+`findSampleFieldName` now prefers a title-ish field and samples **nothing** when the type has
+none. Options B (a per-type `surveySampleFields` config) and C (send no samples at all) are
+declined: B adds public API for a case the measurement does not support, C guts what plan 042
+added the samples for.
+
+### What Step 1 measured
+
+Every real document type in `test-studio`'s schema already had a title-ish field first:
+
+| Type | First `jsonType === 'string'` field | Title-ish? |
+|---|---|---|
+| `author` | `name` | yes |
+| `event` | `title` | yes |
+| `post` | `title` | yes |
+| `siteSettings` | `title` | yes |
+
+That is convention, not luck — schema authors put the title first because it is what list
+previews show. So the plan's own STOP condition applied: option A is nearly free, and the
+finding is smaller than the plan implied. The exposure needs a schema whose *first* string
+field is sensitive (a `lead` type with `email` before `name`). Worst case is unchanged at
+30 types × 5 values = 150 real field values per click, plus 30 schema `description`s.
+
+Said plainly: this was not a bug. It was a rule with no notion of sensitivity, on a code path
+that happens to be well-behaved on conventional schemas. The change removes the dependence on
+that convention holding.
+
+### The two sub-decisions the rule needed
+
+- **Exact match, not "contains".** A `contains "name"` rule would pick `contactName`,
+  `customerName` or `internalNoteTitle` — precisely the class of field the list exists to keep
+  out of a prompt. Exact matching is the narrow, predictable default; a schema that wants a
+  different field sampled can rename, not configure.
+- **Case-insensitive.** It widens the admitted set by exactly three names (`Title`, `NAME`,
+  `Label` — the same three words, capitalised), so it costs nothing in exposure, while a
+  case-sensitive list would silently cost such a type its samples for no benefit.
+- **Preference order, not schema order.** A type with both `name` and `title` yields `title`
+  regardless of declaration order, so what leaves the dataset never depends on field ordering.
+- The three names are `coalesce(title, name, label)` — already this plugin's own row-title
+  convention (`unpublishedDrafts.ts:92`, `assetIssues.ts:671`), not a fresh guess.
+
+### Notes for the next reader
+
+- `SIMPLE_FIELD_PATH` (plan 078) is untouched and still gates the returned name. With exact
+  matching nothing this function can pick fails it, so the gate is unreachable-by-construction
+  today; it stays because the function's contract is "whatever I return is safe to interpolate",
+  and a future entry in the preference list must not be able to lose that quietly.
+- `MAX_SURVEYED_TYPES`, `SAMPLES_PER_TYPE` and `SAMPLE_WINDOW_SIZE` are unchanged.
+- **Step 4 is the durable half and is done**: README's "What leaves your dataset on an AI read".
+  Writing it turned up a correction the plan itself had wrong — see below.
+- **Correction to the plan's framing.** The plan (and its amended header) treats the per-row
+  reads as the disciplined counter-example to the survey. They are not comparable.
+  `askInbox.ts`'s `DescribedRow` is the narrow shape, and it is used by **Ask** — a *pane-wide*
+  read. The actual per-row reads (`assess` in `unpublishedDrafts.ts:310` and
+  `openTasks.ts:398`, `proposeFix` in `linkCheckerFindings.ts:565`) pass Agent Actions a
+  document *reference* (`{type: 'document', documentId}`) and send **the whole document**,
+  resolved server-side. Field selection is not the control there; the README says so, and
+  points at `unpublishedDrafts({ai: false})` instead.
+- **A pre-existing test encodes the old rule** and now fails:
+  `src/inbox/projectDigest.test.ts:74` — "returns the first string-jsonType field", asserting
+  `publishedAt` is chosen over `title`. It was deliberately left untouched under this branch's
+  no-edit-existing-tests instruction. It needs to become an assertion of the new rule (or be
+  deleted in favour of the new `describe` block, which covers the same ground) before this
+  branch is green.
+
 ## Why this matters
 
 `findSampleFieldName` picks **the first field whose `jsonType === 'string'`**,
