@@ -321,3 +321,150 @@ describe('formatContentGapsDigest', () => {
     expect(formatContentGapsDigest(summaries)).toBe('- Post (2 documents): Hello world')
   })
 })
+
+/**
+ * Plan 086's data-minimisation rule. These pin *which* field's real values are
+ * allowed to leave the dataset on an AI read — the README's "What leaves your
+ * dataset on an AI read" section is written against exactly this behaviour, so
+ * a change here is a change to a documented promise, not an implementation
+ * detail.
+ */
+describe('findSampleFieldName: the title-ish preference (plan 086)', () => {
+  it('prefers a title-ish field over an earlier string field that merely happens to come first', () => {
+    // The field that pins the change: `email` is the first `jsonType: 'string'`
+    // field, so the pre-086 rule sent real email addresses to Agent Actions.
+    const schema = schemaWith([
+      {
+        name: 'lead',
+        fields: [
+          {name: 'email', type: {jsonType: 'string'}},
+          {name: 'internalNote', type: {jsonType: 'string'}},
+          {name: 'name', type: {jsonType: 'string'}},
+        ],
+      },
+    ])
+    expect(findSampleFieldName(schema, 'lead')).toBe('name')
+  })
+
+  it('samples nothing at all for a type with string fields but no title-ish one', () => {
+    const schema = schemaWith([
+      {
+        name: 'submission',
+        fields: [
+          {name: 'email', type: {jsonType: 'string'}},
+          {name: 'phone', type: {jsonType: 'string'}},
+        ],
+      },
+    ])
+    // Not "fall back to the first string field" — nothing. A type with no
+    // title-ish field contributes its count and description to the digest and
+    // no real content.
+    expect(findSampleFieldName(schema, 'submission')).toBeUndefined()
+  })
+
+  it('follows the preference order, not schema field order, when several title-ish fields exist', () => {
+    const schema = schemaWith([
+      {
+        name: 'product',
+        fields: [
+          {name: 'label', type: {jsonType: 'string'}},
+          {name: 'name', type: {jsonType: 'string'}},
+          {name: 'title', type: {jsonType: 'string'}},
+        ],
+      },
+    ])
+    expect(findSampleFieldName(schema, 'product')).toBe('title')
+  })
+
+  it('matches the preference list case-insensitively', () => {
+    const schema = schemaWith([
+      {name: 'page', fields: [{name: 'Title', type: {jsonType: 'string'}}]},
+    ])
+    expect(findSampleFieldName(schema, 'page')).toBe('Title')
+  })
+
+  it('matches exactly, so a field merely containing "title" or "name" is not sampled', () => {
+    const schema = schemaWith([
+      {
+        name: 'lead',
+        fields: [
+          {name: 'contactName', type: {jsonType: 'string'}},
+          {name: 'internalNoteTitle', type: {jsonType: 'string'}},
+        ],
+      },
+    ])
+    expect(findSampleFieldName(schema, 'lead')).toBeUndefined()
+  })
+
+  it('still requires the field to be a string, even when it is called title', () => {
+    const schema = schemaWith([
+      {
+        name: 'page',
+        fields: [
+          {name: 'title', type: {jsonType: 'object'}},
+          {name: 'name', type: {jsonType: 'string'}},
+        ],
+      },
+    ])
+    expect(findSampleFieldName(schema, 'page')).toBe('name')
+  })
+
+  it('rejects a title-ish-looking field name that fails SIMPLE_FIELD_PATH', () => {
+    // Plan 078's guard is not weakened by plan 086 layering on top of it: a
+    // name that could break out of the interpolated query is rejected whether
+    // or not it looks title-ish, and is never normalised into a bare `title`.
+    const schema = schemaWith([
+      {
+        name: 'page',
+        fields: [
+          {name: 'bad}title', type: {jsonType: 'string'}},
+          {name: 'title->deref', type: {jsonType: 'string'}},
+          {name: 'title.localized', type: {jsonType: 'string'}},
+        ],
+      },
+    ])
+    expect(findSampleFieldName(schema, 'page')).toBeUndefined()
+  })
+
+  it('sends no sample query at all for a type whose only string fields are sensitive', async () => {
+    const schema = schemaWith([
+      {
+        name: 'lead',
+        title: 'Lead',
+        fields: [
+          {name: 'email', type: {jsonType: 'string'}},
+          {name: 'phone', type: {jsonType: 'string'}},
+        ],
+      },
+    ])
+    const fetch = vi.fn().mockResolvedValueOnce(42)
+
+    const [summary] = await surveyContentTypes({fetch}, schema)
+
+    expect(summary.samples).toEqual([])
+    // Only the `count()` call — a second fetch would mean real email
+    // addresses were on their way into the prompt.
+    expect(fetch).toHaveBeenCalledTimes(1)
+    for (const call of fetch.mock.calls) {
+      expect(String(call[0])).not.toContain('email')
+    }
+  })
+
+  it('never sends more than the documented maximum values per type', async () => {
+    // The README documents "up to 5 real values of one string field per type".
+    // A full `SAMPLE_WINDOW_SIZE` window of 100 non-empty values must still
+    // come out at 5.
+    const schema = schemaWith([
+      {name: 'post', title: 'Post', fields: [{name: 'title', type: {jsonType: 'string'}}]},
+    ])
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(5000)
+      .mockResolvedValueOnce(Array.from({length: 100}, (_, i) => `Post ${i}`))
+
+    const [summary] = await surveyContentTypes({fetch}, schema)
+
+    expect(summary.samples.length).toBeLessThanOrEqual(5)
+    expect(fetch.mock.calls[1][1].limit).toBeLessThanOrEqual(100)
+  })
+})
