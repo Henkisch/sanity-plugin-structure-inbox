@@ -67,8 +67,44 @@ export function selectUnresolvedComments(
   limit: number,
 ): CommentRow[] {
   return rows
+    .filter(isContentComment)
     .filter((row) => !onlyMine || (currentUserId && mentionsUser(row.message, currentUserId)))
     .slice(0, limit)
+}
+
+/**
+ * Whether a `comment` document is attached to a *document field* — the only
+ * kind of comment a row here can actually navigate to.
+ *
+ * Sanity's Tasks feature writes its task comments as plain `_type: "comment"`
+ * documents into the same add-on dataset, so without this they land in this
+ * feed too — and they are dead rows twice over. Their
+ * `target.documentType` is `"tasks.task"`, a type registered only in the
+ * separate `addon-dataset-*` source and never in the main workspace, and
+ * their `target.document._ref` points into the add-on dataset, so the id
+ * does not exist in the content dataset either: clicking one gets the editor
+ * Sanity's "The document was not found". They never age out either — task
+ * comments are created `status: "open"` and Sanity's Tasks activity feed has
+ * no resolve affordance at all, so they accumulate permanently.
+ *
+ * The discriminator is an **allowlist** (`target.path`, which only the
+ * `type === "field"` branch of Sanity's comment `createOperation` writes),
+ * not a `documentType != "tasks.task"` denylist: an allowlist survives
+ * Sanity adding a second non-content comment target, a denylist silently
+ * regresses on it. The honest cost is that it fails *closed* — Sanity's own
+ * reader is defensive here (`target.path?.field`), so a field comment
+ * somehow lacking `path` would be dropped rather than shown broken. No
+ * creation path in the installed `sanity` writes one, which is what makes
+ * that acceptable.
+ *
+ * The `target.document._ref` check is the same idea for the other deep read
+ * the row does: a row with no id to navigate to is not a row.
+ */
+function isContentComment(row: CommentRow): boolean {
+  // `target` is typed as always present, but it is data this plugin does not
+  // own — read it as if it might not be.
+  const target = row.target as CommentRow['target'] | undefined
+  return Boolean(target?.path && target.document?._ref)
 }
 
 /**
@@ -168,10 +204,20 @@ interface CommentsFetch {
   error?: Error
 }
 
+/**
+ * `defined(target.path)` is the same predicate `isContentComment` applies
+ * client-side, and the duplication is deliberate: the filter has to be *here*
+ * so task comments stop eating the `commentsFetchLimit` over-fetch budget
+ * before `onlyMine` narrowing ever runs, and *there* so it can be tested —
+ * `QUERY` is not exported and `useItems` has no render harness, for the
+ * reasons `commentsFetchLimit`'s own doc comment gives. Change one, change
+ * both.
+ */
 const QUERY = `*[
   _type == "comment" &&
   status == "open" &&
-  !defined(parentCommentId)
+  !defined(parentCommentId) &&
+  defined(target.path)
 ] | order(_createdAt desc)[0...$limit]{
   _id, _createdAt, message, target
 }`
