@@ -1,6 +1,7 @@
 import {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react'
 import {type LayoutProps} from 'sanity'
 
+import {type DismissalState} from '../store/dismissals'
 import {type SnoozeState} from '../store/snoozes'
 import {useDismissals, type Dismissals} from '../store/useDismissals'
 import {useSnoozes, type Snoozes} from '../store/useSnoozes'
@@ -91,6 +92,14 @@ export function useInboxOpenCount(): number | null {
 interface OpenCountFeedProps {
   source: InboxSource
   snoozes: SnoozeState
+  /**
+   * The same per-editor dismissals the pane filters its own Open view by
+   * (`mergeRows`). Not a new subscription: `InboxCountLayout` below already
+   * owns the one shared `useDismissals` instance for the whole Studio, so
+   * this is state it re-renders on regardless — it was simply never handed
+   * down, which is how the badge and the pane came to disagree.
+   */
+  dismissals: DismissalState
   now: number
   onCount: (sourceName: string, count: number | null) => void
 }
@@ -102,14 +111,14 @@ interface OpenCountFeedProps {
  *
  * Wrapped in its own `SectionErrorBoundary` (the same boundary
  * `BoundedSourceFeed` in `Inbox.tsx` uses) as defense in depth: this
- * plugin's own two built-in `useOpenCount` implementations are known-safe,
+ * plugin's own three built-in `useOpenCount` implementations are known-safe,
  * but a third party's custom source could still throw here for some
  * reason this plugin doesn't control, and one such source should not be
  * able to take the whole count provider down.
  */
 function OpenCountFeed(props: OpenCountFeedProps) {
-  const {source, snoozes, now, onCount} = props
-  const count = source.useOpenCount?.(snoozes, now) ?? null
+  const {source, snoozes, dismissals, now, onCount} = props
+  const count = source.useOpenCount?.(snoozes, now, dismissals) ?? null
 
   useEffect(() => {
     onCount(source.name, count)
@@ -176,7 +185,13 @@ export function createInboxCountLayout(config: ResolvedStructureInboxConfig) {
               onCatch={() => handleCount(source.name, null)}
               resetKey={sourceRetryKeys[source.name]}
             >
-              <OpenCountFeed now={now} onCount={handleCount} snoozes={snoozes.state} source={source} />
+              <OpenCountFeed
+                dismissals={dismissals.state}
+                now={now}
+                onCount={handleCount}
+                snoozes={snoozes.state}
+                source={source}
+              />
             </SectionErrorBoundary>
           ))}
           {props.renderDefault(props)}

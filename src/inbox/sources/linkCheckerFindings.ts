@@ -20,8 +20,9 @@ import {
 import {promptJson} from '../../ai/promptJson'
 import {useAgentClient} from '../../ai/useAgentClient'
 import {API_VERSION} from '../../constants'
+import {EMPTY_DISMISSALS, type DismissalState} from '../../store/dismissals'
 import {type SnoozeState} from '../../store/snoozes'
-import {splitItems} from '../splitItems'
+import {countOpenItems} from '../mergeItems'
 import {
   type FixProposal,
   type InboxAssessment,
@@ -470,13 +471,23 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
     // editor's, the same reasoning `unpublishedDrafts` uses by default.
     audience: 'everyone',
 
-    useOpenCount(snoozes: SnoozeState, now: number): number | null {
+    useOpenCount(
+      snoozes: SnoozeState,
+      now: number,
+      dismissals: DismissalState = EMPTY_DISMISSALS,
+    ): number | null {
       const {result} = useFindingsFetch()
 
       return useMemo(() => {
         if (result.loading || result.error) return null
-        return splitItems(result.items, 'linkCheckerFindings', snoozes, now).open.length
-      }, [result, snoozes, now])
+        // `countOpenItems`, not `splitItems(...).open.length`: the pane also
+        // filters per-editor dismissals out of Open (`mergeRows`), and a
+        // count that skipped that step left the navbar badge disagreeing
+        // with the headline right beside it. `acknowledgable` left at its
+        // default — this source's own `useItems` never sets it, so a
+        // dismissal here does clear a row.
+        return countOpenItems(result.items, 'linkCheckerFindings', snoozes, now, dismissals)
+      }, [result, snoozes, now, dismissals])
     },
 
     useItems(): InboxSourceResult {

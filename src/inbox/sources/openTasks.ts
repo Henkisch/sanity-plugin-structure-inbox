@@ -10,8 +10,9 @@ import {type AddonDatasetContextValue, useCurrentUser, useTranslation} from 'san
 
 import {useAgentClient} from '../../ai/useAgentClient'
 import {STRUCTURE_INBOX_NAMESPACE} from '../../constants'
+import {EMPTY_DISMISSALS, type DismissalState} from '../../store/dismissals'
 import {type SnoozeState} from '../../store/snoozes'
-import {splitItems} from '../splitItems'
+import {countOpenItems} from '../mergeItems'
 import {type InboxAssessment, type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {optionalHook, useAssignableUsers, useSafely} from './capability'
 import {liveQuery$} from './liveQuery'
@@ -319,7 +320,11 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
     placement,
     audience: onlyMine ? 'mine' : 'everyone',
 
-    useOpenCount(snoozes: SnoozeState, now: number): number | null {
+    useOpenCount(
+      snoozes: SnoozeState,
+      now: number,
+      dismissals: DismissalState = EMPTY_DISMISSALS,
+    ): number | null {
       // Tasks live in the addon dataset, so unlike `unpublishedDrafts.ts`
       // (whose base query needs nothing from it), there is no count here at
       // all without `useAddonDataset` — this can't be worked around the way
@@ -337,8 +342,13 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
 
       return useMemo(() => {
         if (result.loading || result.error) return null
-        return splitItems(result.items, 'openTasks', snoozes, now).open.length
-      }, [result, snoozes, now])
+        // `countOpenItems`, not `splitItems(...).open.length`: the pane
+        // filters per-editor dismissals out of Open too (`mergeRows`), and
+        // counting without them is what made the badge and the headline
+        // disagree. `acknowledgable` left at its default — this source's own
+        // `useItems` never sets it (only `todos` opts out).
+        return countOpenItems(result.items, 'openTasks', snoozes, now, dismissals)
+      }, [result, snoozes, now, dismissals])
     },
 
     useItems(): InboxSourceResult {

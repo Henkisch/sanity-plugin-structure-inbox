@@ -3,8 +3,13 @@ import {cleanup, renderHook, waitFor} from '@testing-library/react'
 import {of, Subject} from 'rxjs'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
+import {EMPTY_DISMISSALS, withDismissal, type DismissalState} from '../../store/dismissals'
 import {EMPTY_SNOOZES} from '../../store/snoozes'
 import {resetWarnings} from '../../warnOnce'
+import {mergeRows} from '../mergeItems'
+import {type SourceReport} from '../SourceFeed'
+import {splitItems} from '../splitItems'
+import {type InboxItem} from '../types'
 import {typeDisplayName, unpublishedDrafts} from './unpublishedDrafts'
 
 interface DraftRow {
@@ -333,5 +338,110 @@ describe('unpublishedDrafts — the `ai` opt-out', () => {
     await waitFor(() => expect(result.current.items.length).toBeGreaterThan(0))
     expect(result.current.assess).toBeDefined()
     expect(result.current.suggestSnooze).toBeDefined()
+  })
+})
+
+// Plan 075: the navbar badge (`useInboxOpenCount()` -> `useOpenCount`) and the
+// pane headline (`mergeRows` over `report.open`) are two numbers an editor can
+// see at the same time, and they used to be computed independently — the badge
+// knew nothing about dismissals, so clearing five items moved the pane from 8
+// to 3 while the badge sat at 8. These assert the two against each other
+// rather than against a hardcoded expectation alone: a future change that
+// moves one without the other fails here regardless of which way it moves.
+describe('unpublishedDrafts — the badge agrees with the pane', () => {
+  const NOW = Date.parse('2026-06-15T00:00:00.000Z')
+
+  /**
+   * Exactly what the pane does with one source's items: `SourceFeed` splits
+   * them, `Inbox.tsx` counts the `'open'` rows `mergeRows` gives back.
+   */
+  function paneOpenCount(items: InboxItem[], dismissals: DismissalState): number {
+    const {open, cleared, snoozed} = splitItems(items, 'unpublishedDrafts', EMPTY_SNOOZES, NOW)
+    const report: SourceReport = {
+      source: {name: 'unpublishedDrafts', title: 'Drafts', useItems: () => ({items: []})},
+      open,
+      cleared,
+      snoozed,
+    }
+    return mergeRows({unpublishedDrafts: report}, ['unpublishedDrafts'], 'open', dismissals).length
+  }
+
+  /** Both numbers, from one render, for the same dismissal state. */
+  function renderBoth(dismissals: DismissalState) {
+    const source = unpublishedDrafts({limit: 10})
+    return renderHook(() => ({
+      items: source.useItems().items,
+      badge: source.useOpenCount!(EMPTY_SNOOZES, NOW, dismissals),
+    }))
+  }
+
+  afterEach(() => {
+    cleanup()
+    useClientMock.mockReset()
+  })
+
+  it('both report every draft when nothing is dismissed', async () => {
+    const {client} = stubClient(makeRows(3, new Set()), 'user-1', [])
+    useClientMock.mockReturnValue(client)
+
+    const {result} = renderBoth(EMPTY_DISMISSALS)
+    await waitFor(() => expect(result.current.items.length).toBe(3))
+
+    expect(result.current.badge).toBe(paneOpenCount(result.current.items, EMPTY_DISMISSALS))
+    expect(result.current.badge).toBe(3)
+  })
+
+  it('both drop to 1 when two of three drafts are dismissed', async () => {
+    const {client} = stubClient(makeRows(3, new Set()), 'user-1', [])
+    useClientMock.mockReturnValue(client)
+
+    // After every row's own `_updatedAt` (January 2026), so neither is stale.
+    const at = '2026-06-01T00:00:00.000Z'
+    let dismissals = withDismissal(EMPTY_DISMISSALS, 'unpublishedDrafts', 'drafts.doc-0', at)
+    dismissals = withDismissal(dismissals, 'unpublishedDrafts', 'drafts.doc-1', at)
+
+    const {result} = renderBoth(dismissals)
+    await waitFor(() => expect(result.current.items.length).toBe(3))
+
+    expect(result.current.badge).toBe(paneOpenCount(result.current.items, dismissals))
+    // The regression itself: this used to be 3 while the pane said 1.
+    expect(result.current.badge).toBe(1)
+  })
+
+  it('neither counts a stale dismissal — an edit after the tick puts the row back', async () => {
+    const {client} = stubClient(makeRows(3, new Set()), 'user-1', [])
+    useClientMock.mockReturnValue(client)
+
+    // Before every row's own `_updatedAt`, so `isDismissed` calls it stale.
+    const dismissals = withDismissal(
+      EMPTY_DISMISSALS,
+      'unpublishedDrafts',
+      'drafts.doc-0',
+      '2025-01-01T00:00:00.000Z',
+    )
+
+    const {result} = renderBoth(dismissals)
+    await waitFor(() => expect(result.current.items.length).toBe(3))
+
+    expect(result.current.badge).toBe(paneOpenCount(result.current.items, dismissals))
+    expect(result.current.badge).toBe(3)
+  })
+
+  it('neither counts another source\'s dismissal of the same item id', async () => {
+    const {client} = stubClient(makeRows(3, new Set()), 'user-1', [])
+    useClientMock.mockReturnValue(client)
+
+    const dismissals = withDismissal(
+      EMPTY_DISMISSALS,
+      'someOtherSource',
+      'drafts.doc-0',
+      '2026-06-01T00:00:00.000Z',
+    )
+
+    const {result} = renderBoth(dismissals)
+    await waitFor(() => expect(result.current.items.length).toBe(3))
+
+    expect(result.current.badge).toBe(paneOpenCount(result.current.items, dismissals))
+    expect(result.current.badge).toBe(3)
   })
 })
