@@ -144,8 +144,14 @@ Naming it drags that whole class's type graph — `SanityClient`,
 `Subscription` — into every consumer's published types, at ~10,000 lines.
 `useAssignmentStore` did exactly this until its exported parameter was
 narrowed to `AssignmentStoreClient` (`src/inbox/sources/assignmentStore.ts`)
-— a structural interface a real `SanityClient` satisfies with no caller
-changes. Check `wc -l dist/index.d.ts` after any change to an exported
+— a structural interface a real `SanityClient` satisfies at every call site
+inside this package. Note what that does *not* mean: `useAssignmentStore`
+is not callable from outside the package either way, because the
+`Observable` in the published signature is this package's inlined copy of
+rxjs's and `Subscriber.isStopped` is `protected`, making the type nominal
+across copies. That was equally true before the narrowing, so it is not a
+regression — but do not read "satisfied structurally" as "externally
+usable". Check `wc -l dist/index.d.ts` after any change to an exported
 function's parameter or return type.
 
 That fix does not, and structurally cannot, get `dist/index.d.ts` to zero

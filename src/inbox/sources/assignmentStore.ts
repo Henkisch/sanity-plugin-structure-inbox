@@ -81,12 +81,19 @@ interface AssignmentRow {
  * `SanityClient`, `ObservableSanityClient`, `Patch`, `Transaction`,
  * `ReleasesClient`, `AgentActionsClient`, plus rxjs's own `Observable`,
  * `Subscriber`, `Subscription` — into every consumer's published types.
- * That turned an ~11,000-line `dist/index.d.ts` into hundreds of lines.
+ * That turned an ~11,400-line `dist/index.d.ts` into ~1,500 lines.
  * See AGENTS.md's "published type surface" note.
  *
- * A real `SanityClient` satisfies this structurally with no changes needed
- * at any call site — this only narrows what the *published* signature
- * requires, not what a caller may pass.
+ * A real `SanityClient` satisfies this structurally at every call site
+ * *inside this package*, which is what the narrowing was for. It does not
+ * make `useAssignmentStore` callable from outside: the `Observable` named
+ * below is this package's own inlined copy of rxjs's declaration, and
+ * rxjs's `Subscriber.isStopped` is `protected`, which makes the type
+ * nominal across copies. A consumer's `SanityClient` therefore fails to
+ * assign no matter which rxjs it installs. That was already true before
+ * this narrowing (for a different reason — `SanityClient`'s own `#private`
+ * field), so nothing regressed; it is recorded here so the next reader does
+ * not mistake "structurally satisfied" for "externally usable".
  *
  * Deliberately not written as a `Pick` of `SanityClient`'s own members
  * either — an indexed access into `SanityClient` still names it, which is
