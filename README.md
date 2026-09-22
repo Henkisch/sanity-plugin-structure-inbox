@@ -22,6 +22,7 @@ row can be opened, handed to a colleague, snoozed or ticked off without leaving 
 - [Selecting and acting](#selecting-and-acting)
 - [Options](#options)
 - [AI features, and what they cost](#ai-features-and-what-they-cost)
+- [What leaves your dataset on an AI read](#what-leaves-your-dataset-on-an-ai-read)
 - [Grounding AI reads in your project](#grounding-ai-reads-in-your-project)
 - [Alt text](#alt-text)
 - [Optional: broken links via `sanity-plugin-link-checker`](#optional-broken-links-via-sanity-plugin-link-checker)
@@ -403,6 +404,58 @@ and `groq` — there is no image input, and the image-related Agent Actions docs
 fallback that guessed alt text from the document's *text* would write confident, wrong descriptions,
 and a wrong alt text is worse than a missing one because nothing flags it again. Bring your own
 vision model instead, via `assetIssues`'s `describeImage` — see [Alt text](#alt-text).
+
+## What leaves your dataset on an AI read
+
+Every AI read in this plugin goes to **Sanity Agent Actions**, in your own project, over the
+editor's own client. No third-party model provider is involved, and nothing is sent until someone
+clicks. What differs between the reads is how much of your content goes with the click.
+
+### Ask and Find content gaps: a project survey
+
+These two share one cached survey. It covers up to **30 document types** (schema order — a project
+with more only has its first 30 included), and for each type it sends:
+
+- the type's name and title,
+- its document count,
+- its schema `description`, if you wrote one,
+- which other document types it references, by title,
+- and up to **5 real field values**, stride-sampled across that type's **100** most recently
+  updated documents.
+
+Those 5 values all come from **one** field, chosen by name: the type's `title`, else its `name`,
+else its `label`. The match is exact and case-insensitive — the same `coalesce(title, name, label)`
+convention this plugin's own row titles already use.
+
+**A type with none of those three fields sends no field values at all.** Its name, count,
+description and references still go; its content does not. A `lead` type whose fields are `email`,
+`phone` and `message` therefore contributes zero real values, even though all three are strings.
+This is deliberate: there is no fallback to "the first string field", because on exactly that kind
+of type the first string field is the one you would least want read aloud to a model.
+
+Nothing else from your documents is sent on these reads — no other field, no body text, no
+document ids, no asset urls. The worst case is 30 types × 5 values = **150 short strings**, plus
+30 schema descriptions, plus your `context` string.
+
+### Summarize and Suggest todos: the visible list
+
+These send the pane's own rows, not the documents behind them: for up to 30 open rows, the row's
+**title and subtitle** — the same two lines the editor is already looking at. **Ask** additionally
+sends each row's source name, document type, waiting-since timestamp and assignee label; that list
+is the `DescribedRow` shape in `src/ai/askInbox.ts`, kept deliberately narrow because every field
+in it is a field that leaves the dataset.
+
+### The per-row reads: one whole document
+
+**Ask AI** (`assess`), **Suggest a time** (`suggestSnooze`) and **Fix with AI** (`proposeFix`) do
+**not** send a field list. They pass Agent Actions a document *reference*
+(`{type: 'document', documentId}`) and Sanity resolves that document server-side, inside your
+project — so the model sees the document, and this plugin does not choose which of its fields.
+
+That is the right shape for a read whose whole job is judging one document an editor explicitly
+picked, but it means field selection is not the control here. If a document type should not be read
+by a model at all, turn the feature off instead: `unpublishedDrafts({ai: false})` removes both
+per-row buttons from that source, and the [Options](#options) above remove the pane-wide reads.
 
 ## Grounding AI reads in your project
 
