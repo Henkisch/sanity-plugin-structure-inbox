@@ -2,7 +2,11 @@ import {type SnoozeState} from './store/snoozes'
 import {type InboxItem} from './inbox/types'
 import {splitItems} from './inbox/splitItems'
 
-/** One configured source's name and its currently-fetched items. */
+/**
+ * One configured source's name and its currently-fetched items.
+ *
+ * @public
+ */
 export interface DigestSource {
   /** Must match the `sourceName` `isSnoozed` was recorded against — the same `source.name` passed to `structureInbox({sources: [...]})`. */
   name: string
@@ -16,13 +20,19 @@ export interface DigestSource {
  * digest of what's still genuinely open — only `InboxItem.cleared` (a real,
  * source-confirmed resolution) does that. See `splitItems.ts`'s own doc
  * comment.
+ *
+ * @public
  */
 export interface DigestEditor {
   userId: string
   snoozes: SnoozeState
 }
 
-/** What's still open for one editor, across every source. */
+/**
+ * What's still open for one editor, across every source.
+ *
+ * @public
+ */
 export interface EditorDigest {
   userId: string
   open: InboxItem[]
@@ -36,6 +46,8 @@ export interface EditorDigest {
  * call — this function only reports fully open ones, matching what the
  * pane's own headline count already treats as "waiting on you" (see
  * `Inbox.tsx`'s `openCount`, which sums only `.open`, never `.snoozed`).
+ *
+ * @public
  */
 export function buildDigest(
   sources: DigestSource[],

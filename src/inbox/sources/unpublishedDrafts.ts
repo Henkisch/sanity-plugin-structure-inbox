@@ -19,6 +19,9 @@ import {targetIdFromIntentParamsId, useAssignmentCapability} from './assignmentC
 import {fetchDocumentAuthors, filterAuthoredBy} from './authoredBy'
 import {liveQuery$} from './liveQuery'
 
+/**
+ * @public
+ */
 export interface UnpublishedDraftsOptions {
   /** Only list drafts untouched for at least this long. Defaults to 7 days. */
   olderThanDays?: number
@@ -139,6 +142,8 @@ const ONLY_MINE_OVERFETCH_MULTIPLIER = 5
  * A draft's own row also carries `assignee` once something has assigned it —
  * `ASSIGNMENTS_QUERY` reads every assignment doc back out and joins it onto
  * whichever draft its `targetId` matches.
+ *
+ * @public
  */
 export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): InboxSource {
   const {

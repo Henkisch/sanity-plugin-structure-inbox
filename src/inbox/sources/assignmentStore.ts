@@ -59,6 +59,8 @@ export const ASSIGNMENT_TYPE = 'structureInbox.assignment'
  * short key stayed under the limit and worked, which is why this went
  * unnoticed at first). Hashing the target instead of sanitizing it in place
  * keeps every id short and valid regardless of what the target actually is.
+ *
+ * @public
  */
 export function assignmentDocId(docType: string, targetId: string): string {
   return `${docType}.${hash32(targetId, 5381).toString(36)}${hash32(targetId, 52711).toString(36)}`
@@ -69,6 +71,9 @@ interface AssignmentRow {
   assignedTo: string
 }
 
+/**
+ * @public
+ */
 export interface AssignmentStore {
   /** Every current assignment of this `docType`, keyed by `targetId`. */
   byTarget: Map<string, string>
@@ -106,6 +111,8 @@ export interface AssignmentStore {
  * — not on any remote emission, which could stop overriding before the
  * specific write it's tracking is actually reflected — or immediately, if
  * the write itself rejects.
+ *
+ * @public
  */
 export function useAssignmentStore(client: SanityClient, docType: string): AssignmentStore {
   const query = `*[_type == $docType && defined(assignedTo)]{targetId, assignedTo}`

@@ -8,6 +8,9 @@ import {useTodos} from '../../store/useTodos'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {useAssignableUsers} from './capability'
 
+/**
+ * @public
+ */
 export interface TodosOptions {
   /** Row category label. Defaults to a translated "Todo"; a custom value is shown exactly as given. */
   title?: string
@@ -63,6 +66,8 @@ function isOverdue(dueBy?: string): boolean {
  * A due date sorts and colours the row the same way `openTasks` treats one —
  * `timestamp` prefers it over the creation time, and it goes critical once
  * past — rather than inventing a second convention for the same idea.
+ *
+ * @public
  */
 export function todos(options: TodosOptions = {}): InboxSource {
   const {title = 'source.todos.defaultTitle', placement = 'main'} = options

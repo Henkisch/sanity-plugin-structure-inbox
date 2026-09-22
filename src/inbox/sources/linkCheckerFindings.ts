@@ -32,6 +32,9 @@ import {
 import {targetIdFromItemId, useAssignmentCapability} from './assignmentCapability'
 import {SIMPLE_FIELD_PATH} from './simpleFieldPath'
 
+/**
+ * @public
+ */
 export interface LinkCheckerFindingsOptions {
   /** Cap on rows shown, after filtering. Defaults to 50 — a report can carry far more findings than a pane should ever list at once. */
   limit?: number
@@ -403,6 +406,8 @@ export function groupOccurrences(
  * whenever a re-scan writes a fresher one — run by anyone, the in-Studio
  * tool, the CLI, or the Document Function — so this updates without the
  * editor navigating away and back.
+ *
+ * @public
  */
 export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): InboxSource {
   const {

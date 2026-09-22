@@ -58,6 +58,9 @@ const RELEASES_UNAVAILABLE: InboxSourceResult = {
   ),
 }
 
+/**
+ * @public
+ */
 export interface NeedsAttentionOptions {
   /** Cap on rows. Defaults to 10. */
   limit?: number
@@ -146,6 +149,8 @@ export function useDocumentCounts(client: SanityClient, releaseIds: readonly str
  * document type exists in a v6 dataset; scheduled publishing is entirely
  * releases), so there is no `documents` option here the way the plan this
  * source came from first considered — only releases.
+ *
+ * @public
  */
 export function needsAttention(options: NeedsAttentionOptions = {}): InboxSource {
   const {limit = 10, title = 'source.needsAttention.defaultTitle'} = options

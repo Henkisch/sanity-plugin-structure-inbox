@@ -71,6 +71,9 @@ export function selectUnresolvedComments(
     .slice(0, limit)
 }
 
+/**
+ * @public
+ */
 export interface UnresolvedCommentsOptions {
   /** Cap on rows. Defaults to 20. */
   limit?: number
@@ -200,6 +203,8 @@ const QUERY = `*[
  * No `resolve`, no AI: resolving is a Studio UI action this pane doesn't
  * reimplement, and there is nothing here for an AI read to add — a
  * comment already says what it means.
+ *
+ * @public
  */
 export function unresolvedComments(options: UnresolvedCommentsOptions = {}): InboxSource {
   const {limit = 20, title = 'source.unresolvedComments.defaultTitle', onlyMine = true} = options
