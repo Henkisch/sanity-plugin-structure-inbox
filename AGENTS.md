@@ -155,33 +155,71 @@ usable". Check `wc -l dist/index.d.ts` after any change to an exported
 function's parameter or return type.
 
 That fix does not, and structurally cannot, get `dist/index.d.ts` to zero
-`declare global` blocks or zero mentions of `interface SanityQueries {}`
-(Sanity TypeGen's own query-result registry — a real collision risk for any
-consuming Studio that runs `sanity typegen`). Three small ambient blocks
-remain load-bearing pollution: rxjs's `SymbolConstructor.observable` (pulled
-in by `AssignmentStoreClient` naming rxjs's own `Observable<T>`, which is a
-reasonable trade against re-inventing an observable type), and `@sanity/client`'s
-own `interface File {}` and `interface SanityQueries {}`. The last two are
-**not** caused by `useAssignmentStore` or by any exported signature at all —
-confirmed by bisecting `src/index.ts`'s re-exports one at a time and
-rebuilding. They ride in because several other source files reachable from
-the barrel (`needsAttention.ts`, `documentValidation.ts`, `unpublishedDrafts.ts`,
-`unresolvedComments.ts`, and others) `import type {SanityClient} from
-'@sanity/client'` for their own *internal*, never-exported helpers (e.g.
-`needsAttention.ts`'s `useDocumentCounts`, `documentValidation.ts`'s
-`ValidateDocumentFn`). The declaration bundler apparently can't selectively
-drop an ambient `declare global` block from a `.d.ts` file it has decided to
-include at all, even when nothing in that file's *exported* surface needs
-it — so merely importing `@sanity/client`'s types anywhere in the reachable
-module graph, exported or not, is enough. Eliminating these two blocks for
-real would mean zero `@sanity/client` type imports anywhere reachable from
-`src/index.ts` (a much larger change than narrowing one signature) or making
-`@sanity/client` a real dependency/peer instead of an inlined one (which
-runs into this file's peer-floor rules above). Neither has been done. If you
-are chasing these two blocks specifically, this is why "the exported
-signature is already narrow" is not evidence they are gone — measure them
+`declare global` blocks. Three small ambient blocks remain: rxjs's
+`SymbolConstructor.observable` (pulled in by `AssignmentStoreClient` naming
+rxjs's own `Observable<T>`, which is a reasonable trade against re-inventing an
+observable type), and `@sanity/client`'s own `interface SanityQueries {}` and
+`interface File {}`. The last two are **not** caused by `useAssignmentStore` or
+by any exported signature at all — confirmed by bisecting `src/index.ts`'s
+re-exports one at a time and rebuilding. They ride in because several other
+source files reachable from the barrel (`needsAttention.ts`,
+`documentValidation.ts`, `unpublishedDrafts.ts`, `unresolvedComments.ts`, and
+others) `import type {SanityClient} from '@sanity/client'` for their own
+*internal*, never-exported helpers. The declaration bundler apparently can't
+selectively drop an ambient `declare global` block from a `.d.ts` file it has
+decided to include at all, even when nothing in that file's *exported* surface
+needs it.
+
+### Two of those three blocks are inert, and the third is not — a correction
+
+An earlier version of this file called `SanityQueries` (Sanity TypeGen's
+query-result registry) a collision hazard for any consuming Studio that runs
+`sanity typegen`. **That was wrong.** It was reasoned from the shape of the
+`.d.ts` rather than compiled, and a real consumer built from `npm pack` says
+otherwise: with this plugin imported, `client.fetch(q)` still resolves to the
+registered `PostsQueryResult`, and a deliberately wrong result shape is still
+rejected. The block is declared *empty*, and interface merging is additive, so an
+empty contributor contributes nothing — the registry is a global rather than a
+module augmentation precisely so it survives multiple copies of
+`@sanity/client`. `SymbolConstructor.observable` is likewise additive and
+likewise inert.
+
+The third, `interface File {}`, is not inert — for a consumer compiled **without
+the DOM lib**. It injects an empty global `File` where there was none, so
+`const f: File = …` compiles when it should be rejected, and any error it does
+produce blames a type the consumer never declared. No Studio is affected; every
+Studio has the DOM lib, where the empty interface just merges into the real
+`File`. The victims are Node consumers — the two README recipes that pitch
+`buildDigest` and `findStaleEditorDocuments` at a Sanity Function.
+
+That is what `sanity-plugin-structure-inbox/node` (`src/node.ts`, plan 088)
+exists for: the same pure, dependency-free symbols, re-exported from an entry
+point whose type closure contains **no** ambient blocks at all. Nothing was
+removed from the main barrel; the subpath is additive, and every symbol on it is
+still exported from `.`.
+
+The guard that matters is the build output, and no unit test can see it — check
+it by hand after changing what `src/node.ts` re-exports:
+
+```sh
+npm run build
+# dist/node.d.ts is a two-line re-export, so follow it into its chunks:
+for f in dist/node.d.ts $(sed -n 's/.*from "\.\/\(.*\)\.js";/dist\/\1.d.ts/p' dist/node.d.ts); do
+  echo "$f: $(grep -c 'declare global' "$f")"   # every one must be 0
+done
+```
+
+If a `declare global` appears there, something was added to `src/node.ts` that
+imports `@sanity/client` somewhere in its graph, and it does not belong on that
+entry point. Do not trim the list until the number looks right — find the symbol.
+
+For `dist/index.d.ts` the counts are unchanged and still worth measuring
 directly: `grep -c "^declare global {" dist/index.d.ts` (expect 3) and
-`grep -c "^  interface SanityQueries {}" dist/index.d.ts` (expect 1).
+`grep -c "^  interface SanityQueries {}" dist/index.d.ts` (expect 1). Note that
+`wc -l dist/index.d.ts` fell from 1,472 to 1,312 when `./node` was added — nothing
+shrank, 163 lines simply moved into a shared `dist/staleEditorDocs-*.d.ts` chunk
+that both entry points import. Count the chunks too, or the "roughly 1,500 lines"
+figure above will mislead you.
 
 ## Maintenance
 
