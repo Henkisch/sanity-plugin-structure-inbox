@@ -110,6 +110,22 @@ Do not widen this range to court older studios. A refused install is the
 feature. The same reasoning applies to `@sanity/icons` (v5 moved icons to
 subpath exports, `@sanity/icons/Trash` rather than the package root).
 
+A package this plugin lists in `dependencies` that `sanity` also depends on
+must have a range satisfiable by **every** `sanity` version the peer range
+allows — `sanity` pins its Sanity-scoped dependencies to exact versions, so a
+floor above the peer floor forces a second nested copy. Check the registry
+rather than assuming symmetry: `@sanity/validation` does not exist below
+6.12 (it was split out of `sanity` then), which is why its range is
+`^6.12.0` while `@sanity/types` is `^6.10.0`.
+
+A duplicate copy is not automatically a bug, either. The `@sanity/ui`
+incident above was severe because v3 and v4 genuinely behaved differently.
+The three guards this plugin imports from `@sanity/types`
+(`isDocumentSchemaType`, `isImageSchemaType`, `isObjectSchemaType`) are pure
+duck-typing over plain objects and byte-identical across 6.10–6.13, so a
+second copy of *those* costs bundle size and nothing else. Check which kind
+you have before treating a duplicate as an emergency.
+
 ## Maintenance
 
 If a genuinely new invariant of this shape emerges (something that silently
