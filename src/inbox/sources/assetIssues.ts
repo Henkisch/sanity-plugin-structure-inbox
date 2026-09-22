@@ -240,7 +240,11 @@ const DEFAULT_MAX_SIZES: Required<MaxAssetSizes> = {
   other: 25 * 1024 * 1024,
 }
 
-/** The asset an unreferenced row is about, as handed to `openAsset`. */
+/**
+ * The asset an unreferenced row is about, as handed to `openAsset`.
+ *
+ * @public
+ */
 export interface AssetTarget {
   id: string
   type: string
@@ -249,6 +253,9 @@ export interface AssetTarget {
   size: number
 }
 
+/**
+ * @public
+ */
 export interface AssetIssuesOptions {
   /** Cap on rows per check (oversized, unused, missing alt text — each capped independently). Defaults to 20. */
   limit?: number
@@ -342,7 +349,11 @@ export interface AssetIssuesOptions {
  * a link to the document rather than getting a guess.
  *
  * Exported for its own test, like `classifyAltText` and
- * `normalizeForComparison` beside it.
+ * `normalizeForComparison` beside it — not integrator-facing, unlike the
+ * `suggestAlt`/`describeImage` callbacks in {@link AssetIssuesOptions} it
+ * backs.
+ *
+ * @internal
  */
 export function suggestAltText(
   ctx: AltContext,
@@ -559,6 +570,8 @@ interface AssetIssuesFetch {
  *
  * Missing- and poor-alt-text rows are different in kind: those are on a real,
  * ordinary document, and keep the `'edit'` intent they have always had.
+ *
+ * @public
  */
 export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
   const {

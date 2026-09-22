@@ -1,3 +1,8 @@
+/**
+ * One entry in an editor's personal `todos` scratch list.
+ *
+ * @public
+ */
 export interface TodoItem {
   id: string
   title: string
@@ -23,6 +28,8 @@ export interface TodoInput {
  * The shape stored under the todos key.
  *
  * Versioned and read defensively, same as {@link DismissalState}.
+ *
+ * @public
  */
 export interface TodosState {
   version: 1
@@ -49,7 +56,11 @@ function isTodoItem(value: unknown): value is TodoItem {
   return isOptionalString(description) && isOptionalString(dueBy) && isOptionalString(updatedAt)
 }
 
-/** Parses a stored value, discarding anything that is not what we wrote. */
+/**
+ * Parses a stored value, discarding anything that is not what we wrote.
+ *
+ * @public
+ */
 export function parseTodos(value: unknown): TodosState {
   if (typeof value !== 'object' || value === null) return EMPTY_TODOS
   if (!('version' in value) || value.version !== TODOS_VERSION) return EMPTY_TODOS

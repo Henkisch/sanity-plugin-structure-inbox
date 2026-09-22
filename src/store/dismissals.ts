@@ -4,6 +4,8 @@
  * Versioned, and read defensively: a value written by a future version of this
  * plugin is treated as absent rather than coerced, so an editor who downgrades
  * sees an empty inbox state instead of a crash.
+ *
+ * @public
  */
 export interface DismissalState {
   version: 1
@@ -62,7 +64,11 @@ function parseRemoved(value: unknown): DismissalState['removed'] {
   return Object.keys(removed).length > 0 ? removed : undefined
 }
 
-/** Parses a stored value, discarding anything that is not what we wrote. */
+/**
+ * Parses a stored value, discarding anything that is not what we wrote.
+ *
+ * @public
+ */
 export function parseDismissals(value: unknown): DismissalState {
   if (typeof value !== 'object' || value === null) return EMPTY_DISMISSALS
   if (!('version' in value) || value.version !== DISMISSAL_VERSION) return EMPTY_DISMISSALS
@@ -161,6 +167,8 @@ export function pruneDismissals(
  * before it was even ticked, and resurrect it immediately. Items with no
  * change time have no notion of changing, so for them a dismissal is
  * permanent until restored.
+ *
+ * @public
  */
 export function isDismissed(
   state: DismissalState,

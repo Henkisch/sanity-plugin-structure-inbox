@@ -41,6 +41,9 @@ function useUnavailableAddonDataset(): AddonDatasetContextValue {
 // hooks require.
 const useAddonDataset = optionalHook('useAddonDataset', useUnavailableAddonDataset)
 
+/**
+ * @public
+ */
 export interface OpenTasksOptions {
   /** Cap on rows. Defaults to 10. */
   limit?: number
@@ -199,6 +202,8 @@ export function dueSubtitleKey(dueBy?: string): 'openTasks.overdue' | 'openTasks
  * that throw; the `SectionErrorBoundary` around `InboxSection` in `Inbox.tsx`
  * contains it to this source's own card instead of taking the whole pane
  * down.
+ *
+ * @public
  */
 export function openTasks(options: OpenTasksOptions = {}): InboxSource {
   const {

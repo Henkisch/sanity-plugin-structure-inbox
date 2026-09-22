@@ -44,6 +44,13 @@ interface SectionCardProps {
  * already happened or it hasn't; either way it has nothing to catch here.
  * What this component does own is the `error` prop path: a source that
  * *reports* an error in its result, rather than throwing one.
+ *
+ * Internal render plumbing, not a building block for a custom source: "Writing
+ * your own" (README) returns items/hooks from `useItems`, and `Inbox.tsx`
+ * itself wraps every source's card in this component — nothing in the
+ * documented extension surface asks an integrator to render one directly.
+ *
+ * @internal
  */
 export function SectionCard(props: SectionCardProps) {
   const {title, badge, note, toolbar, error, onRetry, children} = props

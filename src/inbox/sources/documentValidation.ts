@@ -193,6 +193,9 @@ function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: T): Promise<
   })
 }
 
+/**
+ * @public
+ */
 export interface DocumentValidationOptions {
   /** Candidate drafts fetched, not rows necessarily shown. Defaults to 20. */
   limit?: number
@@ -390,6 +393,8 @@ function useValidationResults(
  * same reasoning `needsAttention` already uses for an off-track release —
  * a tick here only acknowledges. No AI: a schema's own rules are already
  * fully deterministic.
+ *
+ * @public
  */
 export function documentValidation(options: DocumentValidationOptions = {}): InboxSource {
   const {limit = 20, title = 'source.documentValidation.defaultTitle', types} = options
