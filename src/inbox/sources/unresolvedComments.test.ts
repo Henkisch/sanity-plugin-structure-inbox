@@ -93,12 +93,38 @@ describe('commentsFetchLimit', () => {
   })
 })
 
+/**
+ * A *field* comment, in the shape Sanity's own comment `createOperation`
+ * writes on its `type === "field"` branch: a `target.path` naming the field,
+ * plus a `target.document` reference back into the content dataset.
+ *
+ * `target.path` is the only thing that tells such a comment apart from a
+ * comment on a task, so a fixture without one is not a field comment at all
+ * — see `taskCommentRow` below.
+ */
 function commentRow(id: string, message: {_type: string; text?: string; userId?: string}[][]): CommentRow {
   return {
     _id: id,
     _createdAt: '2026-01-01T00:00:00.000Z',
     message: message.map((children) => ({_type: 'block', children})),
-    target: {document: {_ref: 'post-1'}, documentType: 'post'},
+    target: {document: {_ref: 'post-1'}, documentType: 'post', path: {field: 'title'}},
+  }
+}
+
+/**
+ * A *task* comment, in the shape the same function writes on its
+ * `type === "task"` branch: no `target.path` at all, and a `documentType` of
+ * `tasks.task` whose `_ref` only resolves inside the add-on dataset.
+ */
+function taskCommentRow(
+  id: string,
+  message: {_type: string; text?: string; userId?: string}[][],
+): CommentRow {
+  return {
+    _id: id,
+    _createdAt: '2026-01-01T00:00:00.000Z',
+    message: message.map((children) => ({_type: 'block', children})),
+    target: {document: {_ref: 'task-1'}, documentType: 'tasks.task'},
   }
 }
 
@@ -136,5 +162,54 @@ describe('selectUnresolvedComments', () => {
     const result = selectUnresolvedComments(rows, false, 'user-1', 20)
 
     expect(result.map((row) => row._id)).toEqual(['a', 'b'])
+  })
+
+  it('keeps a comment left on a document field', () => {
+    const rows = [commentRow('field-comment', [[{_type: 'span', text: 'fix this heading'}]])]
+
+    const result = selectUnresolvedComments(rows, false, 'user-1', 20)
+
+    expect(result.map((row) => row._id)).toEqual(['field-comment'])
+  })
+
+  it('drops a comment left on a Sanity task, whose row navigated to a tasks.task id registered in no workspace and present in no content dataset', () => {
+    const rows = [
+      commentRow('field-comment', [[{_type: 'span', text: 'fix this heading'}]]),
+      taskCommentRow('task-comment', [[{_type: 'span', text: 'on it'}]]),
+    ]
+
+    const result = selectUnresolvedComments(rows, false, 'user-1', 20)
+
+    expect(result.map((row) => row._id)).toEqual(['field-comment'])
+  })
+
+  it('drops a task comment that @mentions the current editor — the case onlyMine most wants to get right, and the one that produced the dead row', () => {
+    const rows = [taskCommentRow('task-comment', [[{_type: 'mention', userId: 'user-1'}]])]
+
+    const result = selectUnresolvedComments(rows, true, 'user-1', 20)
+
+    expect(result).toEqual([])
+  })
+
+  it('does not throw on a row with no target at all', () => {
+    const rows = [
+      {...commentRow('no-target', [[{_type: 'span', text: 'x'}]]), target: undefined},
+    ] as unknown as CommentRow[]
+
+    expect(() => selectUnresolvedComments(rows, false, 'user-1', 20)).not.toThrow()
+    expect(selectUnresolvedComments(rows, false, 'user-1', 20)).toEqual([])
+  })
+
+  it('drops a row with a target.path but no target.document._ref to navigate to', () => {
+    const rows = [
+      {
+        ...commentRow('no-ref', [[{_type: 'span', text: 'x'}]]),
+        target: {document: {}, documentType: 'post', path: {field: 'title'}},
+      },
+    ] as unknown as CommentRow[]
+
+    const result = selectUnresolvedComments(rows, false, 'user-1', 20)
+
+    expect(result).toEqual([])
   })
 })
