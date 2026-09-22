@@ -71,7 +71,13 @@ describe('getRealDocumentTypeNames', () => {
 })
 
 describe('findSampleFieldName', () => {
-  it('returns the first string-jsonType field', () => {
+  // Was: "returns the first string-jsonType field", asserting `publishedAt`
+  // over `title`. That rule is what plan 086 replaced — the first string field
+  // on a type is an arbitrary field, and on a `lead` or `person` type it is as
+  // likely to be an email as a name. Kept as a test of the *new* rule on the
+  // same schema so the change of behaviour is visible here rather than only in
+  // the plan file.
+  it('prefers a title-ish field over an earlier string field', () => {
     const schema = schemaWith([
       {
         name: 'post',
@@ -81,7 +87,7 @@ describe('findSampleFieldName', () => {
         ],
       },
     ])
-    expect(findSampleFieldName(schema, 'post')).toBe('publishedAt')
+    expect(findSampleFieldName(schema, 'post')).toBe('title')
   })
 
   it('skips non-string fields', () => {
