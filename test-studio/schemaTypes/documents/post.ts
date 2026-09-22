@@ -20,6 +20,15 @@ export const post = defineType({
       options: {hotspot: true},
       fields: [defineField({name: 'alt', type: 'string', title: 'Alt text'})],
     }),
+    // Plan 060 fixture: the only `file` field in this workspace, so the only
+    // way to exercise `sanity.fileAsset` at all. `assetIssues` queries image
+    // and file assets alike, and nothing here had a file field — which is
+    // how the file half of the feature went unverified until someone asked.
+    defineField({
+      name: 'pressKit',
+      type: 'file',
+      title: 'Press kit (PDF)',
+    }),
   ],
   preview: {
     select: {title: 'title', subtitle: 'author.name'},
