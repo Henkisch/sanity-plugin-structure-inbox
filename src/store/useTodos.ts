@@ -27,7 +27,12 @@ function todosDocumentId(userId: string): string {
 export interface Todos {
   state: TodosState
   add: (input: TodoInput) => void
-  /** Removes a todo for good — see `withoutTodo`. */
+  /**
+   * Removes a todo for good — see `withoutTodo`. The id is also tombstoned
+   * for this session (see `removedIdsRef` below), without which both merges
+   * would hand the server's still-present copy straight back and the
+   * deletion would silently undo itself.
+   */
   remove: (id: string) => void
   /** Edits a todo in place — see `withUpdatedTodo`. */
   update: (id: string, input: TodoInput) => void
@@ -37,12 +42,35 @@ export interface Todos {
    * identity rather than becoming a new one. Writes the recipient's
    * document *before* clearing this editor's own copy, so a failed write
    * never loses the todo outright — worst case it briefly exists on both
-   * lists, never on neither. The write itself is revision-guarded and
-   * retried on conflict (see the implementation), so two transfers landing
-   * on the same recipient close together can't silently clobber one
-   * another either.
+   * lists, never on neither. "Briefly" is only true because the id is
+   * tombstoned the same way `remove` tombstones one (see `removedIdsRef`):
+   * without that, the persist merge restores this editor's own copy from
+   * the server and the todo sits on both lists for good. The write itself
+   * is revision-guarded and retried on conflict (see the implementation),
+   * so two transfers landing on the same recipient close together can't
+   * silently clobber one another either.
    */
   transferTo: (id: string, toUserId: string) => Promise<void>
+}
+
+/**
+ * Subtracts the ids this session deliberately removed from a merge result.
+ *
+ * `mergeTodos` is a pure union by id (see `todos.ts`): it can express "this
+ * id exists" but not "this id was deleted". Both merges below therefore hand
+ * back whatever the editor just removed — the deletion undoes itself, and a
+ * `transferTo` leaves the todo on the sender's list as well as the
+ * recipient's. Filtering the union is what makes a removal expressible
+ * without changing the stored document shape.
+ *
+ * Returns `state` itself when nothing was subtracted, so a merge that removes
+ * nothing doesn't churn the identity `useTodos` stores as state.
+ */
+function withoutRemoved(state: TodosState, removedIds: ReadonlySet<string>): TodosState {
+  if (removedIds.size === 0) return state
+
+  const items = state.items.filter((item) => !removedIds.has(item.id))
+  return items.length === state.items.length ? state : {...state, items}
 }
 
 /**
@@ -127,6 +155,37 @@ export function useTodos(): Todos {
   const hasLocalEditRef = useRef(false)
   const loadedRef = useRef(false)
 
+  /**
+   * Ids removed in this session whose removal may not have reached the
+   * document yet — a tombstone, held in memory rather than stored, and
+   * subtracted from *both* merges below (see `withoutRemoved`).
+   *
+   * In memory on purpose, unlike the stored `removed` maps `dismissals.ts`
+   * and `snoozes.ts` carry — that asymmetry is the decision, not an
+   * oversight. Those two prune their tombstones on a TTL they already had;
+   * `todos.ts` has no prune function, no TTL and no expiry policy at all,
+   * because a todo is authored content that is never meant to age out. A
+   * stored tombstone would need a TTL to stop the document growing forever,
+   * and a TTL here would contradict
+   * `src/inbox/sources/todos.ts`'s `neverExpireDismissals: true`. The growth
+   * it would bound is a few kilobytes a year, which is noise next to a
+   * second stored shape to keep parsing forever.
+   *
+   * An id leaves the set once a write that excluded it has landed (see the
+   * persist effect): at that point the server no longer holds the copy this
+   * session removed, so the tombstone has nothing left to defend against —
+   * and keeping it any longer would swallow a *legitimate* re-appearance of
+   * the same id, which `transferTo` makes real (a todo handed off and later
+   * handed back keeps its identity, see `withTransferredTodo`). `add` mints
+   * a fresh id every time, so it can never collide with a tombstone.
+   *
+   * Known remaining hole, accepted rather than fixed: a *second tab* that
+   * still holds the todo in its own state restores it on its next persist
+   * merge. Nothing in this session can see that tab's memory; closing it
+   * needs the stored tombstone this deliberately avoids.
+   */
+  const removedIdsRef = useRef<Set<string>>(new Set())
+
   const documentId = useMemo(() => (userId ? todosDocumentId(userId) : null), [userId])
 
   useEffect(() => {
@@ -145,7 +204,9 @@ export function useTodos(): Todos {
         if (!hasLocalEditRef.current) {
           setState(parsed)
         } else {
-          setState((current) => mergeTodos(parsed, current))
+          setState((current) =>
+            withoutRemoved(mergeTodos(parsed, current), removedIdsRef.current),
+          )
         }
 
         return undefined
@@ -172,9 +233,28 @@ export function useTodos(): Todos {
     // in both with no `updatedAt` difference, its first argument wins, so
     // `serverState` (already-committed work) wins a tie over `state` (this
     // tab's in-memory copy) rather than the other way around.
-    writeTodosMerged(client, documentId, (serverState) => mergeTodos(serverState, state))
+
+    // Which tombstones this particular write actually excluded. Collected
+    // inside the merge rather than read afterwards because `writeTodosMerged`
+    // may retry, and it is the *last* merge — the one whose value landed —
+    // that decides what the document no longer contains.
+    const excluded = new Set<string>()
+
+    writeTodosMerged(client, documentId, (serverState) => {
+      const removedIds = removedIdsRef.current
+      for (const id of removedIds) excluded.add(id)
+      // Subtracted after the union, not before: `mergeTodos` would otherwise
+      // pull the server's copy of a removed id straight back in.
+      return withoutRemoved(mergeTodos(serverState, state), removedIds)
+    })
       .then(() => {
         dirtyRef.current = false
+        // The value that just landed omitted these ids, so the server no
+        // longer holds the copies this session removed and the tombstones
+        // have nothing left to defend against. Dropping them here is what
+        // keeps a later, legitimate re-appearance of the same id — a
+        // transferred todo handed back, say — from being swallowed forever.
+        for (const id of excluded) removedIdsRef.current.delete(id)
         return undefined
       })
       .catch((error: unknown) => {
@@ -194,6 +274,7 @@ export function useTodos(): Todos {
   const remove = useCallback((id: string) => {
     dirtyRef.current = true
     hasLocalEditRef.current = true
+    removedIdsRef.current.add(id)
     setState((current) => withoutTodo(current, id))
   }, [])
 
@@ -223,6 +304,12 @@ export function useTodos(): Todos {
 
       dirtyRef.current = true
       hasLocalEditRef.current = true
+      // Tombstoned, not just dropped from local state: the recipient's copy
+      // is already written, so a persist merge that restored this editor's
+      // own copy from the server would leave the todo on both lists — a
+      // duplicate, permanently, rather than the "briefly on both" this
+      // hook's interface promises.
+      removedIdsRef.current.add(id)
       setState((current) => withoutTodo(current, id))
     },
     [client, state],

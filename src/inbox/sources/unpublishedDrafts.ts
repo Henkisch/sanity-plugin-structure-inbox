@@ -11,14 +11,18 @@ import {promptJson} from '../../ai/promptJson'
 import {parseSnoozeSuggestion} from '../../ai/snoozeSuggestion'
 import {useAgentClient} from '../../ai/useAgentClient'
 import {API_VERSION} from '../../constants'
+import {EMPTY_DISMISSALS, type DismissalState} from '../../store/dismissals'
 import {type SnoozeState} from '../../store/snoozes'
 import {warnOnce} from '../../warnOnce'
-import {splitItems} from '../splitItems'
+import {countOpenItems} from '../mergeItems'
 import {type InboxAssessment, type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {targetIdFromIntentParamsId, useAssignmentCapability} from './assignmentCapability'
 import {fetchDocumentAuthors, filterAuthoredBy} from './authoredBy'
 import {liveQuery$} from './liveQuery'
 
+/**
+ * @public
+ */
 export interface UnpublishedDraftsOptions {
   /** Only list drafts untouched for at least this long. Defaults to 7 days. */
   olderThanDays?: number
@@ -139,6 +143,8 @@ const ONLY_MINE_OVERFETCH_MULTIPLIER = 5
  * A draft's own row also carries `assignee` once something has assigned it —
  * `ASSIGNMENTS_QUERY` reads every assignment doc back out and joins it onto
  * whichever draft its `targetId` matches.
+ *
+ * @public
  */
 export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): InboxSource {
   const {
@@ -245,7 +251,11 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
     placement,
     audience: onlyMine ? 'mine' : 'everyone',
 
-    useOpenCount(snoozes: SnoozeState, now: number): number | null {
+    useOpenCount(
+      snoozes: SnoozeState,
+      now: number,
+      dismissals: DismissalState = EMPTY_DISMISSALS,
+    ): number | null {
       const client = useClient({apiVersion: API_VERSION})
       const schema = useSchema()
       const userId = useCurrentUser()?.id
@@ -253,8 +263,13 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
 
       return useMemo(() => {
         if (result.loading || result.error) return null
-        return splitItems(result.items, 'unpublishedDrafts', snoozes, now).open.length
-      }, [result, snoozes, now])
+        // `countOpenItems`, not `splitItems(...).open.length`: this source
+        // has no `resolve` at all, so a dismissal is the *only* way one of
+        // its rows ever leaves the pane's Open view (`mergeRows`) — a count
+        // that ignored dismissals could therefore never reach zero.
+        // `acknowledgable` left at its default: `useItems` never sets it.
+        return countOpenItems(result.items, 'unpublishedDrafts', snoozes, now, dismissals)
+      }, [result, snoozes, now, dismissals])
     },
 
     useItems(): InboxSourceResult {

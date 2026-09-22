@@ -68,6 +68,9 @@ const RELEASES_UNAVAILABLE: InboxSourceResult = {
   error: new Error('Upcoming releases are unavailable: Sanity no longer exports useActiveReleases.'),
 }
 
+/**
+ * @public
+ */
 export interface UpcomingReleasesOptions {
   /** Cap on rows. Defaults to 5. */
   limit?: number
@@ -90,6 +93,8 @@ export interface UpcomingReleasesOptions {
  * Sanity release that removes it degrades this source to an error result
  * instead of throwing while the barrel is evaluated and taking every consumer
  * down with it.
+ *
+ * @public
  */
 export function upcomingReleases(options: UpcomingReleasesOptions = {}): InboxSource {
   const {limit = 5, title = 'source.upcomingReleases.defaultTitle', placement = 'aside'} = options

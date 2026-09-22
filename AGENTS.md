@@ -23,12 +23,18 @@ setup (env file, workspace layout).
 
 ## Commit messages are load-bearing
 
-`.releaserc.json` extends `@sanity/semantic-release-preset`, so commit
-messages must follow Conventional Commits (`type: summary`, e.g. `fix:` /
-`feat:` / `docs:`). This isn't a style nit — `semantic-release` reads the
-commit history to decide whether to cut a release at all and what version
-bump it gets. An unconventional message can mean no release, or the wrong
-one.
+`release.config.cjs` (not `.releaserc.json`) extends
+`@sanity/semantic-release-preset` and additionally patches
+`commit-analyzer`'s `releaseRules` so a `docs(readme):` commit cuts a patch
+release. Configure releases **only** in that file: semantic-release would
+load a `.releaserc.json` instead of it, silently dropping both that rule and
+`branches: ['main']`.
+
+Commit messages must follow Conventional Commits (`type: summary`, e.g.
+`fix:` / `feat:` / `docs:`). This isn't a style nit — `semantic-release`
+reads the commit history to decide whether to cut a release at all and what
+version bump it gets. An unconventional message can mean no release, or the
+wrong one.
 
 ## Plugin ordering: `structureInbox()` after `structureTool()`
 
@@ -125,6 +131,95 @@ The three guards this plugin imports from `@sanity/types`
 duck-typing over plain objects and byte-identical across 6.10–6.13, so a
 second copy of *those* costs bundle size and nothing else. Check which kind
 you have before treating a duplicate as an emergency.
+
+## The published type surface is measured, not assumed
+
+`dist/index.d.ts` should be roughly 1,500 lines. If it jumps to five
+figures, an *exported* signature has started naming a type from an inlined
+dependency (`@sanity/client` is the one that bites, at 8.6.1 —
+`inlinedDependencies` in `package.json`) rather than something structural.
+Naming it drags that whole class's type graph — `SanityClient`,
+`ObservableSanityClient`, `Patch`, `Transaction`, `ReleasesClient`,
+`AgentActionsClient`, plus rxjs's own `Observable`/`Subscriber`/
+`Subscription` — into every consumer's published types, at ~10,000 lines.
+`useAssignmentStore` did exactly this until its exported parameter was
+narrowed to `AssignmentStoreClient` (`src/inbox/sources/assignmentStore.ts`)
+— a structural interface a real `SanityClient` satisfies at every call site
+inside this package. Note what that does *not* mean: `useAssignmentStore`
+is not callable from outside the package either way, because the
+`Observable` in the published signature is this package's inlined copy of
+rxjs's and `Subscriber.isStopped` is `protected`, making the type nominal
+across copies. That was equally true before the narrowing, so it is not a
+regression — but do not read "satisfied structurally" as "externally
+usable". Check `wc -l dist/index.d.ts` after any change to an exported
+function's parameter or return type.
+
+That fix does not, and structurally cannot, get `dist/index.d.ts` to zero
+`declare global` blocks. Three small ambient blocks remain: rxjs's
+`SymbolConstructor.observable` (pulled in by `AssignmentStoreClient` naming
+rxjs's own `Observable<T>`, which is a reasonable trade against re-inventing an
+observable type), and `@sanity/client`'s own `interface SanityQueries {}` and
+`interface File {}`. The last two are **not** caused by `useAssignmentStore` or
+by any exported signature at all — confirmed by bisecting `src/index.ts`'s
+re-exports one at a time and rebuilding. They ride in because several other
+source files reachable from the barrel (`needsAttention.ts`,
+`documentValidation.ts`, `unpublishedDrafts.ts`, `unresolvedComments.ts`, and
+others) `import type {SanityClient} from '@sanity/client'` for their own
+*internal*, never-exported helpers. The declaration bundler apparently can't
+selectively drop an ambient `declare global` block from a `.d.ts` file it has
+decided to include at all, even when nothing in that file's *exported* surface
+needs it.
+
+### Two of those three blocks are inert, and the third is not — a correction
+
+An earlier version of this file called `SanityQueries` (Sanity TypeGen's
+query-result registry) a collision hazard for any consuming Studio that runs
+`sanity typegen`. **That was wrong.** It was reasoned from the shape of the
+`.d.ts` rather than compiled, and a real consumer built from `npm pack` says
+otherwise: with this plugin imported, `client.fetch(q)` still resolves to the
+registered `PostsQueryResult`, and a deliberately wrong result shape is still
+rejected. The block is declared *empty*, and interface merging is additive, so an
+empty contributor contributes nothing — the registry is a global rather than a
+module augmentation precisely so it survives multiple copies of
+`@sanity/client`. `SymbolConstructor.observable` is likewise additive and
+likewise inert.
+
+The third, `interface File {}`, is not inert — for a consumer compiled **without
+the DOM lib**. It injects an empty global `File` where there was none, so
+`const f: File = …` compiles when it should be rejected, and any error it does
+produce blames a type the consumer never declared. No Studio is affected; every
+Studio has the DOM lib, where the empty interface just merges into the real
+`File`. The victims are Node consumers — the two README recipes that pitch
+`buildDigest` and `findStaleEditorDocuments` at a Sanity Function.
+
+That is what `sanity-plugin-structure-inbox/node` (`src/node.ts`, plan 088)
+exists for: the same pure, dependency-free symbols, re-exported from an entry
+point whose type closure contains **no** ambient blocks at all. Nothing was
+removed from the main barrel; the subpath is additive, and every symbol on it is
+still exported from `.`.
+
+The guard that matters is the build output, and no unit test can see it — check
+it by hand after changing what `src/node.ts` re-exports:
+
+```sh
+npm run build
+# dist/node.d.ts is a two-line re-export, so follow it into its chunks:
+for f in dist/node.d.ts $(sed -n 's/.*from "\.\/\(.*\)\.js";/dist\/\1.d.ts/p' dist/node.d.ts); do
+  echo "$f: $(grep -c 'declare global' "$f")"   # every one must be 0
+done
+```
+
+If a `declare global` appears there, something was added to `src/node.ts` that
+imports `@sanity/client` somewhere in its graph, and it does not belong on that
+entry point. Do not trim the list until the number looks right — find the symbol.
+
+For `dist/index.d.ts` the counts are unchanged and still worth measuring
+directly: `grep -c "^declare global {" dist/index.d.ts` (expect 3) and
+`grep -c "^  interface SanityQueries {}" dist/index.d.ts` (expect 1). Note that
+`wc -l dist/index.d.ts` fell from 1,472 to 1,312 when `./node` was added — nothing
+shrank, 163 lines simply moved into a shared `dist/staleEditorDocs-*.d.ts` chunk
+that both entry points import. Count the chunks too, or the "roughly 1,500 lines"
+figure above will mislead you.
 
 ## Maintenance
 

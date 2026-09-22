@@ -11,6 +11,8 @@
  * document look orphaned (its id suffix will never match a real user id),
  * and the README's own documented cleanup recipe shows deleting exactly
  * the ids this function returns.
+ *
+ * @public
  */
 export const EDITOR_DOC_TYPES = [
   'structureInbox.dismissals',
@@ -19,7 +21,11 @@ export const EDITOR_DOC_TYPES = [
   'structureInbox.assessments',
 ] as const
 
-/** One of this plugin's own per-editor documents, as returned by a GROQ query. */
+/**
+ * One of this plugin's own per-editor documents, as returned by a GROQ query.
+ *
+ * @public
+ */
 export interface EditorDocRef {
   _id: string
   _type: string
@@ -43,6 +49,8 @@ export interface EditorDocRef {
  * decides which documents are now orphaned; deleting them, and on what
  * schedule, is the caller's own decision, the same way `buildDigest` leaves
  * "fetch" and "send" to its caller.
+ *
+ * @public
  */
 export function findStaleEditorDocuments(
   docs: readonly EditorDocRef[],

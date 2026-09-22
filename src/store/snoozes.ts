@@ -12,6 +12,8 @@ export interface SnoozeEntry {
  * Versioned and read defensively, same as {@link DismissalState}: a value
  * written by a future version of this plugin is treated as absent rather than
  * coerced.
+ *
+ * @public
  */
 export interface SnoozeState {
   version: 1
@@ -69,7 +71,11 @@ function parseRemoved(value: unknown): SnoozeState['removed'] {
   return Object.keys(removed).length > 0 ? removed : undefined
 }
 
-/** Parses a stored value, discarding anything that is not what we wrote. */
+/**
+ * Parses a stored value, discarding anything that is not what we wrote.
+ *
+ * @public
+ */
 export function parseSnoozes(value: unknown): SnoozeState {
   if (typeof value !== 'object' || value === null) return EMPTY_SNOOZES
   if (!('version' in value) || value.version !== SNOOZE_VERSION) return EMPTY_SNOOZES
@@ -133,6 +139,8 @@ export function pruneSnoozes(state: SnoozeState, now = Date.now()): SnoozeState 
  * item that changes after being snoozed wakes early, same as a dismissal
  * does. An entry whose `until` cannot be parsed is treated as not snoozed
  * rather than snoozed forever — corrupted data should fail open.
+ *
+ * @public
  */
 export function isSnoozed(
   state: SnoozeState,

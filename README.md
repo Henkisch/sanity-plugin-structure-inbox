@@ -22,6 +22,7 @@ row can be opened, handed to a colleague, snoozed or ticked off without leaving 
 - [Selecting and acting](#selecting-and-acting)
 - [Options](#options)
 - [AI features, and what they cost](#ai-features-and-what-they-cost)
+- [What leaves your dataset on an AI read](#what-leaves-your-dataset-on-an-ai-read)
 - [Grounding AI reads in your project](#grounding-ai-reads-in-your-project)
 - [Alt text](#alt-text)
 - [Optional: broken links via `sanity-plugin-link-checker`](#optional-broken-links-via-sanity-plugin-link-checker)
@@ -29,6 +30,7 @@ row can be opened, handed to a colleague, snoozed or ticked off without leaving 
 - [Optional: finding content gaps](#optional-finding-content-gaps)
 - [How it works](#how-it-works)
 - [Localization](#localization)
+- [API reference](#api-reference)
 - [Develop & test](#develop--test)
 - [License](#license)
 
@@ -237,8 +239,12 @@ re-reports a source's items whenever that array changes, so building it fresh on
 reporting on every render. That is absorbed rather than trusted — the plugin compares the contents
 before acting on a new array — but memoizing keeps the work off the render path to begin with.
 
-A source can also offer `useOpenCount(snoozes, now)`, read by the exported
-`useInboxOpenCount()` hook for a live count usable anywhere in the Studio (e.g. a navbar badge):
+A source can also offer `useOpenCount(snoozes, now, dismissals)`, read by the exported
+`useInboxOpenCount()` hook for a live count usable anywhere in the Studio (e.g. a navbar badge).
+Count only what the pane would still show as open: skip `cleared` items, skip snoozed ones
+(`isSnoozed`), and skip the ones this editor has already ticked off (`isDismissed` — both exported).
+A count that ignores `dismissals` keeps reporting rows the pane has stopped showing, and the badge
+is the number an editor sees all day:
 
 ```tsx
 import {useInboxOpenCount} from 'sanity-plugin-structure-inbox'
@@ -296,7 +302,7 @@ message) a job for a [Sanity Function](https://www.sanity.io/docs/content-lake/w
 something this package ships, but `buildDigest` is exported to make writing one straightforward:
 
 ```ts
-import {buildDigest, parseSnoozes} from 'sanity-plugin-structure-inbox'
+import {buildDigest, parseSnoozes} from 'sanity-plugin-structure-inbox/node'
 
 const editors = await fetchEditorsWithParsedState(client) // your own fetch + parseSnoozes per editor
 const sources = await fetchConfiguredSourceItems(client) // your own fetch, shaped as {name, items}[]
@@ -311,7 +317,7 @@ The per-editor documents above persist forever once created. `findStaleEditorDoc
 against your project's current membership so you can clean up orphaned ones on your own schedule:
 
 ```ts
-import {EDITOR_DOC_TYPES, findStaleEditorDocuments} from 'sanity-plugin-structure-inbox'
+import {EDITOR_DOC_TYPES, findStaleEditorDocuments} from 'sanity-plugin-structure-inbox/node'
 
 const docs = await client.fetch(`*[_type in $types]{_id, _type}`, {types: EDITOR_DOC_TYPES})
 const activeUserIds = await fetchCurrentProjectMemberIds() // your own fetch, e.g. Sanity's project members API
@@ -320,6 +326,19 @@ const staleIds = findStaleEditorDocuments(docs, activeUserIds)
 // staleIds: string[] — delete however and whenever you like, e.g.:
 // await client.delete({query: '*[_id in $ids]', params: {ids: staleIds}})
 ```
+
+#### Why these two recipes import from `/node`
+
+Both recipes above run outside a Studio, in a Node program with no DOM lib. The main entry point
+necessarily carries `@sanity/client`'s type graph, and `@sanity/client` ships an ambient
+`declare global {interface File {}}`. In a Studio that is harmless — the DOM lib is always there and
+the empty interface just merges into the real `File`. In a DOM-less `tsconfig` it is not: it injects
+an empty global `File` where there was none, so `const f: File = …` quietly compiles instead of being
+rejected. `sanity-plugin-structure-inbox/node` re-exports the same pure, dependency-free functions
+with no ambient declarations and none of the React or Studio types a Node program has no use for.
+
+Every symbol on `/node` is **also** still exported from the main entry point, and will stay that way —
+this is a smaller door into the same room, not a migration you have to make.
 
 ## Options
 
@@ -402,6 +421,58 @@ and `groq` — there is no image input, and the image-related Agent Actions docs
 fallback that guessed alt text from the document's *text* would write confident, wrong descriptions,
 and a wrong alt text is worse than a missing one because nothing flags it again. Bring your own
 vision model instead, via `assetIssues`'s `describeImage` — see [Alt text](#alt-text).
+
+## What leaves your dataset on an AI read
+
+Every AI read in this plugin goes to **Sanity Agent Actions**, in your own project, over the
+editor's own client. No third-party model provider is involved, and nothing is sent until someone
+clicks. What differs between the reads is how much of your content goes with the click.
+
+### Ask and Find content gaps: a project survey
+
+These two share one cached survey. It covers up to **30 document types** (schema order — a project
+with more only has its first 30 included), and for each type it sends:
+
+- the type's name and title,
+- its document count,
+- its schema `description`, if you wrote one,
+- which other document types it references, by title,
+- and up to **5 real field values**, stride-sampled across that type's **100** most recently
+  updated documents.
+
+Those 5 values all come from **one** field, chosen by name: the type's `title`, else its `name`,
+else its `label`. The match is exact and case-insensitive — the same `coalesce(title, name, label)`
+convention this plugin's own row titles already use.
+
+**A type with none of those three fields sends no field values at all.** Its name, count,
+description and references still go; its content does not. A `lead` type whose fields are `email`,
+`phone` and `message` therefore contributes zero real values, even though all three are strings.
+This is deliberate: there is no fallback to "the first string field", because on exactly that kind
+of type the first string field is the one you would least want read aloud to a model.
+
+Nothing else from your documents is sent on these reads — no other field, no body text, no
+document ids, no asset urls. The worst case is 30 types × 5 values = **150 short strings**, plus
+30 schema descriptions, plus your `context` string.
+
+### Summarize and Suggest todos: the visible list
+
+These send the pane's own rows, not the documents behind them: for up to 30 open rows, the row's
+**title and subtitle** — the same two lines the editor is already looking at. **Ask** additionally
+sends each row's source name, document type, waiting-since timestamp and assignee label; that list
+is the `DescribedRow` shape in `src/ai/askInbox.ts`, kept deliberately narrow because every field
+in it is a field that leaves the dataset.
+
+### The per-row reads: one whole document
+
+**Ask AI** (`assess`), **Suggest a time** (`suggestSnooze`) and **Fix with AI** (`proposeFix`) do
+**not** send a field list. They pass Agent Actions a document *reference*
+(`{type: 'document', documentId}`) and Sanity resolves that document server-side, inside your
+project — so the model sees the document, and this plugin does not choose which of its fields.
+
+That is the right shape for a read whose whole job is judging one document an editor explicitly
+picked, but it means field selection is not the control here. If a document type should not be read
+by a model at all, turn the feature off instead: `unpublishedDrafts({ai: false})` removes both
+per-row buttons from that source, and the [Options](#options) above remove the pane-wide reads.
 
 ## Grounding AI reads in your project
 
@@ -680,6 +751,64 @@ i18n: {
   ],
 }
 ```
+
+## API reference
+
+Most of what's published is covered above, next to the feature it belongs to.
+The rest — exported but never named in prose so far — is documented here:
+what it is, and why (or whether) an integrator would touch it.
+
+**`SectionCard` / `SectionCardProps`** — the boxed card an `aside` source's
+items render inside. It is *not* the general wrapper it looks like: `main`
+sources render through `MergedList`, which merges their items into one list
+and draws its own card, so `SectionCard` survives only on the `aside` column
+and in the error fallback when an `aside` source throws. It is exported, but
+is internal render plumbing rather than a building block for a custom source:
+nothing in "Writing your own" above asks you to render one directly, and its
+error-state strings call `useTranslation` against this plugin's own
+`structureInbox` i18n namespace — render it outside a Studio where that
+namespace is loaded (i.e. outside this plugin's own tree) and those strings
+come back untranslated. `SectionCardProps` is exported alongside it only so a
+wrapper around it can be typed.
+
+**`CreateItemInput`** — the payload an `InboxSource`'s optional `create` and
+`update` callbacks receive (`InboxSource.create`, `.update`). If your source
+lets an editor add or edit a row from the Inbox itself, this is the shape
+your handler is handed; exported so those handlers can be typed outside this
+package.
+
+**`useAssignmentStore`, `assignmentDocId`, `AssignmentStore`** — the shared
+store behind "Assign to…" (see "Selecting and acting"): a live map of
+`structureInbox.assignment` documents for one `docType`, keyed by a hashed
+target id (`assignmentDocId`), plus the `assign`/`unassign` mutations
+(`AssignmentStore`). They are exported with no documented integration use
+case — a custom source that wants its own delegation could reuse them, but
+that isn't a recipe this README currently walks through. Flagged as a
+removal candidate for a future major version (see `plans/README.md`'s "Known
+findings with no plan yet") rather than invented a use for here.
+
+**`AssetTarget`** — the shape of the object `assetIssues`' `openAsset`
+callback receives (`{id, type, url?, filename?, size}`), used in "Where an
+asset row takes you" above. Exported so a custom `openAsset` handler, or a
+wrapper around one, can be typed.
+
+**`suggestAltText`, `AltContext`** — the function behind the Alt text
+card's AI suggestion (see "Alt text" above) and the surrounding-context
+shape it sends to Agent Actions. `suggestAltText` is `@internal`: it is
+exported for its own unit test, not as a documented extension point — the
+supported way to influence it is the `altFromTitle` / `suggestAlt` callbacks
+on `assetIssues`, not calling it directly.
+
+**`parseDismissals`, `isDismissed`, `parseTodos`, `parseAssessments`** —
+pure, dependency-free readers for the plugin's other per-editor documents
+(`structureInbox.dismissals.<userId>`, `.todos.<userId>`,
+`.assessments.<userId>`), the same family `parseSnoozes` belongs to in
+"Recipe: a digest outside the Studio" above. Useful for the same reason:
+reading an editor's acknowledged/todo/cached-assessment state outside a
+Studio, with no React and no live client needed. `isDismissed` additionally
+answers whether a given item is still considered dismissed, honoring the
+"an edit afterwards un-dismisses it" rule described in "Selecting and
+acting".
 
 ## Develop & test
 

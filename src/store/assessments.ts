@@ -9,6 +9,12 @@ function isTone(value: unknown): value is Tone {
   return typeof value === 'string' && (TONES as readonly string[]).includes(value)
 }
 
+/**
+ * One cached AI assessment of an item — the `assess` result `useAssessments`
+ * stores, keyed by source and item id, and invalidated by `changedAt`.
+ *
+ * @public
+ */
 export interface CachedAssessment {
   message: string
   tone?: InboxItem['tone']
@@ -22,6 +28,8 @@ export interface CachedAssessment {
  * The shape stored under the assessments key.
  *
  * Versioned and read defensively, same as {@link DismissalState}.
+ *
+ * @public
  */
 export interface AssessmentState {
   version: 1
@@ -47,7 +55,11 @@ function isRecordOfCachedAssessments(value: unknown): value is Record<string, Ca
   return Object.values(value).every(isCachedAssessment)
 }
 
-/** Parses a stored value, discarding anything that is not what we wrote. */
+/**
+ * Parses a stored value, discarding anything that is not what we wrote.
+ *
+ * @public
+ */
 export function parseAssessments(value: unknown): AssessmentState {
   if (typeof value !== 'object' || value === null) return EMPTY_ASSESSMENTS
   if (!('version' in value) || value.version !== ASSESSMENT_VERSION) return EMPTY_ASSESSMENTS

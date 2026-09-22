@@ -1,7 +1,7 @@
 import {type SanityClient} from '@sanity/client'
 import {useMemo, useRef, useState} from 'react'
 import {useObservable} from 'react-rx'
-import {defer, of} from 'rxjs'
+import {defer, type Observable, of} from 'rxjs'
 import {catchError, map} from 'rxjs/operators'
 
 import {liveQuery$} from './liveQuery'
@@ -59,6 +59,8 @@ export const ASSIGNMENT_TYPE = 'structureInbox.assignment'
  * short key stayed under the limit and worked, which is why this went
  * unnoticed at first). Hashing the target instead of sanitizing it in place
  * keeps every id short and valid regardless of what the target actually is.
+ *
+ * @public
  */
 export function assignmentDocId(docType: string, targetId: string): string {
   return `${docType}.${hash32(targetId, 5381).toString(36)}${hash32(targetId, 52711).toString(36)}`
@@ -69,6 +71,64 @@ interface AssignmentRow {
   assignedTo: string
 }
 
+/**
+ * The parts of a Sanity client `useAssignmentStore` actually calls,
+ * declared structurally instead of as `@sanity/client`'s own `SanityClient`.
+ *
+ * This is not a style preference: `useAssignmentStore` is exported from the
+ * package barrel, and naming the real `SanityClient` type in its exported
+ * signature made the build inline that client's entire type graph —
+ * `SanityClient`, `ObservableSanityClient`, `Patch`, `Transaction`,
+ * `ReleasesClient`, `AgentActionsClient`, plus rxjs's own `Observable`,
+ * `Subscriber`, `Subscription` — into every consumer's published types.
+ * That turned an ~11,400-line `dist/index.d.ts` into ~1,500 lines.
+ * See AGENTS.md's "published type surface" note.
+ *
+ * A real `SanityClient` satisfies this structurally at every call site
+ * *inside this package*, which is what the narrowing was for. It does not
+ * make `useAssignmentStore` callable from outside: the `Observable` named
+ * below is this package's own inlined copy of rxjs's declaration, and
+ * rxjs's `Subscriber.isStopped` is `protected`, which makes the type
+ * nominal across copies. A consumer's `SanityClient` therefore fails to
+ * assign no matter which rxjs it installs. That was already true before
+ * this narrowing (for a different reason — `SanityClient`'s own `#private`
+ * field), so nothing regressed; it is recorded here so the next reader does
+ * not mistake "structurally satisfied" for "externally usable".
+ *
+ * Deliberately not written as a `Pick` of `SanityClient`'s own members
+ * either — an indexed access into `SanityClient` still names it, which is
+ * enough for the declaration bundler to inline the whole graph right back
+ * in. Every member below is spelled out instead.
+ *
+ * `transaction` and `delete` are typed loosely (`unknown`, not the real
+ * `Transaction` class) on purpose, not just for the graph reason above: the
+ * real `Transaction.patch`'s callback overload returns the real `Patch`
+ * class, which carries a private field, so nothing structural can ever
+ * satisfy that return position — a fully-typed structural mirror of
+ * `transaction()` is not just verbose, it is impossible. `assign`/`unassign`
+ * below cast back to the real `SanityClient` at the point they actually
+ * drive a transaction, the one place this hook's implementation still needs
+ * the real thing — narrowing stops at the exported signature, not the
+ * implementation.
+ *
+ * @public
+ */
+export interface AssignmentStoreClient {
+  observable: {
+    fetch<T>(query: string, params?: Record<string, unknown>): Observable<T>
+  }
+  listen(
+    query: string,
+    params: Record<string, unknown>,
+    options: {enableResume: boolean; events: string[]},
+  ): Observable<unknown>
+  transaction(): unknown
+  delete(id: string): Promise<unknown>
+}
+
+/**
+ * @public
+ */
 export interface AssignmentStore {
   /** Every current assignment of this `docType`, keyed by `targetId`. */
   byTarget: Map<string, string>
@@ -106,8 +166,10 @@ export interface AssignmentStore {
  * — not on any remote emission, which could stop overriding before the
  * specific write it's tracking is actually reflected — or immediately, if
  * the write itself rejects.
+ *
+ * @public
  */
-export function useAssignmentStore(client: SanityClient, docType: string): AssignmentStore {
+export function useAssignmentStore(client: AssignmentStoreClient, docType: string): AssignmentStore {
   const query = `*[_type == $docType && defined(assignedTo)]{targetId, assignedTo}`
 
   const byTarget$ = useMemo(() => {
@@ -190,7 +252,8 @@ export function useAssignmentStore(client: SanityClient, docType: string): Assig
         setOverrides((current) => new Map(current).set(targetId, assignedTo))
         const docId = assignmentDocId(docType, targetId)
         try {
-          await client
+          // eslint-disable-next-line no-unsafe-type-assertion -- cast back to the real client here; see `AssignmentStoreClient`'s own comment for why `transaction()` can't be typed richly enough (its `patch` callback would have to return the real `Patch` class, which has a private field, so no structural type can ever satisfy it) to drive this chain without a cast. Every real caller passes a genuine `SanityClient`, which is exactly what this recovers.
+          await (client as unknown as SanityClient)
             .transaction()
             .createIfNotExists({_id: docId, _type: docType, targetId, assignedTo})
             .patch(docId, (patch) => patch.set({assignedTo}))
@@ -216,7 +279,8 @@ export function useAssignmentStore(client: SanityClient, docType: string): Assig
       unassign: async (targetId: string) => {
         setOverrides((current) => new Map(current).set(targetId, null))
         try {
-          await client.delete(assignmentDocId(docType, targetId))
+          // eslint-disable-next-line no-unsafe-type-assertion -- same reasoning as `assign`'s own cast above.
+          await (client as unknown as SanityClient).delete(assignmentDocId(docType, targetId))
         } catch (error) {
           // Same reasoning as `assign`'s own catch above.
           setOverrides((current) => {

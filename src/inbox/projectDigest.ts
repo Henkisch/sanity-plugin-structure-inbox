@@ -34,7 +34,7 @@ export interface ContentTypeSummary {
   type: string
   title: string
   count: number
-  /** Up to `SAMPLES_PER_TYPE` short text values, stride-sampled across the most-recently-changed `SAMPLE_WINDOW_SIZE` documents — the only real-content signal this digest carries, since a field name alone never reveals what a project actually promotes. */
+  /** Up to `SAMPLES_PER_TYPE` short text values of the type's one title-ish field (`findSampleFieldName`), stride-sampled across the most-recently-changed `SAMPLE_WINDOW_SIZE` documents — the only real-content signal this digest carries, since a field name alone never reveals what a project actually promotes. Empty for a type with no title-ish field: see `findSampleFieldName` for why that is the deliberate outcome. */
   samples: string[]
   /** This type's own schema `description`, when the integrator wrote one — real, already-authored editorial intent free for the reading. `undefined` when none exists. */
   description?: string
@@ -62,17 +62,52 @@ export function getRealDocumentTypeNames(schema: {
 }
 
 /**
- * The first field on `typeName` that could plausibly hold a human-readable
- * blurb — same `jsonType === 'string'` eligibility check
- * `singleTextFieldEligible` (`linkCheckerFindings.ts`) already uses for the
- * same reason: a schema-agnostic "is this field text" test, not a guess at
- * a specific field name like `title`/`body`, which not every project uses.
- * Returns `undefined` when the type has no such field (nothing sampleable),
- * and also when the field's own name fails `SIMPLE_FIELD_PATH` — this name
- * comes from the integrator's own schema, and one odd field name should cost
- * that type its samples, not get spliced into the query text `surveyContentTypes`
- * builds from it below. Skip rather than throw: `surveyContentTypes` already
- * treats `undefined` as "no samples for this type."
+ * The field names this survey is willing to read real values out of, in
+ * preference order — a title, a name, a label. Matched **exactly** (ignoring
+ * case), never as a substring: a `contains "name"` rule would happily pick
+ * `contactName`, `customerName` or `internalNoteTitle`, which is the class of
+ * field this list exists to keep out of an AI prompt in the first place. Case
+ * is ignored because it widens nothing — the only extra names it admits are
+ * `Title`/`NAME`/`Label`, the same three words a schema happened to
+ * capitalise — while a case-sensitive list would silently cost such a type
+ * its samples.
+ *
+ * Preference order, not schema order: a type carrying both `name` and `title`
+ * yields `title` whichever way round its fields are declared, so what leaves
+ * the dataset never depends on field ordering.
+ *
+ * These three names, in this order, are not a new guess: they are the same
+ * `coalesce(title, name, label)` this plugin's own row titles already read
+ * (`unpublishedDrafts.ts`, `assetIssues.ts`), so a schema this pane can
+ * already label a row from is a schema this survey can already sample.
+ */
+const TITLE_ISH_FIELD_NAMES = ['title', 'name', 'label']
+
+/**
+ * The one field on `typeName` whose real values this survey will send to
+ * Agent Actions — a title-ish field, or nothing at all.
+ *
+ * Deliberately **not** the first `jsonType === 'string'` field, which is what
+ * this did until plan 086. That rule had no notion of sensitivity: on a `lead`
+ * or `submission` type whose first string field is `email`, a phone number or
+ * an internal note, those were the values that left the dataset. In practice
+ * schema authors put the title first by convention (it is what list previews
+ * show), so on a conventional schema this picks the same field it always did
+ * — it just no longer *depends* on that convention holding.
+ *
+ * Returns `undefined` when the type has no title-ish string field. Sampling
+ * nothing is the deliberate outcome, not a cue to fall back to some other
+ * field: `surveyContentTypes` already treats `undefined` as "no samples for
+ * this type", so such a type still contributes its name, count, description
+ * and references to the digest — just no real content.
+ *
+ * Also returns `undefined` when the chosen name fails `SIMPLE_FIELD_PATH`
+ * (plan 078's injection guard — this name is spliced into the query text
+ * `surveyContentTypes` builds below). Exact matching means nothing this
+ * function can pick fails that test today; the gate stays because the
+ * function's contract is that whatever it returns is safe to interpolate, and
+ * a future entry in `TITLE_ISH_FIELD_NAMES` must not be able to lose that
+ * quietly. Skip rather than throw, the same as having no eligible field.
  */
 export function findSampleFieldName(
   schema: {get: (name: string) => {fields?: {name: string; type: {jsonType?: string}}[]} | undefined},
@@ -80,9 +115,13 @@ export function findSampleFieldName(
 ): string | undefined {
   const objectType = schema.get(typeName)
   if (!objectType?.fields) return undefined
-  const fieldName = objectType.fields.find((field) => field.type.jsonType === 'string')?.name
-  if (fieldName === undefined || !SIMPLE_FIELD_PATH.test(fieldName)) return undefined
-  return fieldName
+
+  const stringFields = objectType.fields.filter((field) => field.type.jsonType === 'string')
+  for (const preferred of TITLE_ISH_FIELD_NAMES) {
+    const fieldName = stringFields.find((field) => field.name.toLowerCase() === preferred)?.name
+    if (fieldName !== undefined) return SIMPLE_FIELD_PATH.test(fieldName) ? fieldName : undefined
+  }
+  return undefined
 }
 
 /**

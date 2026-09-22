@@ -5,6 +5,7 @@ export {useInboxOpenCount} from './studio/inboxCountLayout'
 export type {StructureInboxConfig} from './types'
 
 export type {
+  CreateItemInput,
   FixProposal,
   InboxAssessment,
   InboxItem,
@@ -17,6 +18,7 @@ export {
   assignmentDocId,
   useAssignmentStore,
   type AssignmentStore,
+  type AssignmentStoreClient,
 } from './inbox/sources/assignmentStore'
 export {
   assetIssues,
@@ -36,7 +38,7 @@ export {
 } from './inbox/sources/unresolvedComments'
 export {upcomingReleases, type UpcomingReleasesOptions} from './inbox/sources/upcomingReleases'
 
-export {SectionCard} from './ui/SectionCard'
+export {SectionCard, type SectionCardProps} from './ui/SectionCard'
 
 // Pure, dependency-free reads of the plugin's own per-editor documents — no
 // React, no Studio context. Exported for code that reads these documents

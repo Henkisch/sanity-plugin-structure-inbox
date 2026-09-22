@@ -408,7 +408,7 @@ describe('useTodos persist effect merge', () => {
     await waitFor(() => expect(create).toHaveBeenCalled())
   })
 
-  it('a locally-removed todo comes back from the merge — known limitation, see plan 074', async () => {
+  it('keeps a locally-removed todo removed, instead of merging it back in — plan 074', async () => {
     const doc = fakeTodosDocument()
     doc.write(
       JSON.stringify({
@@ -426,14 +426,17 @@ describe('useTodos persist effect merge', () => {
     act(() => result.current.remove('todo-b'))
     expect(result.current.state.items).toEqual([]) // gone locally, right away
 
-    // `mergeTodos` (src/store/todos.ts) is a pure union: it has no way to
+    // This test used to assert the opposite — that the removal came back —
+    // because `mergeTodos` (src/store/todos.ts) is a pure union and cannot
     // represent "this id was deliberately removed", so the persist effect's
-    // merge with the server's still-there copy brings it right back. This is
-    // a known, accepted gap — plan 074 is the one that adds tombstones. This
-    // test documents *current* behaviour; do not "fix" it by changing
-    // `mergeTodos` here.
-    await waitFor(() => expect(doc.getItems()).toHaveLength(1))
-    expect((doc.getItems()[0] as {id: string}).id).toBe('todo-b')
+    // merge with the server's still-there copy brought it straight back.
+    // Plan 074 fixed that with an in-memory tombstone in `useTodos`
+    // (`removedIdsRef`), subtracted from both merges. The wait is on the
+    // document emptying, i.e. on the write itself: waiting on `client.fetch`
+    // would pass vacuously, since the load effect already called it at mount.
+    await waitFor(() => expect(doc.getItems()).toEqual([]))
+    expect(client.patch).toHaveBeenCalled()
+    expect(result.current.state.items).toEqual([])
   })
 })
 
@@ -466,6 +469,50 @@ function fakeRecipientDocument() {
       doc = {rev: `rev-${revCounter}`, items}
     },
   }
+}
+
+/**
+ * A client wired to several `fakeRecipientDocument`s at once, keyed by
+ * document id — `transferTo` writes the recipient's document and the persist
+ * effect writes this editor's own, so a test of the two together needs both
+ * targets to be real, revision-checking documents rather than call counters.
+ */
+function clientForTodosDocuments(targets: Record<string, ReturnType<typeof fakeRecipientDocument>>) {
+  const fetch = vi.fn(async (_query: string, params: {id: string}) => {
+    const target = targets[params.id]
+    return target ? target.fetch() : null
+  })
+
+  const patch = vi.fn((id: string) => {
+    let expectedRev: string | undefined
+    let pendingItems: string | undefined
+    const builder = {
+      ifRevisionId: (rev: string) => {
+        expectedRev = rev
+        return builder
+      },
+      set: (fields: {items: string}) => {
+        pendingItems = fields.items
+        return builder
+      },
+      commit: vi.fn(async () => {
+        const target = targets[id]
+        if (!target || expectedRev === undefined || pendingItems === undefined) {
+          throw new Error('test stub: unexpected patch call shape')
+        }
+        await target.patchIfRevisionMatches(expectedRev, pendingItems)
+      }),
+    }
+    return builder
+  })
+
+  const create = vi.fn(async (input: {_id: string; items: string}) => {
+    const target = targets[input._id]
+    if (!target) throw new Error('test stub: unexpected create target')
+    await target.create(input.items)
+  })
+
+  return {fetch, patch, create}
 }
 
 describe('useTodos transferTo', () => {
@@ -557,5 +604,41 @@ describe('useTodos transferTo', () => {
     const recipientCreateCalls = create.mock.calls.filter(([input]) => input._id === recipientDocId).length
     const recipientPatchCalls = patch.mock.calls.filter(([id]) => id === recipientDocId).length
     expect(recipientCreateCalls + recipientPatchCalls).toBeGreaterThan(2)
+  })
+
+  it('moves the todo off the sender’s list for good, rather than leaving it on both — plan 074', async () => {
+    const recipientDocId = 'structureInbox.todos.recipient-1'
+    const myDocId = 'structureInbox.todos.user-1'
+    const recipient = fakeRecipientDocument()
+    const own = fakeRecipientDocument()
+    const client = clientForTodosDocuments({[recipientDocId]: recipient, [myDocId]: own})
+    useClientMock.mockReturnValue(client)
+
+    const {result} = renderHook(() => useTodos())
+    await waitFor(() => expect(client.fetch).toHaveBeenCalled())
+
+    act(() => result.current.add({title: 'Task A'}))
+    // Wait for the add to actually *land* in this editor's own document —
+    // waiting on `client.fetch` would prove nothing, it was already called
+    // by the load effect at mount. The server copy created here is the one
+    // the persist merge used to resurrect.
+    await waitFor(() => expect(own.getItems()).toHaveLength(1))
+    const id = result.current.state.items[0].id
+
+    await act(async () => {
+      await result.current.transferTo(id, 'recipient-1')
+    })
+
+    // The recipient has it...
+    expect(recipient.getItems()).toHaveLength(1)
+    expect((recipient.getItems()[0] as {id: string}).id).toBe(id)
+
+    // ...and the sender no longer does, once the persist write that follows
+    // the transfer has settled. Before plan 074 the persist merge pulled the
+    // sender's own server copy back in and the todo lived on both lists
+    // permanently — the opposite of the "briefly on both, never on neither"
+    // the `transferTo` doc comment promises.
+    await waitFor(() => expect(own.getItems()).toEqual([]))
+    expect(result.current.state.items).toEqual([])
   })
 })

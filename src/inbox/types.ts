@@ -1,5 +1,6 @@
 import {type ComponentType} from 'react'
 
+import {type DismissalState} from '../store/dismissals'
 import {type SnoozeState} from '../store/snoozes'
 
 /**
@@ -611,9 +612,27 @@ export interface InboxSource {
    * (see `unpublishedDrafts.ts` and `openTasks.ts` for two built-in sources
    * that hit exactly this, and how each does or doesn't provide this).
    *
-   * No `dismissals` parameter: whether an item is open never depends on
-   * per-editor acknowledgement (see `splitItems.ts`'s own doc comment) —
-   * only a real, source-confirmed `InboxItem.cleared` moves it out of open.
+   * `dismissals` is the per-editor acknowledgement axis, and an
+   * implementation that ignores it will over-count. Real, source-confirmed
+   * completion (`InboxItem.cleared`, handled by `splitItems.ts`) is not the
+   * only thing that takes an item out of Open: for a source with no real
+   * `resolve` — most of them — a non-stale dismissal does too, which is
+   * exactly what `mergeRows` in `mergeItems.ts` applies to build the pane's
+   * own Open view. A count that skipped it used to leave the navbar badge
+   * saying 8 while the pane beside it said 3.
+   *
+   * All three built-in implementors go through `countOpenItems`
+   * (`mergeItems.ts`), which is literally the filter the pane runs, so the
+   * two numbers agree by construction rather than by review. A source
+   * outside this package can reach the same rule with the exported
+   * `isDismissed(dismissals, sourceName, item.id, item.changedAt)`.
+   *
+   * Last, and optional, purely so that widening this signature broke nothing:
+   * TypeScript lets an implementation declare fewer parameters than its type,
+   * but only by dropping trailing ones, and a call site written against the
+   * old two-parameter shape still has to typecheck. A source that ignores it
+   * keeps compiling and keeps working — it just keeps over-counting, the
+   * behaviour it already had. The provider itself always passes it.
    */
-  useOpenCount?: (snoozes: SnoozeState, now: number) => number | null
+  useOpenCount?: (snoozes: SnoozeState, now: number, dismissals?: DismissalState) => number | null
 }
