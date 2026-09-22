@@ -126,6 +126,51 @@ duck-typing over plain objects and byte-identical across 6.10–6.13, so a
 second copy of *those* costs bundle size and nothing else. Check which kind
 you have before treating a duplicate as an emergency.
 
+## The published type surface is measured, not assumed
+
+`dist/index.d.ts` should be roughly 1,500 lines. If it jumps to five
+figures, an *exported* signature has started naming a type from an inlined
+dependency (`@sanity/client` is the one that bites, at 8.6.1 —
+`inlinedDependencies` in `package.json`) rather than something structural.
+Naming it drags that whole class's type graph — `SanityClient`,
+`ObservableSanityClient`, `Patch`, `Transaction`, `ReleasesClient`,
+`AgentActionsClient`, plus rxjs's own `Observable`/`Subscriber`/
+`Subscription` — into every consumer's published types, at ~10,000 lines.
+`useAssignmentStore` did exactly this until its exported parameter was
+narrowed to `AssignmentStoreClient` (`src/inbox/sources/assignmentStore.ts`)
+— a structural interface a real `SanityClient` satisfies with no caller
+changes. Check `wc -l dist/index.d.ts` after any change to an exported
+function's parameter or return type.
+
+That fix does not, and structurally cannot, get `dist/index.d.ts` to zero
+`declare global` blocks or zero mentions of `interface SanityQueries {}`
+(Sanity TypeGen's own query-result registry — a real collision risk for any
+consuming Studio that runs `sanity typegen`). Three small ambient blocks
+remain load-bearing pollution: rxjs's `SymbolConstructor.observable` (pulled
+in by `AssignmentStoreClient` naming rxjs's own `Observable<T>`, which is a
+reasonable trade against re-inventing an observable type), and `@sanity/client`'s
+own `interface File {}` and `interface SanityQueries {}`. The last two are
+**not** caused by `useAssignmentStore` or by any exported signature at all —
+confirmed by bisecting `src/index.ts`'s re-exports one at a time and
+rebuilding. They ride in because several other source files reachable from
+the barrel (`needsAttention.ts`, `documentValidation.ts`, `unpublishedDrafts.ts`,
+`unresolvedComments.ts`, and others) `import type {SanityClient} from
+'@sanity/client'` for their own *internal*, never-exported helpers (e.g.
+`needsAttention.ts`'s `useDocumentCounts`, `documentValidation.ts`'s
+`ValidateDocumentFn`). The declaration bundler apparently can't selectively
+drop an ambient `declare global` block from a `.d.ts` file it has decided to
+include at all, even when nothing in that file's *exported* surface needs
+it — so merely importing `@sanity/client`'s types anywhere in the reachable
+module graph, exported or not, is enough. Eliminating these two blocks for
+real would mean zero `@sanity/client` type imports anywhere reachable from
+`src/index.ts` (a much larger change than narrowing one signature) or making
+`@sanity/client` a real dependency/peer instead of an inlined one (which
+runs into this file's peer-floor rules above). Neither has been done. If you
+are chasing these two blocks specifically, this is why "the exported
+signature is already narrow" is not evidence they are gone — measure them
+directly: `grep -c "^declare global {" dist/index.d.ts` (expect 3) and
+`grep -c "^  interface SanityQueries {}" dist/index.d.ts` (expect 1).
+
 ## Maintenance
 
 If a genuinely new invariant of this shape emerges (something that silently

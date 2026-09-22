@@ -1,6 +1,25 @@
-import type {SanityClient} from '@sanity/client'
 import {defer, type Observable, of} from 'rxjs'
 import {catchError, debounceTime, startWith, switchMap} from 'rxjs/operators'
+
+/**
+ * The one method every caller's client actually needs here. Deliberately not
+ * `SanityClient` — this module is internal (never exported from the package
+ * barrel), but every one of its seven callers passes a real `SanityClient`
+ * straight through from their own exported `Options.client`, and one of them
+ * (`assignmentStore.ts`) narrows its *own* exported parameter type to avoid
+ * publishing `@sanity/client`'s type graph (see that file's
+ * `AssignmentStoreClient`). Typing this parameter as the full `SanityClient`
+ * would force that narrower type back open the moment it reached this
+ * function. The emitted event is discarded either way (`switchMap` below
+ * only reacts to *that something* changed), so `unknown` costs nothing.
+ */
+interface ListenableClient {
+  listen(
+    query: string,
+    params: Record<string, unknown>,
+    options: {enableResume: boolean; events: string[]},
+  ): Observable<unknown>
+}
 
 /**
  * Turns a one-shot query into one that re-runs itself whenever a matching
@@ -30,7 +49,7 @@ import {catchError, debounceTime, startWith, switchMap} from 'rxjs/operators'
  * refetch, is that handling).
  */
 export function liveQuery$<T>(
-  client: SanityClient,
+  client: ListenableClient,
   query: string,
   params: Record<string, unknown>,
   fetch$: Observable<T>,
