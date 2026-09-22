@@ -3,14 +3,14 @@ import {useMemo} from 'react'
 import {useObservable} from 'react-rx'
 import {defer, from, of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
-// `useAddonDataset`/`useUserListWithPermissions` stay out of this named
-// import — see `optionalHook` in `capability.ts`.
+// `useAddonDataset` stays out of this named import — see `optionalHook` in
+// `capability.ts`.
 import {type AddonDatasetContextValue, useClient, useCurrentUser} from 'sanity'
 
 import {API_VERSION} from '../../constants'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
-import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
-import {optionalHook, useAssignableUsers} from './capability'
+import {targetIdFromItemId, useAssignmentCapability} from './assignmentCapability'
+import {optionalHook} from './capability'
 
 /** Stands in for `useAddonDataset` when Sanity does not export it — see `openTasks.ts`. */
 function useUnavailableAddonDataset(): AddonDatasetContextValue {
@@ -214,29 +214,21 @@ export function unresolvedComments(options: UnresolvedCommentsOptions = {}): Inb
     useItems(): InboxSourceResult {
       const {client, ready} = useAddonDataset()
       const currentUser = useCurrentUser()
-      const userId = currentUser?.id
       // Resolving a thread is a task like any other this pane surfaces —
       // delegable the same way a draft or a release is, via the same
       // shared record. Deliberately the *main* dataset client
       // (`useClient`), not the addon-dataset one above: assignment
       // bookkeeping lives alongside every other source's, not inside the
-      // Comments/Tasks addon dataset.
+      // Comments/Tasks addon dataset. `item.id` is this source's own comment
+      // thread id (`row._id`) — see `assignmentCapability.ts`'s own doc
+      // comment on `targetIdFromItemId`.
       const mainClient = useClient({apiVersion: API_VERSION})
-      const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
-      const assignments = useAssignmentStore(mainClient, ASSIGNMENT_TYPE)
-
-      const assigneesById = useMemo(() => {
-        const byId = new Map<string, {id: string; label: string; imageUrl?: string}>()
-        for (const user of assignable ?? []) {
-          const isSelf = user.id === userId
-          byId.set(user.id, {
-            id: user.id,
-            label: user.displayName || user.email || user.id,
-            imageUrl: (isSelf && currentUser?.profileImage) || user.imageUrl,
-          })
-        }
-        return byId
-      }, [assignable, userId, currentUser])
+      const {
+        assigneesById,
+        byTarget,
+        assign: baseAssign,
+        assignable,
+      } = useAssignmentCapability(mainClient, {targetId: targetIdFromItemId})
 
       const fetch$ = useMemo(() => {
         if (useAddonDataset === useUnavailableAddonDataset) {
@@ -265,7 +257,7 @@ export function unresolvedComments(options: UnresolvedCommentsOptions = {}): Inb
         const currentUserId = currentUser?.id
         return selectUnresolvedComments(rows, onlyMine, currentUserId, limit)
           .map((row): InboxItem => {
-            const assignedTo = assignments.byTarget.get(row._id)
+            const assignedTo = byTarget.get(row._id)
             const assignee = assignedTo ? assigneesById.get(assignedTo) : undefined
 
             const item: InboxItem = {
@@ -292,28 +284,21 @@ export function unresolvedComments(options: UnresolvedCommentsOptions = {}): Inb
             if (assignee) item.assignee = assignee
             return item
           })
-      }, [rows, currentUser?.id, assignments.byTarget, assigneesById])
+      }, [rows, currentUser?.id, byTarget, assigneesById])
 
+      // `baseAssign` already has `users`/`toUser`/`unassign` from the shared
+      // hook — this only adds the one piece specific to this source: the
+      // thread's own `@mention`, when unambiguous (a real fact, same posture
+      // `unpublishedDrafts.ts`'s own "last editor" suggestion uses), never
+      // enforced — resolving a thread is delegable to whoever's actually
+      // doing it, not necessarily whoever was mentioned.
       const assign = useMemo(() => {
-        if (!assignable) return undefined
+        if (!baseAssign) return undefined
 
-        const grantedIds = new Set(assignable.filter((user) => user.granted).map((user) => user.id))
+        const grantedIds = new Set((assignable ?? []).filter((user) => user.granted).map((user) => user.id))
 
         return {
-          users: assignable
-            .filter((user) => user.granted)
-            .map((user) => ({id: user.id, label: user.displayName || user.email || user.id})),
-          toUser: async (item: InboxItem, assignedTo: string) => {
-            await assignments.assign(item.id, assignedTo)
-          },
-          unassign: async (item: InboxItem) => {
-            await assignments.unassign(item.id)
-          },
-          // The thread's own `@mention`, when unambiguous — a real fact
-          // (same posture `unpublishedDrafts.ts`'s "last editor" suggestion
-          // uses), never enforced: resolving a thread is delegable to
-          // whoever's actually doing it, not necessarily whoever was
-          // mentioned.
+          ...baseAssign,
           suggestAssignee: async (item: InboxItem) => {
             const row = rows.find((r) => r._id === item.id)
             const mentioned = row && firstMentionedUser(row.message)
@@ -321,7 +306,7 @@ export function unresolvedComments(options: UnresolvedCommentsOptions = {}): Inb
             return {userId: mentioned, reason: 'mentioned' as const}
           },
         }
-      }, [assignable, assignments, rows])
+      }, [baseAssign, assignable, rows])
 
       return {items, loading, error, assign}
     },

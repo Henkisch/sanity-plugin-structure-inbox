@@ -1,7 +1,7 @@
 import {type SanityClient} from '@sanity/client'
 import {useMemo, useRef, useState} from 'react'
 import {useObservable} from 'react-rx'
-import {of} from 'rxjs'
+import {defer, of} from 'rxjs'
 import {catchError, map} from 'rxjs/operators'
 
 import {liveQuery$} from './liveQuery'
@@ -112,9 +112,25 @@ export function useAssignmentStore(client: SanityClient, docType: string): Assig
 
   const byTarget$ = useMemo(() => {
     const params = {docType}
-    const fetch$ = client.observable.fetch<AssignmentRow[]>(query, params)
-    return liveQuery$(client, query, params, fetch$).pipe(
-      map((rows) => new Map(rows.map((row) => [row.targetId, row.assignedTo]))),
+    // The `map` to the final `Map<targetId, assignedTo>` shape now lives
+    // inside `fetch$` itself, not after `liveQuery$` — `onFetchError` below
+    // has to return that same already-mapped shape (an empty `Map`, not raw
+    // rows), so the mapped and the recovered value agree before either one
+    // reaches anything downstream. Wrapped in `defer` (not just
+    // `client.observable.fetch(...).pipe(...)` directly) so building this
+    // pipeline never runs until subscription, and so a synchronous throw —
+    // in production or in a test double — becomes a normal observable error
+    // `onFetchError`/`catchError` below can actually catch, rather than an
+    // exception escaping the `useMemo` and crashing the render.
+    const fetch$ = defer(() =>
+      client.observable
+        .fetch<AssignmentRow[]>(query, params)
+        .pipe(map((rows) => new Map(rows.map((row) => [row.targetId, row.assignedTo])))),
+    )
+    return liveQuery$(client, query, params, fetch$, () => new Map<string, string>()).pipe(
+      // Still handles a `listen`-channel error (as opposed to a refetch
+      // failure, which `onFetchError` above now recovers from without ever
+      // reaching here) — this plan adds a layer, it does not remove one.
       catchError(() => of(new Map<string, string>())),
     )
   }, [client, query, docType])

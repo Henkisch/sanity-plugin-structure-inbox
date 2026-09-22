@@ -4,9 +4,7 @@ import {useCallback, useMemo, useRef} from 'react'
 import {useObservable} from 'react-rx'
 import {defer, from, of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
-// `useUserListWithPermissions` stays out of this named import — see
-// `optionalHook` in `capability.ts`.
-import {useClient, useCurrentUser, useSchema, useWorkspace} from 'sanity'
+import {useClient, useSchema, useWorkspace} from 'sanity'
 import {useRouter} from 'sanity/router'
 
 import {API_VERSION} from '../../constants'
@@ -17,15 +15,13 @@ import {
   type InboxSource,
   type InboxSourceResult,
 } from '../types'
-import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
-import {optionalHook, useAssignableUsers, useSafely} from './capability'
+import {targetIdFromItemId, useAssignmentCapability} from './assignmentCapability'
+import {optionalHook, useSafely} from './capability'
 import {liveQuery$} from './liveQuery'
+import {SIMPLE_FIELD_PATH} from './simpleFieldPath'
 
 /** Real image/file asset documents this project's own dataset holds. */
 const ASSET_TYPES = ['sanity.imageAsset', 'sanity.fileAsset']
-
-/** A plain field name — no `[index]`/`.nested`/`->` — the only shape safe to interpolate directly into a GROQ query string. Same guard `linkCheckerFindings.ts` uses for the equivalent interpolation. */
-const SIMPLE_FIELD_PATH = /^[a-zA-Z0-9_]+$/
 
 /**
  * Above this many total assets, `unused` is skipped (reports zero rows)
@@ -595,27 +591,15 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
     useItems(): InboxSourceResult {
       const client = useClient({apiVersion: API_VERSION})
       const schema = useSchema()
-      const currentUser = useCurrentUser()
-      const userId = currentUser?.id
       // "Who's fixing this" — a task like any other, delegable even though
       // an asset (unlike a draft) can be referenced by zero or many
       // documents, so there's no single natural owner to fall back to.
-      // Same shared record every assignable source writes through.
-      const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
-      const assignments = useAssignmentStore(client, ASSIGNMENT_TYPE)
-
-      const assigneesById = useMemo(() => {
-        const byId = new Map<string, {id: string; label: string; imageUrl?: string}>()
-        for (const user of assignable ?? []) {
-          const isSelf = user.id === userId
-          byId.set(user.id, {
-            id: user.id,
-            label: user.displayName || user.email || user.id,
-            imageUrl: (isSelf && currentUser?.profileImage) || user.imageUrl,
-          })
-        }
-        return byId
-      }, [assignable, userId, currentUser])
+      // Same shared record every assignable source writes through. `item.id`
+      // is already this source's own row id (see `withAssignee` below) — see
+      // `assignmentCapability.ts`'s own doc comment on `targetIdFromItemId`.
+      const {assigneesById, byTarget, assign} = useAssignmentCapability(client, {
+        targetId: targetIdFromItemId,
+      })
 
       const altEligibleFields = useMemo(() => findAltEligibleImageFields(schema, altFieldName), [schema])
 
@@ -694,14 +678,25 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
               return {oversized, unused, missingAlt, poorAlt}
             })(),
           ),
+        ).pipe(
+          // The `map` to `AssetIssuesFetch` now lives inside `read$` itself,
+          // not after `liveQuery$` — so `onFetchError`'s empty result and a
+          // successful fetch's mapped result are the same shape by the time
+          // either reaches `startWith`/`catchError` below.
+          map((result): AssetIssuesFetch => ({...result, loading: false})),
         )
 
         // Any change to an asset or an eligible document type could add,
         // remove, or fix a finding — refetch everything rather than try to
         // patch one check's own result in place.
         const listenTypes = [...ASSET_TYPES, ...altEligibleFields.map((f) => f.documentType)]
-        return liveQuery$(client, `_type in $types`, {types: listenTypes}, read$).pipe(
-          map((result): AssetIssuesFetch => ({...result, loading: false})),
+        return liveQuery$(client, `_type in $types`, {types: listenTypes}, read$, (error) => ({
+          oversized: [],
+          unused: [],
+          missingAlt: [],
+          poorAlt: [],
+          error,
+        })).pipe(
           startWith<AssetIssuesFetch>({oversized: [], unused: [], missingAlt: [], poorAlt: [], loading: true}),
           catchError((error: Error) =>
             of<AssetIssuesFetch>({oversized: [], unused: [], missingAlt: [], poorAlt: [], error}),
@@ -724,7 +719,7 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
       })
 
       const withAssignee = (row: InboxItem): InboxItem => {
-        const assignedTo = assignments.byTarget.get(row.id)
+        const assignedTo = byTarget.get(row.id)
         const assignee = assignedTo ? assigneesById.get(assignedTo) : undefined
         return assignee ? {...row, assignee} : row
       }
@@ -842,32 +837,16 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
         }
 
         return {items: rows, altTargets: targets, assetsById: assets}
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- `withAssignee` closes over `assignments.byTarget`/`assigneesById`, both already listed; it is redefined every render (not memoized) so including it would just make this dependency list re-describe itself.
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- `withAssignee` closes over `byTarget`/`assigneesById`, both already listed; it is redefined every render (not memoized) so including it would just make this dependency list re-describe itself.
       }, [
         oversized,
         unused,
         missingAlt,
         poorAlt,
         altEligibleFields,
-        assignments.byTarget,
+        byTarget,
         assigneesById,
       ])
-
-      const assign = useMemo(() => {
-        if (!assignable) return undefined
-
-        return {
-          users: assignable
-            .filter((user) => user.granted)
-            .map((user) => ({id: user.id, label: user.displayName || user.email || user.id})),
-          toUser: async (item: InboxItem, assignedTo: string) => {
-            await assignments.assign(item.id, assignedTo)
-          },
-          unassign: async (item: InboxItem) => {
-            await assignments.unassign(item.id)
-          },
-        }
-      }, [assignable, assignments])
 
       // Where an asset row goes when no document uses it — a ladder, because a
       // media browser is a plugin, not something every Studio has. The

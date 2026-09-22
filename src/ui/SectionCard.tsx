@@ -1,4 +1,4 @@
-import {Box, Card, Flex, Stack, Text} from '@sanity/ui'
+import {Box, Button, Card, Flex, Stack, Text} from '@sanity/ui'
 import {type ReactNode} from 'react'
 import {useTranslation} from 'sanity'
 
@@ -21,6 +21,17 @@ interface SectionCardProps {
    * caught error, as its fallback.
    */
   error?: Error
+  /**
+   * Bumps `SectionErrorBoundary`'s bounded reset (see that file's own
+   * `MAX_RESETS`) when the editor clicks "Try again". Unlike the "Try again"
+   * button plan 034 removed, this one is not inert: `BoundedSection` in
+   * `Inbox.tsx` passes the boundary's own `retry` callback here, and a
+   * boundary reset genuinely remounts `InboxSection` — it re-runs
+   * `source.useItems()` from scratch. Omitted (no button rendered) once the
+   * boundary's reset budget is spent, which it signals by handing `retry` in
+   * as `undefined` rather than a function.
+   */
+  onRetry?: () => void
   children: ReactNode
 }
 
@@ -35,7 +46,7 @@ interface SectionCardProps {
  * *reports* an error in its result, rather than throwing one.
  */
 export function SectionCard(props: SectionCardProps) {
-  const {title, badge, note, toolbar, error, children} = props
+  const {title, badge, note, toolbar, error, onRetry, children} = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
   return (
@@ -104,6 +115,19 @@ export function SectionCard(props: SectionCardProps) {
             <Text muted size={1}>
               {error.message}
             </Text>
+            {onRetry && (
+              <Flex>
+                {/* Ghost mode: recovering from an error is not the primary
+                    thing on this pane, and a filled button would say
+                    otherwise. */}
+                <Button
+                  fontSize={1}
+                  mode="ghost"
+                  onClick={onRetry}
+                  text={t('source.error.retry')}
+                />
+              </Flex>
+            )}
           </Stack>
         </Card>
       ) : (

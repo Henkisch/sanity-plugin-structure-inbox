@@ -7,14 +7,12 @@ import {catchError, map} from 'rxjs/operators'
 // Type-only: erased at compile time — see `upcomingReleases.ts`'s own note
 // on why this stays a type-only import.
 import type {useActiveReleases as UseActiveReleasesType} from 'sanity'
-// `useUserListWithPermissions` stays out of this named import — see
-// `optionalHook` below, same reasoning `openTasks.ts` already gives.
-import {useClient, useCurrentUser, useTranslation} from 'sanity'
+import {useClient, useTranslation} from 'sanity'
 
 import {API_VERSION, STRUCTURE_INBOX_NAMESPACE} from '../../constants'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
-import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
-import {optionalHook, useAssignableUsers} from './capability'
+import {targetIdFromItemId, useAssignmentCapability} from './assignmentCapability'
+import {optionalHook} from './capability'
 import {liveQuery$} from './liveQuery'
 import {classifyRelease, toneForAttention} from './releaseAttention'
 
@@ -164,24 +162,12 @@ export function needsAttention(options: NeedsAttentionOptions = {}): InboxSource
     useItems(): InboxSourceResult {
       const client = useClient({apiVersion: API_VERSION})
       const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
-      const currentUser = useCurrentUser()
-      const userId = currentUser?.id
       const {data, loading, error} = useReleases()
-      const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
-      const assignments = useAssignmentStore(client, ASSIGNMENT_TYPE)
-
-      const assigneesById = useMemo(() => {
-        const byId = new Map<string, {id: string; label: string; imageUrl?: string}>()
-        for (const user of assignable ?? []) {
-          const isSelf = user.id === userId
-          byId.set(user.id, {
-            id: user.id,
-            label: user.displayName || user.email || user.id,
-            imageUrl: (isSelf && currentUser?.profileImage) || user.imageUrl,
-          })
-        }
-        return byId
-      }, [assignable, userId, currentUser])
+      // `item.id` is this source's own release document id (`release._id`) —
+      // see `assignmentCapability.ts`'s own doc comment on `targetIdFromItemId`.
+      const {assigneesById, byTarget, assign} = useAssignmentCapability(client, {
+        targetId: targetIdFromItemId,
+      })
 
       const releaseIds = useMemo(
         () => data.map((release) => getReleaseIdFromReleaseDocumentId(release._id)),
@@ -215,7 +201,7 @@ export function needsAttention(options: NeedsAttentionOptions = {}): InboxSource
               )
             : undefined
 
-          const assignedTo = assignments.byTarget.get(release._id)
+          const assignedTo = byTarget.get(release._id)
           const assignee = assignedTo ? assigneesById.get(assignedTo) : undefined
 
           const row: InboxItem = {
@@ -237,23 +223,7 @@ export function needsAttention(options: NeedsAttentionOptions = {}): InboxSource
         }
 
         return rows.slice(0, limit)
-      }, [data, counts, t, assignments.byTarget, assigneesById])
-
-      const assign = useMemo(() => {
-        if (!assignable) return undefined
-
-        return {
-          users: assignable
-            .filter((user) => user.granted)
-            .map((user) => ({id: user.id, label: user.displayName || user.email || user.id})),
-          toUser: async (item: InboxItem, assignedTo: string) => {
-            await assignments.assign(item.id, assignedTo)
-          },
-          unassign: async (item: InboxItem) => {
-            await assignments.unassign(item.id)
-          },
-        }
-      }, [assignable, assignments])
+      }, [data, counts, t, byTarget, assigneesById])
 
       if (useReleases === useUnavailableReleases) return RELEASES_UNAVAILABLE
 

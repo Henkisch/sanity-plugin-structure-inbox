@@ -308,6 +308,52 @@ export function InboxRow(props: InboxRowProps) {
   const assessInFlightRef = useRef(false)
   const assessRequestRef = useRef(0)
 
+  // `initialAssessment` is recomputed by `MergedList` every render, but the
+  // assessments store loads asynchronously — so on a cold pane this row
+  // usually mounts *before* the cache document resolves, and the lazy
+  // `useState` initializer above (which only runs once, at mount) throws that
+  // later value away. The cache also has to be *dropped* when the document
+  // itself changes: `assessments.read()` invalidates on `changedAt` (see
+  // `src/store/assessments.ts:66-77` — the cache exists to never show
+  // "looks ready to publish" about a since-edited draft), but this row's key
+  // (`mergeItems.ts`) does not include `changedAt`, so the component does not
+  // remount, and a stale local `assessment` would outlive the invalidation.
+  //
+  // Two render-phase syncs below, each keyed on the one signal that should
+  // drive it, and each self-terminating because firing it flips the very
+  // condition it is gated on — the property that keeps this out of a render
+  // loop (this pane has gone down to exactly that failure mode three times;
+  // see AGENTS.md):
+  //
+  // 1. `syncedFor` tracks which `changedAt` `assessment` currently reflects.
+  //    When `item.changedAt` moves, this fires once, advances `syncedFor` to
+  //    match, and rewrites `assessment` from whatever the cache says about the
+  //    *new* version (which may be nothing) — after which `syncedFor ===
+  //    item.changedAt` again, so it cannot fire again until the document
+  //    changes once more.
+  // 2. Adopting a cache hit that resolves after mount, with the document
+  //    unchanged: gated on `assessment.status === 'idle'`, which this branch
+  //    is the only thing that clears (to `'done'`) once it fires — so it
+  //    cannot fire again until case 1 above resets `assessment` back to
+  //    `'idle'`. Deliberately an `else if`, not a second independent `if`: if
+  //    case 1 already fired this render, `assessment` (read from the closure,
+  //    not yet updated — React only applies a render-phase `setState` on the
+  //    *next* call of this function) is stale, so re-checking it here would
+  //    risk a redundant, though harmless, second `setAssessment` call.
+  //
+  // Both are skipped while `assessInFlightRef.current`: a `loading` state, or
+  // a just-landed live result whose write to the cache may not have reached
+  // `MergedList` yet, must never be clobbered by a cache read.
+  const [syncedFor, setSyncedFor] = useState<string | undefined>(item.changedAt)
+  // eslint-disable-next-line refs -- adjusting state when a value changes; see the comment above
+  if (syncedFor !== item.changedAt && !assessInFlightRef.current) {
+    setSyncedFor(item.changedAt)
+    setAssessment(initialAssessment ? {status: 'done', ...initialAssessment} : {status: 'idle'})
+    // eslint-disable-next-line refs -- adjusting state when a value changes; see the comment above
+  } else if (initialAssessment && assessment.status === 'idle' && !assessInFlightRef.current) {
+    setAssessment({status: 'done', ...initialAssessment})
+  }
+
   const handleAssess = useCallback(() => {
     if (!onAssess || assessInFlightRef.current) return
     assessInFlightRef.current = true

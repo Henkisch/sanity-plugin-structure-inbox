@@ -109,6 +109,36 @@ describe('oldestOpenAgeDays', () => {
     ]
     expect(oldestOpenAgeDays(rows, NOW)).toBe(3)
   })
+
+  it('excludes a future timestamp — a due date is not a wait, and never a negative age', () => {
+    const futureOnly = [row('tasks', {id: '1', timestamp: new Date(NOW + 7 * DAY_MS).toISOString()})]
+    expect(oldestOpenAgeDays(futureOnly, NOW)).toBeNull()
+
+    const mixed = [
+      row('tasks', {id: '1', timestamp: new Date(NOW + 7 * DAY_MS).toISOString()}),
+      row('tasks', {id: '2', timestamp: new Date(NOW - 3 * DAY_MS).toISOString()}),
+    ]
+    expect(oldestOpenAgeDays(mixed, NOW)).toBe(3)
+  })
+
+  it('never yields a negative value once floored, across a mix of past, future, and unparseable timestamps', () => {
+    const rows = [
+      row('tasks', {id: '1', timestamp: new Date(NOW + 1 * DAY_MS).toISOString()}),
+      row('tasks', {id: '2', timestamp: new Date(NOW - 0.5 * DAY_MS).toISOString()}),
+      row('tasks', {id: 'no-date'}),
+    ]
+    const result = oldestOpenAgeDays(rows, NOW)
+    expect(result).not.toBeNull()
+    expect(Math.floor(result as number)).toBeGreaterThanOrEqual(0)
+  })
+
+  it('skips a timestamp that fails to parse, same as a missing one', () => {
+    const rows = [
+      row('tasks', {id: '1', timestamp: new Date(NOW - 3 * DAY_MS).toISOString()}),
+      row('tasks', {id: 'bad-date', timestamp: 'not-a-real-date'}),
+    ]
+    expect(oldestOpenAgeDays(rows, NOW)).toBe(3)
+  })
 })
 
 describe('nextWake', () => {
@@ -125,6 +155,31 @@ describe('nextWake', () => {
 
   it('returns null when nothing is snoozed', () => {
     expect(nextWake([], EMPTY_SNOOZED)).toBeNull()
+  })
+
+  it('compares wake times as instants, not as strings', () => {
+    const rows = [row('tasks', {id: '1'}), row('tasks', {id: '2'})]
+    // '05:00:00-06:00' is 11:00Z — chronologically later than '10:00:00Z' —
+    // but sorts *earlier* as a plain string, which is the bug this guards.
+    const snoozed: SnoozeState['snoozed'] = {
+      tasks: {
+        '1': {at: NOW.toString(), until: '2026-01-01T10:00:00Z'},
+        '2': {at: NOW.toString(), until: '2026-01-01T05:00:00-06:00'},
+      },
+    }
+    expect(nextWake(rows, snoozed)).toBe('2026-01-01T10:00:00Z')
+  })
+
+  it('skips an until that fails to parse rather than letting it win the comparison', () => {
+    const rows = [row('tasks', {id: '1'}), row('tasks', {id: '2'})]
+    const soonest = new Date(NOW + 2 * DAY_MS).toISOString()
+    const snoozed: SnoozeState['snoozed'] = {
+      tasks: {
+        '1': {at: NOW.toString(), until: 'not-a-real-date'},
+        '2': {at: NOW.toString(), until: soonest},
+      },
+    }
+    expect(nextWake(rows, snoozed)).toBe(soonest)
   })
 })
 

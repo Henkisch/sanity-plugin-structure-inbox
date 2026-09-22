@@ -1,9 +1,10 @@
 import {type SanityClient} from '@sanity/client'
 import {cleanup, renderHook, waitFor} from '@testing-library/react'
 import {of, Subject} from 'rxjs'
-import {afterEach, describe, expect, it, vi} from 'vitest'
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {EMPTY_SNOOZES} from '../../store/snoozes'
+import {resetWarnings} from '../../warnOnce'
 import {typeDisplayName, unpublishedDrafts} from './unpublishedDrafts'
 
 interface DraftRow {
@@ -50,25 +51,56 @@ function stubClient(allRows: DraftRow[], userId: string, authoredIds: string[]) 
     of(allRows.slice(0, params.limit)),
   )
   const request = vi.fn().mockResolvedValue(authoredLines(authoredIds, userId))
+  const prompt = vi.fn()
 
   const client = {
     config: () => ({dataset: 'production'}),
     observable: {fetch: observableFetch},
     listen: vi.fn(() => new Subject()),
     request,
+    fetch: vi.fn().mockResolvedValue([]),
+    // `useAgentClient` needs a real `.agent.action.prompt` function and a
+    // `withConfig` to scope onto — present here (unlike the rest of this
+    // stub) purely so `ai` unset can resolve to a defined `assess`/
+    // `suggestSnooze`, the contrast the `ai: false` test below depends on.
+    agent: {action: {prompt}},
+    withConfig: () => client,
   } as unknown as SanityClient
 
-  return {client, observableFetch, request}
+  return {client, observableFetch, request, prompt}
+}
+
+/**
+ * Just the fields `unpublishedDrafts.ts` actually reads off an assignable
+ * user (`.granted`, `.displayName`, `.email`, `.imageUrl`, `.id`) — not the
+ * full, `@beta` `UserWithPermission` shape, which needs a real Studio `User`
+ * this test has no business constructing.
+ */
+interface StubAssignableUser {
+  id: string
+  displayName?: string
+  email?: string
+  imageUrl?: string
+  granted: boolean
 }
 
 // A single stable reference, not a fresh object per render: `useDraftFetch`'s
 // own `useMemo` depends on `[client, schema, userId]`, so a `useSchema` mock
 // that returned a new object every call would recompute (and re-subscribe)
 // the whole fetch pipeline on every render, forever.
-const {useClientMock, stableSchema} = vi.hoisted(() => ({
-  useClientMock: vi.fn(),
-  stableSchema: {get: () => undefined},
-}))
+const {useClientMock, stableSchema, useAssignableUsersMock} = vi.hoisted(() => {
+  return {
+    useClientMock: vi.fn(),
+    stableSchema: {get: () => undefined},
+    // A `vi.fn()`, not a plain arrow, so the `suggestAssignee` degradation
+    // test below can override it to return a real, granted user for one test
+    // and nothing else has to change: every other test still gets the same
+    // `{data: undefined}` this returns by default. Typed explicitly (rather
+    // than inferred from the default `{data: undefined}` literal) so
+    // `mockReturnValue` can later be given a real user array.
+    useAssignableUsersMock: vi.fn<() => {data: StubAssignableUser[] | undefined}>(() => ({data: undefined})),
+  }
+})
 
 vi.mock('sanity', async (importOriginal) => {
   const actual = await importOriginal<typeof import('sanity')>()
@@ -77,8 +109,18 @@ vi.mock('sanity', async (importOriginal) => {
     useClient: useClientMock,
     useSchema: () => stableSchema,
     useCurrentUser: vi.fn(() => ({id: 'user-1'})),
+    useCurrentLocale: vi.fn(() => ({id: 'en-US'})),
   }
 })
+
+// Same reasoning as `assetIssues.proposeFix.test.tsx`'s own mock: assignment
+// reaches Sanity's own `useUserListWithPermissions`, which needs a real
+// Studio `source` context this test has no business standing up — none of
+// these assertions are about assignment.
+vi.mock('./capability', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./capability')>()),
+  useAssignableUsers: useAssignableUsersMock,
+}))
 
 afterEach(() => {
   // Same reasoning as `useDismissals.test.tsx`: `globals: false` means
@@ -87,6 +129,10 @@ afterEach(() => {
   // later test.
   cleanup()
   useClientMock.mockReset()
+  // Restore the default `{data: undefined}` rather than `mockReset()`: the
+  // latter would leave the mock with no implementation at all, and
+  // `useItems()` destructures its return value unconditionally.
+  useAssignableUsersMock.mockReturnValue({data: undefined})
 })
 
 describe('unpublishedDrafts onlyMine over-fetch', () => {
@@ -143,6 +189,96 @@ describe('unpublishedDrafts onlyMine over-fetch', () => {
   })
 })
 
+// Plan 080: a failed `onlyMine` history read used to reach the outer
+// `catchError` and turn the whole card into `{items: [], error}` — the
+// filter's own failure, not the query's, costing the entire card. These
+// assert the degradation instead: the enrichment (`onlyMine`, `suggestAssignee`)
+// degrades, the underlying rows do not disappear.
+describe('unpublishedDrafts — onlyMine degrades instead of erroring', () => {
+  beforeEach(() => {
+    resetWarnings()
+  })
+
+  afterEach(() => {
+    cleanup()
+    useClientMock.mockReset()
+    useAssignableUsersMock.mockReturnValue({data: undefined})
+  })
+
+  it('still returns rows, with no error, when the onlyMine history read rejects', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const allRows = makeRows(5, new Set([4]))
+    const {client, request} = stubClient(allRows, 'user-1', ['drafts.doc-4'])
+    request.mockRejectedValue(new Error('history endpoint unavailable'))
+    useClientMock.mockReturnValue(client)
+
+    const source = unpublishedDrafts({onlyMine: true, limit: 2})
+    const {result} = renderHook(() => source.useItems())
+
+    await waitFor(() => expect(result.current.items.length).toBeGreaterThan(0))
+    // The bug this plan fixes is exactly this combination: `{items: [], error}`.
+    expect(result.current.items.length).toBeGreaterThan(0)
+    expect(result.current.error).toBeUndefined()
+  })
+
+  it('caps the degraded fallback at limit, not the over-fetched raw limit', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const allRows = makeRows(15, new Set())
+    const {client, request} = stubClient(allRows, 'user-1', [])
+    request.mockRejectedValue(new Error('history endpoint unavailable'))
+    useClientMock.mockReturnValue(client)
+
+    const source = unpublishedDrafts({onlyMine: true, limit: 3})
+    const {result} = renderHook(() => source.useItems())
+
+    await waitFor(() => expect(result.current.items.length).toBeGreaterThan(0))
+    expect(result.current.items.length).toBe(3)
+  })
+
+  it('warns once via warnOnce rather than spamming console.warn', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const allRows = makeRows(3, new Set())
+    const {client, request} = stubClient(allRows, 'user-1', [])
+    request.mockRejectedValue(new Error('history endpoint unavailable'))
+    useClientMock.mockReturnValue(client)
+
+    const source = unpublishedDrafts({onlyMine: true, limit: 2})
+    const {result} = renderHook(() => source.useItems())
+
+    await waitFor(() => expect(result.current.items.length).toBeGreaterThan(0))
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  // The happy path (filter succeeds) is already covered end to end by
+  // `unpublishedDrafts onlyMine over-fetch` above — its first two `it`s
+  // assert exact post-filter counts — so this block only adds the failure
+  // path, not a duplicate of the success path.
+
+  it('suggestAssignee resolves with no suggestion, rather than rejecting, when the author history read fails', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    useAssignableUsersMock.mockReturnValue({
+      data: [{id: 'user-1', displayName: 'User One', email: 'user-1@example.com', granted: true}],
+    })
+
+    const allRows = makeRows(1, new Set())
+    const {client, request} = stubClient(allRows, 'user-1', [])
+    request.mockRejectedValue(new Error('history endpoint unavailable'))
+    useClientMock.mockReturnValue(client)
+
+    const source = unpublishedDrafts({})
+    const {result} = renderHook(() => source.useItems())
+
+    await waitFor(() => expect(result.current.items.length).toBeGreaterThan(0))
+    expect(result.current.assign).toBeDefined()
+
+    await expect(result.current.assign?.suggestAssignee?.(result.current.items[0])).resolves.toBeNull()
+  })
+})
+
 // A draft with no title/name/label field at all used to show its raw `_id`
 // as the row title (the query's own `coalesce()` fell back to `_id` before
 // `toItem` ever saw a falsy value to catch). `typeDisplayName` is the
@@ -158,5 +294,44 @@ describe('typeDisplayName', () => {
   it('falls back to the raw type name when the schema has none, never the document id', () => {
     const schema = {get: () => undefined}
     expect(typeDisplayName(schema, 'post')).toBe('post')
+  })
+})
+
+// The documented `ai: false` opt-out (`unpublishedDrafts.ts`'s own doc
+// comment on the `ai` option: "every press spends an Agent Actions request,
+// and a Studio should be able to turn that off") is implemented entirely by
+// passing the flag through to `useAgentClient({enabled: ai})`. Nothing
+// before plan 073 actually constructed `unpublishedDrafts({ai: false})` and
+// asserted the paid extras come back `undefined` end to end.
+describe('unpublishedDrafts — the `ai` opt-out', () => {
+  afterEach(() => {
+    cleanup()
+    useClientMock.mockReset()
+  })
+
+  it('omits assess and suggestSnooze entirely when ai: false', async () => {
+    const allRows = makeRows(1, new Set())
+    const {client} = stubClient(allRows, 'user-1', [])
+    useClientMock.mockReturnValue(client)
+
+    const source = unpublishedDrafts({ai: false})
+    const {result} = renderHook(() => source.useItems())
+
+    await waitFor(() => expect(result.current.items.length).toBeGreaterThan(0))
+    expect(result.current.assess).toBeUndefined()
+    expect(result.current.suggestSnooze).toBeUndefined()
+  })
+
+  it('offers assess and suggestSnooze when ai is left unset', async () => {
+    const allRows = makeRows(1, new Set())
+    const {client} = stubClient(allRows, 'user-1', [])
+    useClientMock.mockReturnValue(client)
+
+    const source = unpublishedDrafts({})
+    const {result} = renderHook(() => source.useItems())
+
+    await waitFor(() => expect(result.current.items.length).toBeGreaterThan(0))
+    expect(result.current.assess).toBeDefined()
+    expect(result.current.suggestSnooze).toBeDefined()
   })
 })

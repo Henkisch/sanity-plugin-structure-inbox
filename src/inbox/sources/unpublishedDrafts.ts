@@ -4,8 +4,6 @@ import {useMemo} from 'react'
 import {useObservable} from 'react-rx'
 import {from, of} from 'rxjs'
 import {catchError, map, startWith, switchMap} from 'rxjs/operators'
-// `useUserListWithPermissions` stays out of this named import — see
-// `optionalHook` in `capability.ts`.
 import {useClient, useCurrentLocale, useCurrentUser, useSchema} from 'sanity'
 
 import {AssessmentUnavailableError, parseAssessment} from '../../ai/assessment'
@@ -14,11 +12,11 @@ import {parseSnoozeSuggestion} from '../../ai/snoozeSuggestion'
 import {useAgentClient} from '../../ai/useAgentClient'
 import {API_VERSION} from '../../constants'
 import {type SnoozeState} from '../../store/snoozes'
+import {warnOnce} from '../../warnOnce'
 import {splitItems} from '../splitItems'
 import {type InboxAssessment, type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
-import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
+import {targetIdFromIntentParamsId, useAssignmentCapability} from './assignmentCapability'
 import {fetchDocumentAuthors, filterAuthoredBy} from './authoredBy'
-import {useAssignableUsers} from './capability'
 import {liveQuery$} from './liveQuery'
 
 export interface UnpublishedDraftsOptions {
@@ -192,6 +190,10 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
         }
       }
 
+      // The `map` to `InboxSourceResult` now lives inside `fetch$` itself,
+      // not after `liveQuery$` — so `onFetchError`'s empty result and a
+      // successful fetch's mapped result are the same shape by the time
+      // either reaches `startWith`/`catchError` below.
       const fetch$ = client.observable.fetch<DraftRow[]>(QUERY, params).pipe(
         switchMap((rows) => {
           // Without a user there is nobody to filter by, so listing
@@ -204,12 +206,30 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
               rows.map((row) => row._id),
               userId,
             ),
-          ).pipe(map((mine) => rows.filter((row) => mine.has(row._id)).slice(0, limit)))
+          ).pipe(
+            map((mine) => rows.filter((row) => mine.has(row._id)).slice(0, limit)),
+            catchError((error: unknown) => {
+              // The source's own posture, two branches up: listing everything
+              // beats listing nothing. A failed history read should cost the
+              // `onlyMine` filter, not the whole card — the history endpoint
+              // varies by plan and retention, and this batches up to
+              // `limit * ONLY_MINE_OVERFETCH_MULTIPLIER` ids into one URL.
+              warnOnce(
+                'unpublishedDrafts could not read document history, so `onlyMine` is not being applied — ' +
+                  "showing everyone's drafts instead of none.",
+              )
+              console.error('[sanity-plugin-structure-inbox] onlyMine filter failed', error)
+              // The over-fetch (`ONLY_MINE_OVERFETCH_MULTIPLIER`) exists only
+              // because the filter is expected to remove rows — without this
+              // cap, a failure would show up to 5x the requested count.
+              return of(rows.slice(0, limit))
+            }),
+          )
         }),
+        map((rows): InboxSourceResult => ({items: rows.map(toItem)})),
       )
 
-      return liveQuery$(client, QUERY, params, fetch$).pipe(
-        map((rows): InboxSourceResult => ({items: rows.map(toItem)})),
+      return liveQuery$(client, QUERY, params, fetch$, (error) => ({items: [], error})).pipe(
         startWith<InboxSourceResult>({items: [], loading: true}),
         catchError((error: Error) => of<InboxSourceResult>({items: [], error})),
       )
@@ -242,41 +262,29 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
       const schema = useSchema()
       const currentUser = useCurrentUser()
       const userId = currentUser?.id
+      const result = useDraftFetch(client, schema, userId)
       // `null` documentValue: not scoped to one draft, since any of them
       // could be assigned — every project member able to update documents is
-      // a sensible assignee.
-      const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
-
-      const result = useDraftFetch(client, schema, userId)
-      const assignments = useAssignmentStore(client, ASSIGNMENT_TYPE)
-
-      // `assignable` already carries exactly the display name and photo an
-      // avatar needs — built once here rather than looked up per row. Its own
-      // `imageUrl` is not reliably populated, though, so the one entry this
-      // editor can vouch for personally — themselves — uses the photo
-      // `useCurrentUser` already has instead.
-      const assigneesById = useMemo(() => {
-        const byId = new Map<string, {id: string; label: string; imageUrl?: string}>()
-        for (const user of assignable ?? []) {
-          const isSelf = user.id === userId
-          byId.set(user.id, {
-            id: user.id,
-            label: user.displayName || user.email || user.id,
-            imageUrl: (isSelf && currentUser?.profileImage) || user.imageUrl,
-          })
-        }
-        return byId
-      }, [assignable, userId, currentUser])
+      // a sensible assignee. `item.intent.params.id` (the canonical,
+      // unprefixed draft id), not `item.id` (which carries the `drafts.`
+      // prefix) — see `assignmentCapability.ts`'s own doc comment on
+      // `targetIdFromIntentParamsId`.
+      const {
+        assigneesById,
+        byTarget,
+        assign: baseAssign,
+        assignable,
+      } = useAssignmentCapability(client, {targetId: targetIdFromIntentParamsId})
 
       const items = useMemo(
         () =>
           result.items.map((item): InboxItem => {
             const canonicalId = item.intent?.params.id
-            const assignedTo = canonicalId ? assignments.byTarget.get(canonicalId) : undefined
+            const assignedTo = canonicalId ? byTarget.get(canonicalId) : undefined
             const assignee = assignedTo ? assigneesById.get(assignedTo) : undefined
             return assignee ? {...item, assignee} : item
           }),
-        [result.items, assignments.byTarget, assigneesById],
+        [result.items, byTarget, assigneesById],
       )
 
       const agentClient = useAgentClient({enabled: ai})
@@ -329,35 +337,40 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
         }
       }, [agentClient, locale, timeZone])
 
+      // `baseAssign` already has `users`/`toUser`/`unassign` from the shared
+      // hook — this only adds the one piece specific to this source: whoever
+      // most recently touched the draft, from the transaction log — a fact,
+      // not a guess. Dropped rather than offered when that person isn't (or
+      // is no longer) assignable, the same fallback `assignedTo` already gets
+      // elsewhere in this source.
       const assign = useMemo(() => {
-        if (!assignable) return undefined
+        if (!baseAssign) return undefined
 
-        const grantedIds = new Set(assignable.filter((user) => user.granted).map((user) => user.id))
+        const grantedIds = new Set((assignable ?? []).filter((user) => user.granted).map((user) => user.id))
 
         return {
-          users: assignable
-            .filter((user) => user.granted)
-            .map((user) => ({id: user.id, label: user.displayName || user.email || user.id})),
-          toUser: async (item: InboxItem, assignedTo: string) => {
-            const targetId = item.intent?.params.id
-            if (targetId) await assignments.assign(targetId, assignedTo)
-          },
-          unassign: async (item: InboxItem) => {
-            const targetId = item.intent?.params.id
-            if (targetId) await assignments.unassign(targetId)
-          },
-          // Whoever most recently touched the draft, from the transaction
-          // log — a fact, not a guess. Dropped rather than offered when
-          // that person isn't (or is no longer) assignable, the same
-          // fallback `assignedTo` already gets elsewhere in this source.
+          ...baseAssign,
           suggestAssignee: async (item: InboxItem) => {
-            const authors = await fetchDocumentAuthors(client, [item.id])
+            let authors: Map<string, string[]>
+            try {
+              authors = await fetchDocumentAuthors(client, [item.id])
+            } catch (error) {
+              // No suggestion beats a wrong one, and beats an error the
+              // editor cannot act on: this is an optional convenience on top
+              // of the same history endpoint `onlyMine` reads, so the same
+              // degradation applies — lose the feature, not the row.
+              warnOnce(
+                'unpublishedDrafts could not read document history, so suggestAssignee is unavailable.',
+              )
+              console.error('[sanity-plugin-structure-inbox] suggestAssignee history read failed', error)
+              return null
+            }
             const mostRecentAuthor = authors.get(item.id)?.[0]
             if (!mostRecentAuthor || !grantedIds.has(mostRecentAuthor)) return null
             return {userId: mostRecentAuthor, reason: 'lastEditor' as const}
           },
         }
-      }, [assignable, assignments, client])
+      }, [baseAssign, assignable, client])
 
       return useMemo(
         () => ({...result, items, assess, suggestSnooze, assign}),

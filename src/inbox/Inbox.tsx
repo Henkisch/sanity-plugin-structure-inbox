@@ -46,7 +46,8 @@ import {initials, UnassignedAvatar} from './InboxRow'
 import {mergeRows} from './mergeItems'
 import {MergedList} from './MergedList'
 import {sameReport, SourceFeed, type SourceReport} from './SourceFeed'
-import {type InboxSource, type InboxView, type SuggestTodosState} from './types'
+import {type InboxSource, type InboxView, type SuggestTodosState, type TodoSuggestion} from './types'
+import {unwrapAiRead, useAiRead} from './useAiRead'
 import {useElementHeight, useElementWidth} from './useElementHeight'
 
 /**
@@ -298,8 +299,8 @@ export function BoundedSection(props: BoundedSectionProps) {
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
   const renderFallback = useCallback(
-    (error: Error): ReactNode => (
-      <SectionCard error={error} title={t(source.title)}>
+    (error: Error, retry: (() => void) | undefined): ReactNode => (
+      <SectionCard error={error} onRetry={retry} title={t(source.title)}>
         {null}
       </SectionCard>
     ),
@@ -325,6 +326,15 @@ interface BoundedSourceFeedProps {
   snoozes: ReturnType<typeof useSnoozes>
   now: number
   onReport: (sourceName: string, report: SourceReport) => void
+  /**
+   * Forwarded straight to the internal `SectionErrorBoundary`'s `resetKey` —
+   * `Inbox.tsx` passes this source's counter from `useSharedInboxStore()`, so
+   * a "Try again" click on this source's error card in `MergedList` (which
+   * bumps that shared counter) remounts `SourceFeed` here. No fallback UI of
+   * its own to hang a retry click on (see this component's own doc comment),
+   * so a resettable `resetKey` is the only path in.
+   */
+  resetKey?: unknown
 }
 
 /**
@@ -339,7 +349,7 @@ interface BoundedSourceFeedProps {
  * this directly without a full Studio source context.
  */
 export function BoundedSourceFeed(props: BoundedSourceFeedProps) {
-  const {source, snoozes, now, onReport} = props
+  const {source, snoozes, now, onReport, resetKey} = props
 
   const handleCatch = useCallback(
     (error: Error) => {
@@ -349,7 +359,7 @@ export function BoundedSourceFeed(props: BoundedSourceFeedProps) {
   )
 
   return (
-    <SectionErrorBoundary fallback={null} onCatch={handleCatch}>
+    <SectionErrorBoundary fallback={null} onCatch={handleCatch} resetKey={resetKey}>
       <SourceFeed now={now} onReport={onReport} snoozes={snoozes} source={source} />
     </SectionErrorBoundary>
   )
@@ -366,7 +376,7 @@ export function Inbox({
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const client = useClient({apiVersion: API_VERSION})
   const schema = useSchema()
-  const {dismissals, snoozes} = useSharedInboxStore()
+  const {dismissals, snoozes, sourceRetryKeys, retrySource} = useSharedInboxStore()
   // Not through `useSharedInboxStore`, unlike dismissals/snoozes: nothing
   // outside this pane needs a cached assessment (no open-count-style
   // always-mounted consumer reads it), so a plain local instance is enough —
@@ -485,10 +495,19 @@ export function Inbox({
       return next
     })
   }, [])
+  // Keyed by source name: several `main` sources can each offer an action
+  // (see the note above `actionSources`), so one boolean would let a second
+  // source's action be swallowed by the first's. State alone is not enough
+  // for the same-batch case either — see `useAiRead.ts`'s own in-flight-ref
+  // doc comment for the general reasoning.
+  const runningActionsRef = useRef<Set<string>>(new Set())
+
   const runSourceAction = useCallback((report: SourceReport) => {
     const {action} = report
     if (!action) return
     const {name} = report.source
+    if (runningActionsRef.current.has(name)) return
+    runningActionsRef.current.add(name)
     setRunningActions((current) => ({...current, [name]: true}))
     dismissActionResult(name)
     action
@@ -502,6 +521,7 @@ export function Inbox({
         setActionResults((current) => ({...current, [name]: {status: 'error'}}))
       })
       .finally(() => {
+        runningActionsRef.current.delete(name)
         setRunningActions((current) => ({...current, [name]: false}))
       })
   }, [dismissActionResult])
@@ -669,63 +689,41 @@ export function Inbox({
   // filtering), just not this state.
   const [askResult, setAskResult] = useState<AskState>({status: 'idle'})
 
-  const [summary, setSummary] = useState<
-    {status: 'idle'} | {status: 'loading'} | {status: 'done'; message: string} | {status: 'error'}
-  >({status: 'idle'})
+  // In-flight guard, staleness guard, state and error logging all live in
+  // `useAiRead` now — see its own doc comment for the two-ref reasoning
+  // that used to be duplicated by hand at each of these three call sites
+  // (plus a fourth, `MergedList.tsx`'s own `handleSuggestSnooze`).
+  const runSummarize = useCallback(async (): Promise<{message: string} | null> => {
+    const digest = openRows
+      .slice(0, 30)
+      .map((row) => `- ${row.item.title}${row.item.subtitle ? ` (${row.item.subtitle})` : ''}`)
+      .join('\n')
 
-  // `summarizeInFlightRef` (a plain ref, mutated synchronously) gates the
-  // *request*; `summarizeRequestRef` below (bump-then-compare) decides which
-  // *response* is authoritative if one somehow still lands late. They guard
-  // different things: a `summary.status === 'loading'` state check alone
-  // isn't enough here — two clicks landing in the same React batch (e.g.
-  // `act(() => { fireEvent.click(x); fireEvent.click(x) })`) both run before
-  // React commits the first click's `setSummary({status: 'loading'})`, so a
-  // state read is stale for both and both would fire; a `ref.current` write
-  // is visible to the very next line of JS regardless of whether React has
-  // re-rendered, so checking that instead closes the same-tick race too.
-  const summarizeInFlightRef = useRef(false)
-  const summarizeRequestRef = useRef(0)
+    if (!agentClient) return null
 
-  const handleSummarize = useCallback(async () => {
+    const message = await agentClient.agent.action.prompt({
+      instruction:
+        (context ? `About this project: ${context}\n---\n` : '') +
+        'Given this list of open inbox items, one per line:\n$items\n---\n' +
+        'In two or three short sentences, say what looks most worth starting with first and why.',
+      instructionParams: {items: digest || 'Nothing is open right now.'},
+    })
+    return {message}
+  }, [agentClient, openRows, context])
+
+  const summarizeRead = useAiRead(runSummarize, 'summarize failed')
+  const summary = unwrapAiRead(summarizeRead.state)
+
+  const handleSummarize = useCallback(() => {
     // Belt-and-suspenders against a direct call some other code path might
     // make: the menu item below is already gated on `summarize`, but this
     // guards the handler itself, the same way `agentClient`'s own absence is
-    // checked defensively inside the handler rather than only at the render
-    // call site.
-    if (!summarize || summarizeInFlightRef.current) return
-    summarizeInFlightRef.current = true
-    try {
-      const requestId = ++summarizeRequestRef.current
-      setSummary({status: 'loading'})
-      const digest = openRows
-        .slice(0, 30)
-        .map((row) => `- ${row.item.title}${row.item.subtitle ? ` (${row.item.subtitle})` : ''}`)
-        .join('\n')
-
-      if (!agentClient) {
-        if (requestId === summarizeRequestRef.current) setSummary({status: 'error'})
-        return
-      }
-
-      try {
-        const message = await agentClient.agent.action.prompt({
-          instruction:
-            (context ? `About this project: ${context}\n---\n` : '') +
-            'Given this list of open inbox items, one per line:\n$items\n---\n' +
-            'In two or three short sentences, say what looks most worth starting with first and why.',
-          instructionParams: {items: digest || 'Nothing is open right now.'},
-        })
-        if (requestId === summarizeRequestRef.current) setSummary({status: 'done', message})
-      } catch (error: unknown) {
-        console.error('[sanity-plugin-structure-inbox] summarize failed', error)
-        if (requestId === summarizeRequestRef.current) setSummary({status: 'error'})
-      }
-    } finally {
-      summarizeInFlightRef.current = false
-    }
-  }, [agentClient, openRows, context, summarize])
-
-  const [suggestions, setSuggestions] = useState<SuggestTodosState>({status: 'idle'})
+    // checked defensively inside `runSummarize` rather than only at the
+    // render call site.
+    if (!summarize) return
+    summarizeRead.start()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `summarizeRead.start` is referentially stable for this component's lifetime (see `useAiRead`'s own doc comment); `summarizeRead` itself is a fresh object every render, and depending on it would make this handler churn identity for no behavioural reason.
+  }, [summarize, summarizeRead.start])
 
   // The one thing an editor can actually do with a suggestion: add it to
   // their own personal list, the same `todos` source's own "add one" input
@@ -738,129 +736,94 @@ export function Inbox({
   // render rather than offering suggestions with nowhere real to put them.
   const addTodo = reports.todos?.create
 
-  // Same two-ref shape as `handleSummarize` above, same reason.
-  const suggestTodosInFlightRef = useRef(false)
-  const suggestTodosRequestRef = useRef(0)
+  const runSuggestTodos = useCallback(async (): Promise<{items: TodoSuggestion[]} | null> => {
+    const digest = openRows
+      .slice(0, 30)
+      .map((row) => `- ${row.item.title}${row.item.subtitle ? ` (${row.item.subtitle})` : ''}`)
+      .join('\n')
 
-  const handleSuggestTodos = useCallback(async () => {
+    if (!agentClient) return null
+
+    type SuggestionChoice = {items: {title: string; reason: string}[]}
+
+    const choice = await promptJson<SuggestionChoice>(
+      agentClient,
+      (context ? `About this project: ${context}\n---\n` : '') +
+        'Given this list of open inbox items, one per line:\n$items\n---\n' +
+        'Suggest at most 3 concrete personal todos an editor could add to make progress on ' +
+        'these — each a short, specific, imperative title (max ~8 words) plus a one-sentence ' +
+        'reason. Return JSON {"items": [{"title": string, "reason": string}]}. If nothing open ' +
+        'warrants a new todo, return {"items": []}.',
+      {items: digest || 'Nothing is open right now.'},
+    )
+    return {items: (choice?.items ?? []).slice(0, 3)}
+  }, [agentClient, openRows, context])
+
+  const suggestTodosRead = useAiRead(runSuggestTodos, 'suggest-todos failed')
+  const suggestions: SuggestTodosState = unwrapAiRead(suggestTodosRead.state)
+
+  const handleSuggestTodos = useCallback(() => {
     // Belt-and-suspenders against a direct call some other code path might
     // make: the menu item below is already gated on `suggestTodos`, but this
     // guards the handler itself, the same way `agentClient`'s own absence is
-    // checked defensively inside the handler rather than only at the render
-    // call site.
-    if (!suggestTodos || suggestTodosInFlightRef.current) return
-    suggestTodosInFlightRef.current = true
-    try {
-      const requestId = ++suggestTodosRequestRef.current
-      setSuggestions({status: 'loading'})
-      const digest = openRows
-        .slice(0, 30)
-        .map((row) => `- ${row.item.title}${row.item.subtitle ? ` (${row.item.subtitle})` : ''}`)
-        .join('\n')
-
-      if (!agentClient) {
-        if (requestId === suggestTodosRequestRef.current) setSuggestions({status: 'error'})
-        return
-      }
-
-      try {
-        type SuggestionChoice = {items: {title: string; reason: string}[]}
-
-        const choice = await promptJson<SuggestionChoice>(
-          agentClient,
-          (context ? `About this project: ${context}\n---\n` : '') +
-            'Given this list of open inbox items, one per line:\n$items\n---\n' +
-            'Suggest at most 3 concrete personal todos an editor could add to make progress on ' +
-            'these — each a short, specific, imperative title (max ~8 words) plus a one-sentence ' +
-            'reason. Return JSON {"items": [{"title": string, "reason": string}]}. If nothing open ' +
-            'warrants a new todo, return {"items": []}.',
-          {items: digest || 'Nothing is open right now.'},
-        )
-
-        if (requestId === suggestTodosRequestRef.current) {
-          setSuggestions({status: 'done', items: (choice?.items ?? []).slice(0, 3)})
-        }
-      } catch (error: unknown) {
-        console.error('[sanity-plugin-structure-inbox] suggest-todos failed', error)
-        if (requestId === suggestTodosRequestRef.current) setSuggestions({status: 'error'})
-      }
-    } finally {
-      suggestTodosInFlightRef.current = false
-    }
-  }, [agentClient, openRows, context, suggestTodos])
+    // checked defensively inside `runSuggestTodos` rather than only at the
+    // render call site.
+    if (!suggestTodos) return
+    suggestTodosRead.start()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- same reasoning as `handleSummarize` above: `suggestTodosRead.start` is referentially stable; `suggestTodosRead` itself is not.
+  }, [suggestTodos, suggestTodosRead.start])
 
   // "Find content gaps" — same "insight, then nothing automatic" shape as
   // Summarize/Suggest todos above, but reading the project's own content
   // instead of the current queue: only rendered at all when
   // `StructureInboxConfig.contentGaps` is configured (see that option's own
   // doc comment for why this is opt-in, unlike everything else here).
-  const [contentGapsResult, setContentGapsResult] = useState<
-    | {status: 'idle'}
-    | {status: 'loading'}
-    | {status: 'done'; items: {title: string; reason: string}[]}
-    | {status: 'error'}
-  >({status: 'idle'})
+  const runFindContentGaps = useCallback(async (): Promise<{items: {title: string; reason: string}[]} | null> => {
+    if (!agentClient) return null
 
-  // Same two-ref shape as `handleSummarize` above, same reason.
-  const findContentGapsInFlightRef = useRef(false)
-  const findContentGapsRequestRef = useRef(0)
+    const summaries = await getProjectDigest()
+    const digest = formatContentGapsDigest(summaries)
 
-  const handleFindContentGaps = useCallback(async () => {
-    if (findContentGapsInFlightRef.current) return
-    findContentGapsInFlightRef.current = true
-    try {
-      const requestId = ++findContentGapsRequestRef.current
-      setContentGapsResult({status: 'loading'})
+    type GapsChoice = {gaps: {title: string; reason: string}[]}
 
-      if (!agentClient) {
-        if (requestId === findContentGapsRequestRef.current) setContentGapsResult({status: 'error'})
-        return
-      }
-
-      try {
-        const summaries = await getProjectDigest()
-        const digest = formatContentGapsDigest(summaries)
-
-        type GapsChoice = {gaps: {title: string; reason: string}[]}
-
-        const choice = await promptJson<GapsChoice>(
-          agentClient,
-          (context ? `About this project: ${context}\n---\n` : '') +
-            'Here is a survey of every content type in this Sanity project, how many documents ' +
-            "each has, and a small sample of real text from each (when available):\n$survey\n---\n" +
-            'Suggest at most 5 concrete content gaps — things that seem missing given what this ' +
-            'project already has (an under-supported claim, a content type with far fewer entries ' +
-            "than a related one, a topic mentioned in samples but with nothing dedicated to it). " +
-            'Each gap: a short, specific title (max ~10 words) and a one-sentence reason grounded ' +
-            'in the actual survey data, not a generic best practice. Return JSON ' +
-            '{"gaps": [{"title": string, "reason": string}]}. If nothing looks like a real gap, ' +
-            'return {"gaps": []}.',
-          {survey: digest || 'This project has no content types with any documents yet.'},
-        )
-
-        if (requestId === findContentGapsRequestRef.current) {
-          setContentGapsResult({status: 'done', items: (choice?.gaps ?? []).slice(0, 5)})
-        }
-      } catch (error: unknown) {
-        console.error('[sanity-plugin-structure-inbox] find-content-gaps failed', error)
-        if (requestId === findContentGapsRequestRef.current) setContentGapsResult({status: 'error'})
-      }
-    } finally {
-      findContentGapsInFlightRef.current = false
-    }
+    const choice = await promptJson<GapsChoice>(
+      agentClient,
+      (context ? `About this project: ${context}\n---\n` : '') +
+        'Here is a survey of every content type in this Sanity project, how many documents ' +
+        "each has, and a small sample of real text from each (when available):\n$survey\n---\n" +
+        'Suggest at most 5 concrete content gaps — things that seem missing given what this ' +
+        'project already has (an under-supported claim, a content type with far fewer entries ' +
+        "than a related one, a topic mentioned in samples but with nothing dedicated to it). " +
+        'Each gap: a short, specific title (max ~10 words) and a one-sentence reason grounded ' +
+        'in the actual survey data, not a generic best practice. Return JSON ' +
+        '{"gaps": [{"title": string, "reason": string}]}. If nothing looks like a real gap, ' +
+        'return {"gaps": []}.',
+      {survey: digest || 'This project has no content types with any documents yet.'},
+    )
+    return {items: (choice?.gaps ?? []).slice(0, 5)}
   }, [agentClient, getProjectDigest, context])
 
-  const dismissContentGap = useCallback((index: number) => {
-    setContentGapsResult((current) =>
-      current.status === 'done' ? {...current, items: current.items.filter((_, i) => i !== index)} : current,
-    )
-  }, [])
+  const contentGapsRead = useAiRead(runFindContentGaps, 'find-content-gaps failed')
+  const contentGapsResult = unwrapAiRead(contentGapsRead.state)
+
+  // No config-flag guard of its own (unlike `handleSummarize`/
+  // `handleSuggestTodos` above): the menu item this triggers is already
+  // conditionally rendered on `contentGaps` and nothing else calls this.
+  const handleFindContentGaps = contentGapsRead.start
+
+  const dismissContentGap = useCallback(
+    (index: number) => {
+      contentGapsRead.update((data) => ({items: data.items.filter((_, i) => i !== index)}))
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `contentGapsRead.update` is referentially stable; `contentGapsRead` itself is not.
+    [contentGapsRead.update],
+  )
 
   // The actual add (a real, one-shot write) happens here, in the event
-  // handler itself — never inside the `setSuggestions` updater below. React
-  // invokes a state updater function twice under StrictMode to catch exactly
-  // this shape of bug: an updater that isn't pure. Confirmed live, the hard
-  // way, before this comment existed — one click doubled the todo, since the
+  // handler itself — never inside the `update` updater below. React invokes
+  // a state updater function twice under StrictMode to catch exactly this
+  // shape of bug: an updater that isn't pure. Confirmed live, the hard way,
+  // before this comment existed — one click doubled the todo, since the
   // side effect ran once per invocation of the updater.
   const handleAddSuggestion = useCallback(
     (index: number) => {
@@ -869,18 +832,19 @@ export function Inbox({
         if (suggestion) void addTodo?.({title: suggestion.title})
       }
 
-      setSuggestions((current) =>
-        current.status === 'done' ? {...current, items: current.items.filter((_, i) => i !== index)} : current,
-      )
+      suggestTodosRead.update((data) => ({items: data.items.filter((_, i) => i !== index)}))
     },
-    [suggestions, addTodo],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `suggestTodosRead.update` is referentially stable; `suggestTodosRead` itself is not.
+    [suggestions, addTodo, suggestTodosRead.update],
   )
 
-  const handleDismissSuggestion = useCallback((index: number) => {
-    setSuggestions((current) =>
-      current.status === 'done' ? {...current, items: current.items.filter((_, i) => i !== index)} : current,
-    )
-  }, [])
+  const handleDismissSuggestion = useCallback(
+    (index: number) => {
+      suggestTodosRead.update((data) => ({items: data.items.filter((_, i) => i !== index)}))
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `suggestTodosRead.update` is referentially stable; `suggestTodosRead` itself is not.
+    [suggestTodosRead.update],
+  )
 
   // Only the main column counts toward the headline. The aside is context —
   // "three releases are scheduled" is not three things asking for your
@@ -1389,7 +1353,7 @@ export function Inbox({
                   <Button
                     fontSize={1}
                     mode="bleed"
-                    onClick={() => setSummary({status: 'idle'})}
+                    onClick={() => summarizeRead.reset()}
                     padding={2}
                     style={{marginRight: -8, marginTop: -6}}
                     text={t('summarize.dismiss')}
@@ -1436,7 +1400,7 @@ export function Inbox({
                     <Button
                       fontSize={1}
                       mode="bleed"
-                      onClick={() => setSuggestions({status: 'idle'})}
+                      onClick={() => suggestTodosRead.reset()}
                       padding={2}
                       style={{marginRight: -8, marginTop: -6}}
                       text={t('todoSuggest.dismiss')}
@@ -1450,7 +1414,7 @@ export function Inbox({
                     <Button
                       fontSize={1}
                       mode="bleed"
-                      onClick={() => setSuggestions({status: 'idle'})}
+                      onClick={() => suggestTodosRead.reset()}
                       padding={2}
                       style={{marginRight: -8, marginTop: -6}}
                       text={t('todoSuggest.dismiss')}
@@ -1474,7 +1438,7 @@ export function Inbox({
                       <Button
                         fontSize={1}
                         mode="bleed"
-                        onClick={() => setSuggestions({status: 'idle'})}
+                        onClick={() => suggestTodosRead.reset()}
                         padding={2}
                         style={{marginRight: -8, marginTop: -6}}
                         text={t('todoSuggest.dismissAll')}
@@ -1557,7 +1521,7 @@ export function Inbox({
                       <Button
                         fontSize={1}
                         mode="bleed"
-                        onClick={() => setContentGapsResult({status: 'idle'})}
+                        onClick={() => contentGapsRead.reset()}
                         padding={2}
                         style={{marginRight: -8, marginTop: -6}}
                         text={t('contentGaps.dismiss')}
@@ -1571,7 +1535,7 @@ export function Inbox({
                       <Button
                         fontSize={1}
                         mode="bleed"
-                        onClick={() => setContentGapsResult({status: 'idle'})}
+                        onClick={() => contentGapsRead.reset()}
                         padding={2}
                         style={{marginRight: -8, marginTop: -6}}
                         text={t('contentGaps.dismiss')}
@@ -1588,7 +1552,7 @@ export function Inbox({
                         <Button
                           fontSize={1}
                           mode="bleed"
-                          onClick={() => setContentGapsResult({status: 'idle'})}
+                          onClick={() => contentGapsRead.reset()}
                           padding={2}
                           style={{marginRight: -8, marginTop: -6}}
                           text={t('contentGaps.dismissAll')}
@@ -1828,6 +1792,7 @@ export function Inbox({
           key={source.name}
           now={now}
           onReport={handleReport}
+          resetKey={sourceRetryKeys[source.name]}
           snoozes={snoozes}
           source={source}
         />
@@ -1862,6 +1827,7 @@ export function Inbox({
                   getProjectDigest={getProjectDigest}
                   maxHeight={isStacked ? undefined : sidebarHeight}
                   onAskResultChange={setAskResult}
+                  onRetrySource={retrySource}
                   order={mainOrder}
                   reports={reports}
                   results={hasMainColumnResults ? mainColumnResults : undefined}

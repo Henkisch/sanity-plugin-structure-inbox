@@ -39,6 +39,19 @@ export function sameReport(a: SourceReport | undefined, b: SourceReport): boolea
   return true
 }
 
+/**
+ * Every field of `InboxSourceResult` that is a *capability* — i.e. everything
+ * except the data (`items`) and the load state (`loading`/`error`).
+ *
+ * This union exists so that forgetting to wire a new capability is a
+ * `npm run typecheck` failure instead of a silent dead click. It has happened
+ * four times (`proposeFix`, `assigneeReadOnly`, `openDetail`, `reopen` — the
+ * last of which made "Mark as not done" inert for a whole release), because
+ * every capability on `InboxSourceResult` is optional, so TypeScript accepts a
+ * report with any subset of them present.
+ */
+type CapabilityKey = keyof Omit<InboxSourceResult, 'items' | 'loading' | 'error'>
+
 interface SourceFeedProps {
   source: InboxSource
   snoozes: Snoozes
@@ -117,7 +130,7 @@ export function SourceFeed(props: SourceFeedProps) {
   // holds the actual functions, updated in their own effect that (being
   // declared first) always runs before this one in the same commit, so a
   // firing report always reads the latest ones.
-  const capabilities = useRef({
+  const capabilities = useRef<{[K in CapabilityKey]: InboxSourceResult[K]}>({
     resolve,
     reopen,
     create,

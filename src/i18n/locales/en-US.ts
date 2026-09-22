@@ -59,6 +59,7 @@ const enUS = {
   'filter.type': 'Type',
   'source.loading': 'Loading…',
   'source.error.title': 'This section could not load',
+  'source.error.retry': 'Try again',
 
   // Default titles for the built-in sources — only ever used when an
   // integrator has not passed their own `title` option. See Plan 040.

@@ -1,16 +1,14 @@
 import {type SanityClient} from '@sanity/client'
 
 /**
- * Finds the first balanced `{...}` or `[...]` in `raw` and returns that
- * substring, or `null` if none closes. Tracks string literals (with escape
- * handling) so a `}` inside a JSON string value never prematurely ends the
- * match — a naive last-brace search would get this wrong the moment a
- * string value itself contains one.
+ * Finds the balanced `{...}` or `[...]` that opens at `start` (which must be
+ * the index of a `{` or `[`) and returns that substring, or `null` if it
+ * never closes. Tracks string literals (with escape handling) so a `}`
+ * inside a JSON string value never prematurely ends the match — a naive
+ * last-brace search would get this wrong the moment a string value itself
+ * contains one.
  */
-function extractBalanced(raw: string): string | null {
-  const start = raw.search(/[{[]/)
-  if (start === -1) return null
-
+function extractBalanced(raw: string, start: number): string | null {
   const open = raw[start]
   const close = open === '{' ? '}' : ']'
   let depth = 0
@@ -41,6 +39,15 @@ function extractBalanced(raw: string): string | null {
 }
 
 /**
+ * Candidates tried before giving up. Every candidate re-slices and re-scans
+ * `raw`, so a pathological answer with many stray braces before the real
+ * payload would make this quadratic in the number of braces; a model answer
+ * needing more than this many attempts to find its payload is not a case
+ * worth optimising for, so scanning stops here and returns `null`.
+ */
+const MAX_JSON_CANDIDATES = 20
+
+/**
  * Pulls a JSON value out of a model's answer.
  *
  * Models wrap JSON in ```json fences, prefix it with a sentence, or return
@@ -49,21 +56,42 @@ function extractBalanced(raw: string): string | null {
  * `null` rather than a throw: a malformed answer costs one row's optional
  * extra, never the row.
  *
- * Extracts the outermost balanced `{...}` or `[...]` rather than parsing the
- * whole string, so a leading "Here you go:" or a trailing code fence does not
- * defeat it.
+ * Tries every `{`/`[` in `raw`, in order, extracting the balanced slice that
+ * opens there and attempting `JSON.parse` on it, until one succeeds or the
+ * candidates run out — so a leading "Here you go:", a trailing code fence,
+ * or a decoy brace in a sentence that *names* the JSON's keys before the
+ * real payload arrives ("...with the keys {id, label, reason}: {…}") does
+ * not defeat it. The first candidate that parses wins; later candidates are
+ * never preferred over an earlier one that already parsed. Gives up after
+ * `MAX_JSON_CANDIDATES` attempts.
  */
 // eslint-disable-next-line no-unnecessary-type-parameters -- `T` is the caller's own expected shape for the parsed value; there is nothing else in this function's own signature it could be inferred from, the same as `JSON.parse`'s own generic callers already expect to supply it explicitly.
 export function parseJsonResponse<T>(raw: string): T | null {
-  const candidate = extractBalanced(raw)
-  if (candidate === null) return null
+  let from = 0
 
-  try {
-    // eslint-disable-next-line no-unsafe-type-assertion -- `JSON.parse` returns `any` by construction; `T` is the caller's own asserted shape for whatever the model answered with, which nothing here can verify beyond "it parsed as JSON."
-    return JSON.parse(candidate) as T
-  } catch {
-    return null
+  // Bounded twice over: `attempt` is capped at `MAX_JSON_CANDIDATES` by the
+  // loop header itself, and within the body `from` strictly increases every
+  // iteration (`at` is always `>= from`, and the next `from` is `at + 1`), so
+  // this also terminates on `raw.length` alone even without the cap.
+  for (let attempt = 0; attempt < MAX_JSON_CANDIDATES; attempt += 1) {
+    const offset = raw.slice(from).search(/[{[]/)
+    if (offset === -1) return null
+
+    const at = from + offset
+    const candidate = extractBalanced(raw, at)
+    if (candidate !== null) {
+      try {
+        // eslint-disable-next-line no-unsafe-type-assertion -- `JSON.parse` returns `any` by construction; `T` is the caller's own asserted shape for whatever the model answered with, which nothing here can verify beyond "it parsed as JSON."
+        return JSON.parse(candidate) as T
+      } catch {
+        // Not valid JSON — fall through to the next candidate.
+      }
+    }
+
+    from = at + 1
   }
+
+  return null
 }
 
 /**

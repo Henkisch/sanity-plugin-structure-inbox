@@ -43,6 +43,42 @@ describe('parseSnoozes', () => {
 
     expect(Object.keys(parsed.snoozed)).toEqual(['good'])
   })
+
+  it('parses a stored value with no `removed` field — the shape every document written before tombstones existed has', () => {
+    const stored = {
+      version: 1,
+      snoozed: {drafts: {'doc-1': {at: '2026-01-01T00:00:00.000Z', until: '2026-01-02T00:00:00.000Z'}}},
+    }
+
+    const parsed = parseSnoozes(stored)
+
+    expect(parsed).toEqual(stored)
+    expect(parsed.removed).toBeUndefined()
+  })
+
+  it('drops individual removed sources that are the wrong shape, keeping snoozed intact', () => {
+    const parsed = parseSnoozes({
+      version: 1,
+      snoozed: {good: {'item-1': {at: '2026-01-01T00:00:00.000Z', until: '2026-01-02T00:00:00.000Z'}}},
+      removed: {good: {'item-2': 'not-an-entry'}},
+    })
+
+    expect(parsed.removed).toBeUndefined()
+  })
+
+  it('round-trips a tombstone', () => {
+    const stored = withoutSnooze(
+      withSnooze(EMPTY_SNOOZES, 'tasks', 'task-1', '2026-02-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
+      'tasks',
+      'task-1',
+      '2026-01-15T00:00:00.000Z',
+    )
+
+    expect(parseSnoozes(stored)).toEqual(stored)
+    expect(stored.removed).toEqual({
+      tasks: {'task-1': {at: '2026-01-15T00:00:00.000Z', until: '2026-02-01T00:00:00.000Z'}},
+    })
+  })
 })
 
 describe('pruneSnoozes', () => {
@@ -71,6 +107,29 @@ describe('pruneSnoozes', () => {
     const state = withSnooze(EMPTY_SNOOZES, 'drafts', 'broken', 'not a date')
 
     expect(pruneSnoozes(state, now).snoozed).toEqual({})
+  })
+
+  it('prunes tombstones once their carried `until` has passed — the same rule as entries, not a second policy', () => {
+    const state = withoutSnooze(
+      withSnooze(EMPTY_SNOOZES, 'drafts', 'past', '2026-05-01T00:00:00.000Z'),
+      'drafts',
+      'past',
+    )
+    const stateWithFutureToo = withoutSnooze(
+      withSnooze(state, 'drafts', 'future', '2026-07-01T00:00:00.000Z'),
+      'drafts',
+      'future',
+    )
+
+    expect(pruneSnoozes(stateWithFutureToo, now).removed).toEqual({
+      drafts: {future: expect.objectContaining({until: '2026-07-01T00:00:00.000Z'})},
+    })
+  })
+
+  it('drops the `removed` field entirely once every tombstone has expired', () => {
+    const state = withoutSnooze(withSnooze(EMPTY_SNOOZES, 'drafts', 'old', '2026-01-01T00:00:00.000Z'), 'drafts', 'old')
+
+    expect(pruneSnoozes(state, now).removed).toBeUndefined()
   })
 })
 
@@ -180,5 +239,95 @@ describe('mergeSnoozes', () => {
 
     expect(mergeSnoozes(EMPTY_SNOOZES, state)).toEqual(state)
     expect(mergeSnoozes(state, EMPTY_SNOOZES)).toEqual(state)
+  })
+
+  describe('tombstones', () => {
+    it('the regression: a key woken locally stays awake after merging a server value that still has it snoozed', () => {
+      const server = withSnooze(
+        EMPTY_SNOOZES,
+        'drafts',
+        'doc-1',
+        '2026-06-01T00:00:00.000Z',
+        '2026-01-01T00:00:00.000Z',
+      )
+      const local = withoutSnooze(server, 'drafts', 'doc-1', '2026-01-02T00:00:00.000Z')
+
+      const merged = mergeSnoozes(server, local)
+
+      expect(merged.snoozed.drafts?.['doc-1']).toBeUndefined()
+    })
+
+    it('the inverse still works: a key the local side has never seen is adopted from the server', () => {
+      const server = withSnooze(
+        EMPTY_SNOOZES,
+        'drafts',
+        'doc-1',
+        '2026-06-01T00:00:00.000Z',
+        '2026-01-01T00:00:00.000Z',
+      )
+
+      const merged = mergeSnoozes(server, EMPTY_SNOOZES)
+
+      expect(merged.snoozed.drafts?.['doc-1']).toEqual({
+        at: '2026-01-01T00:00:00.000Z',
+        until: '2026-06-01T00:00:00.000Z',
+      })
+    })
+
+    it('a tombstone older than a server entry loses, because the entry was re-snoozed after the wake', () => {
+      const wokenEarly = withoutSnooze(
+        withSnooze(
+          EMPTY_SNOOZES,
+          'drafts',
+          'doc-1',
+          '2026-06-01T00:00:00.000Z',
+          '2026-01-01T00:00:00.000Z',
+        ),
+        'drafts',
+        'doc-1',
+        '2026-01-02T00:00:00.000Z',
+      )
+      const reSnoozedLater = withSnooze(
+        EMPTY_SNOOZES,
+        'drafts',
+        'doc-1',
+        '2026-07-01T00:00:00.000Z',
+        '2026-01-03T00:00:00.000Z',
+      )
+
+      const merged = mergeSnoozes(wokenEarly, reSnoozedLater)
+
+      expect(merged.snoozed.drafts?.['doc-1']).toEqual({
+        at: '2026-01-03T00:00:00.000Z',
+        until: '2026-07-01T00:00:00.000Z',
+      })
+      expect(merged.removed?.drafts?.['doc-1']).toBeUndefined()
+    })
+
+    it('a tombstone newer than a server entry wins, keeping the item awake', () => {
+      const snoozedEarly = withSnooze(
+        EMPTY_SNOOZES,
+        'drafts',
+        'doc-1',
+        '2026-06-01T00:00:00.000Z',
+        '2026-01-01T00:00:00.000Z',
+      )
+      const wokenLater = withoutSnooze(snoozedEarly, 'drafts', 'doc-1', '2026-01-02T00:00:00.000Z')
+
+      const merged = mergeSnoozes(snoozedEarly, wokenLater)
+
+      expect(merged.snoozed.drafts?.['doc-1']).toBeUndefined()
+      expect(merged.removed?.drafts?.['doc-1']).toEqual({
+        at: '2026-01-02T00:00:00.000Z',
+        until: '2026-06-01T00:00:00.000Z',
+      })
+    })
+
+    it('omits `removed` entirely when nothing is tombstoned', () => {
+      const a = withSnooze(EMPTY_SNOOZES, 'drafts', 'doc-1', '2026-06-01', '2026-01-01T00:00:00.000Z')
+      const b = withSnooze(EMPTY_SNOOZES, 'releases', 'rel-1', '2026-06-02', '2026-01-02T00:00:00.000Z')
+
+      expect(mergeSnoozes(a, b).removed).toBeUndefined()
+    })
   })
 })

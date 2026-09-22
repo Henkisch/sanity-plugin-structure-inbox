@@ -25,6 +25,7 @@ import {
 } from './SelectionActions'
 import {type SourceReport} from './SourceFeed'
 import {type InboxItem, type InboxView} from './types'
+import {useAiRead} from './useAiRead'
 import {EXIT_ANIMATION_MS, useUndoToast} from './useUndoToast'
 import {mapWithConcurrency} from './concurrency'
 
@@ -158,6 +159,17 @@ interface MergedListProps {
    * @defaultValue true
    */
   scrollable?: boolean
+  /**
+   * Bumps that source's shared reset counter (`SharedInboxStore.retrySource`
+   * in `inboxCountLayout.tsx`) when the editor clicks "Try again" on one of
+   * `errors` below. `Inbox.tsx` passes this straight through from
+   * `useSharedInboxStore()` and also feeds the same counter into
+   * `BoundedSourceFeed`'s `resetKey` — one click remounts both this pane's
+   * feed for that source and, if it's mounted, the always-mounted count
+   * provider's own feed for it. Optional only for `MergedList.test.tsx`'s
+   * source-less renders; a real caller always passes one.
+   */
+  onRetrySource?: (sourceName: string) => void
 }
 
 /**
@@ -192,6 +204,7 @@ export function MergedList(props: MergedListProps) {
     scrollable = true,
     actions,
     results,
+    onRetrySource,
   } = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
@@ -522,7 +535,17 @@ export function MergedList(props: MergedListProps) {
     [showUndoToast],
   )
 
+  // `busy` drives the disabled state; this ref is what actually closes the
+  // race. Two clicks landing in the same React batch both read the
+  // pre-commit `busy === false`, so a state check alone lets both run the
+  // whole batch — which for this action means every selected row's fix
+  // applied twice, to real shared documents. See `useAiRead.ts`'s own
+  // doc comment for the general in-flight-ref-vs-state reasoning.
+  const quickFixInFlightRef = useRef(false)
+
   const confirmQuickFix = useCallback(async () => {
+    if (quickFixInFlightRef.current) return
+    quickFixInFlightRef.current = true
     const targets = quickFixableTargets
     setBusy(true)
     try {
@@ -555,6 +578,7 @@ export function MergedList(props: MergedListProps) {
       if (needsReviewCount > 0) parts.push(t('fix.bulkSkipped', {count: needsReviewCount}))
       showUndoToast({title: parts.join(' · ')})
     } finally {
+      quickFixInFlightRef.current = false
       setBusy(false)
     }
   }, [needsReviewCount, quickFixableTargets, reports, showUndoToast, t])
@@ -660,8 +684,31 @@ export function MergedList(props: MergedListProps) {
     ? reports[singleSelectedRow.sourceName]?.suggestSnooze
     : undefined
 
-  const [snoozeSuggestion, setSnoozeSuggestion] = useState<SnoozeSuggestionState>({status: 'idle'})
-  const snoozeSuggestionRequestRef = useRef(0)
+  // The AI genuinely finding no date to suggest is a real, non-error
+  // outcome (`SnoozeSuggestionState`'s own `'none'` status below) — distinct
+  // from `useAiRead`'s own `null`-means-`'error'` convention (see its doc
+  // comment), so a resolved "nothing to suggest" is encoded inside `T`
+  // (`found: false`) instead of as `null`, and mapped to `'none'` only in
+  // the `snoozeSuggestion` derivation just below.
+  const runSuggestSnooze = useCallback(async (): Promise<
+    {found: true; until: string; reason?: string} | {found: false} | null
+  > => {
+    // Belt-and-suspenders against a direct call some other code path might
+    // make: `handleSuggestSnooze` below already guards on the same
+    // condition before ever calling `start()`.
+    if (!suggestSnoozeForRow || !singleSelectedRow) return null
+    const result = await suggestSnoozeForRow(singleSelectedRow.item)
+    return result ? {found: true, ...result} : {found: false}
+  }, [suggestSnoozeForRow, singleSelectedRow])
+
+  const snoozeSuggestionRead = useAiRead(runSuggestSnooze, 'suggest-snooze failed')
+
+  const snoozeSuggestion: SnoozeSuggestionState =
+    snoozeSuggestionRead.state.status === 'done'
+      ? snoozeSuggestionRead.state.data.found
+        ? {status: 'done', until: snoozeSuggestionRead.state.data.until, reason: snoozeSuggestionRead.state.data.reason}
+        : {status: 'none'}
+      : snoozeSuggestionRead.state
 
   // Reset to idle whenever the single-selected row changes, so a stale
   // suggestion from a previous row never lingers under a new one — same
@@ -670,7 +717,8 @@ export function MergedList(props: MergedListProps) {
   // that only ever happens from `handleSuggestSnooze`, below, on an explicit
   // click.
   useEffect(() => {
-    setSnoozeSuggestion({status: 'idle'})
+    snoozeSuggestionRead.reset()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `snoozeSuggestionRead.reset` is referentially stable; `snoozeSuggestionRead` itself is not.
   }, [singleSelectedRow?.key])
 
   // The one place `suggestSnooze` is ever actually called — an explicit
@@ -680,19 +728,8 @@ export function MergedList(props: MergedListProps) {
   // this file, this must never fire on its own.
   const handleSuggestSnooze = useCallback(() => {
     if (!suggestSnoozeForRow || !singleSelectedRow) return
-    const requestId = ++snoozeSuggestionRequestRef.current
-    setSnoozeSuggestion({status: 'loading'})
-
-    suggestSnoozeForRow(singleSelectedRow.item)
-      .then((result) => {
-        if (requestId !== snoozeSuggestionRequestRef.current) return undefined
-        setSnoozeSuggestion(result ? {status: 'done', ...result} : {status: 'none'})
-        return undefined
-      })
-      .catch((error: unknown) => {
-        console.error('[sanity-plugin-structure-inbox] suggest-snooze failed', error)
-        if (requestId === snoozeSuggestionRequestRef.current) setSnoozeSuggestion({status: 'error'})
-      })
+    snoozeSuggestionRead.start()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `snoozeSuggestionRead.start` is referentially stable; `snoozeSuggestionRead` itself is not.
   }, [suggestSnoozeForRow, singleSelectedRow])
 
   // The trigger and its resolved state are only ever meaningful together —
@@ -995,9 +1032,28 @@ export function MergedList(props: MergedListProps) {
     <Stack gap={3}>
       {errors.map((report) => (
         <Card key={report.source.name} padding={3} radius={2} tone="critical">
-          <Text size={1}>
-            {t(report.source.title)}: {report.error?.message ?? t('source.error.title')}
-          </Text>
+          <Flex align="center" gap={3} justify="space-between">
+            <Text size={1}>
+              {t(report.source.title)}: {report.error?.message ?? t('source.error.title')}
+            </Text>
+            {onRetrySource && (
+              // Ghost mode, same reasoning as `SectionCard`'s own retry
+              // button: recovering from an error is not the primary thing on
+              // this pane. `BoundedSourceFeed`'s boundary (in `Inbox.tsx`)
+              // has its own bounded budget (`SectionErrorBoundary.MAX_RESETS`)
+              // independent of this button staying visible — a spent budget
+              // just means the next click remounts nothing, not that this
+              // control disappears (unlike `SectionCard`'s, this one has no
+              // per-click signal of the boundary's own remaining budget,
+              // since the boundary lives one layer up in `Inbox.tsx`).
+              <Button
+                fontSize={1}
+                mode="ghost"
+                onClick={() => onRetrySource(report.source.name)}
+                text={t('source.error.retry')}
+              />
+            )}
+          </Flex>
         </Card>
       ))}
 

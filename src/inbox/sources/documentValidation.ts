@@ -14,9 +14,10 @@ import {catchError, map, startWith} from 'rxjs/operators'
 import {useClient, useCurrentUser, useSchema} from 'sanity'
 
 import {API_VERSION} from '../../constants'
+import {mapWithConcurrency} from '../concurrency'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
-import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
-import {optionalExport, useAssignableUsers} from './capability'
+import {targetIdFromIntentParamsId, useAssignmentCapability} from './assignmentCapability'
+import {optionalExport} from './capability'
 import {liveQuery$} from './liveQuery'
 
 /**
@@ -192,33 +193,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: T): Promise<
   })
 }
 
-/**
- * Runs `mapper` over `items` with at most `concurrency` in flight at once —
- * a bad custom validator on one document (an arbitrary async `rule.custom`)
- * should slow this down, never let an unbounded `Promise.all` pile up every
- * document's own validation at once. Exported for its own test.
- */
-export async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  mapper: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = Array.from({length: items.length})
-  let next = 0
-
-  async function worker(): Promise<void> {
-    while (next < items.length) {
-      const index = next
-      next += 1
-      // eslint-disable-next-line no-await-in-loop -- the whole point of a worker: process its own share one at a time, sequentially; concurrency comes from running `concurrency` workers in parallel, not from overlapping awaits within one.
-      results[index] = await mapper(items[index])
-    }
-  }
-
-  await Promise.all(Array.from({length: Math.min(concurrency, items.length)}, worker))
-  return results
-}
-
 export interface DocumentValidationOptions {
   /** Candidate drafts fetched, not rows necessarily shown. Defaults to 20. */
   limit?: number
@@ -239,70 +213,154 @@ interface DraftsFetch {
   error?: Error
 }
 
+/** What one validation pass over a `drafts` batch produced — see `runValidation`. */
+interface ValidationRun {
+  results: Map<string, ValidateDocumentResult>
+  error?: Error
+}
+
+/** The empty, no-error state `useValidationResults` starts from and resets to. Module-scope, not built inline — see this file's own `AGENTS.md` rule: a `useItems` fallback whose identity changes every render is a render every render. */
+const EMPTY_VALIDATION_RUN: ValidationRun = {results: new Map()}
+
 /**
- * Runs `validateDocument` over `drafts` whenever the batch changes,
- * bounded-concurrency and per-document timeout, into a
- * `Map<draftId, ValidateDocumentResult>`. A validation run superseded by a
- * newer `drafts` batch (the previous effect's own cleanup sets `cancelled`)
- * simply never applies its result — there is nothing partial to unwind, the
- * same "let it finish, ignore it" posture already used elsewhere in this
- * codebase for a stale in-flight suggestion.
+ * The actual prefetch-then-validate work for one `drafts` batch, pulled out
+ * as a plain async function — not only a hook's effect body — so it can be
+ * exercised directly in a test with a stub client, the same reasoning
+ * `openTasks.test.ts`'s `dueSubtitleKey` comment gives for why this file's
+ * own tests avoid rendering `useItems()`.
+ *
+ * Both awaits that can fail — the reference-existence prefetch and the
+ * `mapWithConcurrency` validation pass — are individually caught below, so a
+ * caller (the hook below) never has an unhandled rejection to worry about,
+ * and a failure never has to look like `{results: new Map(), error:
+ * undefined}` — the same shape a confident "nothing wrong" result has.
+ */
+export async function runValidation(
+  client: SanityClient,
+  schema: ReturnType<typeof useSchema>,
+  currentUser: ReturnType<typeof useCurrentUser>,
+  drafts: Record<string, unknown>[],
+): Promise<ValidationRun> {
+  const referenceIds = new Set<string>()
+  for (const draft of drafts) collectReferenceIds(draft, referenceIds)
+
+  // `existingIds` is `null` — an explicit "unproven" sentinel, never an
+  // empty `Set` — when the prefetch itself fails. An empty `Set` would read
+  // every reference as "does not exist" and invent validation errors on
+  // documents that are actually fine; `null` instead tells
+  // `validateDocument` below "we cannot answer" and lets every non-reference
+  // rule still evaluate, the same posture `notEvaluated` already encodes
+  // above at `ValidateDocumentResult['status']`.
+  let existingIds: Set<string> | null
+  try {
+    existingIds =
+      referenceIds.size > 0
+        ? new Set(
+            await client.fetch<string[]>('*[_id in $ids]._id', {
+              ids: Array.from(referenceIds),
+            }),
+          )
+        : new Set<string>()
+  } catch (error: unknown) {
+    console.error('[sanity-plugin-structure-inbox] could not prefetch reference existence', error)
+    existingIds = null
+  }
+
+  // A new `const` rather than reusing the `let` above: TypeScript cannot
+  // carry a `let`'s narrowing into the closure passed to `mapWithConcurrency`
+  // below, since it could theoretically be reassigned before the closure
+  // runs. Capturing it here makes the "is it proven?" check explicit at each
+  // call, not just at the point of assignment.
+  const referenceExistence = existingIds
+
+  try {
+    const validated = await mapWithConcurrency(drafts, 5, async (draft) => {
+      const result = await withTimeout(
+        validateDocument({
+          document: draft,
+          schema,
+          client,
+          currentUser: currentUser ?? undefined,
+          // `undefined` here is not "skip reference rules": `@sanity/validation`'s
+          // own typings document that omitting `getDocumentExists` falls back to
+          // its own per-reference `doc` endpoint calls. Slower than our batched
+          // prefetch, but still a real answer — reference rules keep evaluating,
+          // just without the optimization, when the prefetch itself failed.
+          getDocumentExists: referenceExistence
+            ? ({id}) => Promise.resolve(referenceExistence.has(id))
+            : undefined,
+        }),
+        TIMEOUT_MS,
+        {status: 'notEvaluated' as const, markers: []},
+      )
+      return [String(draft._id), result] as const
+    })
+
+    return {results: new Map(validated)}
+  } catch (error: unknown) {
+    // `mapWithConcurrency` rejects as soon as any mapper rejects. The common
+    // case (a thrown or hanging `validateDocument`) is already absorbed by
+    // `withTimeout` above, but a synchronous throw while constructing the
+    // call (before `withTimeout` ever sees a promise) would still surface
+    // here — this catch is what covers that case too.
+    console.error('[sanity-plugin-structure-inbox] validation run failed', error)
+    return {results: new Map(), error: error instanceof Error ? error : new Error(String(error))}
+  }
+}
+
+/**
+ * Runs `runValidation` over `drafts` whenever the batch changes, into a
+ * `Map<draftId, ValidateDocumentResult>` plus whatever error the run itself
+ * hit. A validation run superseded by a newer `drafts` batch (the previous
+ * effect's own cleanup sets `cancelled`) simply never applies its result —
+ * there is nothing partial to unwind, the same "let it finish, ignore it"
+ * posture already used elsewhere in this codebase for a stale in-flight
+ * suggestion.
  */
 function useValidationResults(
   client: SanityClient,
   schema: ReturnType<typeof useSchema>,
   currentUser: ReturnType<typeof useCurrentUser>,
   drafts: Record<string, unknown>[],
-): Map<string, ValidateDocumentResult> {
-  const [results, setResults] = useState<Map<string, ValidateDocumentResult>>(new Map())
+): ValidationRun {
+  const [validationRun, setValidationRun] = useState<ValidationRun>(EMPTY_VALIDATION_RUN)
 
   useEffect(() => {
     if (drafts.length === 0) {
-      setResults(new Map())
+      setValidationRun(EMPTY_VALIDATION_RUN)
       return undefined
     }
 
     let cancelled = false
 
-    const referenceIds = new Set<string>()
-    for (const draft of drafts) collectReferenceIds(draft, referenceIds)
-
     async function run(): Promise<void> {
-      const existingIds =
-        referenceIds.size > 0
-          ? new Set(
-              await client.fetch<string[]>('*[_id in $ids]._id', {
-                ids: Array.from(referenceIds),
-              }),
-            )
-          : new Set<string>()
-
-      const validated = await mapWithConcurrency(drafts, 5, async (draft) => {
-        const result = await withTimeout(
-          validateDocument({
-            document: draft,
-            schema,
-            client,
-            currentUser: currentUser ?? undefined,
-            getDocumentExists: ({id}) => Promise.resolve(existingIds.has(id)),
-          }),
-          TIMEOUT_MS,
-          {status: 'notEvaluated' as const, markers: []},
-        )
-        return [String(draft._id), result] as const
-      })
-
-      if (!cancelled) setResults(new Map(validated))
+      const next = await runValidation(client, schema, currentUser, drafts)
+      if (!cancelled) setValidationRun(next)
     }
 
-    void run()
+    // `runValidation` itself never rejects — every failure it can reach
+    // (the prefetch, the validation pass) is already turned into a
+    // `ValidationRun` with its own `error` field. This `.catch` is the last
+    // line of defense against something unanticipated slipping through
+    // uncaught, so a bug here still cannot regress to the confident-empty
+    // state this plan exists to prevent: it surfaces as an error too.
+    void run().catch((error: unknown) => {
+      console.error('[sanity-plugin-structure-inbox] validation run failed', error)
+      if (!cancelled) {
+        setValidationRun({
+          results: new Map(),
+          error: error instanceof Error ? error : new Error(String(error)),
+        })
+      }
+    })
+
     return () => {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `client`/`schema`/`currentUser` are stable for this pane's lifetime; only a real change in `drafts` should re-run validation.
   }, [drafts])
 
-  return results
+  return validationRun
 }
 
 /**
@@ -349,42 +407,40 @@ export function documentValidation(options: DocumentValidationOptions = {}): Inb
       const client = useClient({apiVersion: API_VERSION})
       const schema = useSchema()
       const currentUser = useCurrentUser()
-      const userId = currentUser?.id
       // `null` documentValue, same reasoning `unpublishedDrafts.ts` gives:
-      // not scoped to one draft, since any of them could be assigned.
-      const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
-      // Same shared assignment record `unpublishedDrafts.ts` writes through
-      // — these rows are the identical draft documents, just filtered to
-      // ones currently failing validation, so "who's on this draft" has to
-      // be the same fact regardless of which view surfaces it.
-      const assignments = useAssignmentStore(client, ASSIGNMENT_TYPE)
-
-      const assigneesById = useMemo(() => {
-        const byId = new Map<string, {id: string; label: string; imageUrl?: string}>()
-        for (const user of assignable ?? []) {
-          const isSelf = user.id === userId
-          byId.set(user.id, {
-            id: user.id,
-            label: user.displayName || user.email || user.id,
-            imageUrl: (isSelf && currentUser?.profileImage) || user.imageUrl,
-          })
-        }
-        return byId
-      }, [assignable, userId, currentUser])
+      // not scoped to one draft, since any of them could be assigned. Same
+      // shared assignment record `unpublishedDrafts.ts` writes through —
+      // these rows are the identical draft documents, just filtered to ones
+      // currently failing validation, so "who's on this draft" has to be the
+      // same fact regardless of which view surfaces it. `item.intent.params.id`
+      // (the canonical, unprefixed draft id), not `item.id` (which carries the
+      // `drafts.` prefix) — see `assignmentCapability.ts`'s own doc comment
+      // on `targetIdFromIntentParamsId`.
+      const {assigneesById, byTarget, assign} = useAssignmentCapability(client, {
+        targetId: targetIdFromIntentParamsId,
+      })
 
       const fetch$ = useMemo(() => {
         const params = {limit, types: types ?? null}
-        const readDrafts$ = defer(() => from(client.fetch<Record<string, unknown>[]>(QUERY, params)))
-
-        return liveQuery$(client, '*[_id in path("drafts.**")]', {}, readDrafts$).pipe(
+        // The `map` to `DraftsFetch` now lives inside `readDrafts$` itself,
+        // not after `liveQuery$` — so `onFetchError`'s empty result and a
+        // successful fetch's mapped result are the same shape by the time
+        // either reaches `startWith`/`catchError` below.
+        const readDrafts$ = defer(() => from(client.fetch<Record<string, unknown>[]>(QUERY, params))).pipe(
           map((drafts): DraftsFetch => ({drafts})),
+        )
+
+        return liveQuery$(client, '*[_id in path("drafts.**")]', {}, readDrafts$, (error) => ({
+          drafts: [],
+          error,
+        })).pipe(
           startWith<DraftsFetch>({drafts: [], loading: true}),
           catchError((error: Error) => of<DraftsFetch>({drafts: [], error})),
         )
       }, [client])
 
-      const {drafts, loading, error} = useObservable(fetch$, {drafts: [], loading: true})
-      const results = useValidationResults(client, schema, currentUser, drafts)
+      const {drafts, loading, error: draftsError} = useObservable(fetch$, {drafts: [], loading: true})
+      const {results, error: validationError} = useValidationResults(client, schema, currentUser, drafts)
 
       const items = useMemo(() => {
         const rows: InboxItem[] = []
@@ -398,7 +454,7 @@ export function documentValidation(options: DocumentValidationOptions = {}): Inb
 
           const canonicalId = meta.id.replace(/^drafts\./, '')
           const focusPath = firstErrorPath(result)
-          const assignedTo = assignments.byTarget.get(canonicalId)
+          const assignedTo = byTarget.get(canonicalId)
           const assignee = assignedTo ? assigneesById.get(assignedTo) : undefined
 
           const row: InboxItem = {
@@ -420,27 +476,9 @@ export function documentValidation(options: DocumentValidationOptions = {}): Inb
           rows.push(assignee ? {...row, assignee} : row)
         }
         return rows
-      }, [drafts, results, assignments.byTarget, assigneesById])
+      }, [drafts, results, byTarget, assigneesById])
 
-      const assign = useMemo(() => {
-        if (!assignable) return undefined
-
-        return {
-          users: assignable
-            .filter((user) => user.granted)
-            .map((user) => ({id: user.id, label: user.displayName || user.email || user.id})),
-          toUser: async (item: InboxItem, assignedTo: string) => {
-            const targetId = item.intent?.params.id
-            if (targetId) await assignments.assign(targetId, assignedTo)
-          },
-          unassign: async (item: InboxItem) => {
-            const targetId = item.intent?.params.id
-            if (targetId) await assignments.unassign(targetId)
-          },
-        }
-      }, [assignable, assignments])
-
-      return {items, loading, error, assign}
+      return {items, loading, error: draftsError ?? validationError, assign}
     },
   }
 }

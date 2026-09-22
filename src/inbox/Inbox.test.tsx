@@ -78,6 +78,8 @@ vi.mock('../studio/inboxCountLayout', () => ({
   useSharedInboxStore: () => ({
     dismissals: {state: EMPTY_DISMISSALS, dismiss: vi.fn(), restore: vi.fn()},
     snoozes: {state: EMPTY_SNOOZES, snooze: vi.fn(), wake: vi.fn()},
+    sourceRetryKeys: {},
+    retrySource: vi.fn(),
   }),
 }))
 
@@ -193,6 +195,7 @@ describe('BoundedSection', () => {
 function renderFeeds(
   sources: InboxSource[],
   onReport: (name: string, report: SourceReport) => void,
+  resetKey?: unknown,
 ) {
   return render(
     <ThemeProvider theme={theme}>
@@ -201,6 +204,7 @@ function renderFeeds(
           key={source.name}
           now={Date.now()}
           onReport={onReport}
+          resetKey={resetKey}
           snoozes={snoozes}
           source={source}
         />
@@ -227,6 +231,59 @@ describe('BoundedSourceFeed', () => {
     expect(onReport).toHaveBeenCalledWith(
       'good',
       expect.objectContaining({open: [], cleared: [], snoozed: []}),
+    )
+  })
+
+  it('a source that throws once then recovers contributes rows again once resetKey changes', () => {
+    // The boundary logs the caught error via console.error; expected noise.
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    // Mutable, not a fresh source per render: this is exactly the "dropped
+    // listener, one 5xx" shape the plan is about — the same source keeps
+    // failing only until whatever caused it clears, then a remount of the
+    // very same `useItems` succeeds.
+    let shouldThrow = true
+    const flaky: InboxSource = {
+      name: 'flaky',
+      title: 'Flaky',
+      useItems: () => {
+        if (shouldThrow) throw new Error('flaky blew up')
+        return {items: [{id: 'f1', title: 'Recovered item'}]}
+      },
+    }
+
+    const onReport = vi.fn()
+    const {rerender} = renderFeeds([flaky], onReport, 0)
+
+    expect(onReport).toHaveBeenCalledWith(
+      'flaky',
+      expect.objectContaining({error: expect.any(Error)}),
+    )
+
+    onReport.mockClear()
+    shouldThrow = false
+
+    // The pane's own retry click bumps this shared counter (see
+    // `Inbox.tsx`'s `resetKey={sourceRetryKeys[source.name]}`) — simulated
+    // here by rerendering with a new value.
+    rerender(
+      <ThemeProvider theme={theme}>
+        <BoundedSourceFeed
+          key="flaky"
+          now={Date.now()}
+          onReport={onReport}
+          resetKey={1}
+          snoozes={snoozes}
+          source={flaky}
+        />
+      </ThemeProvider>,
+    )
+
+    expect(onReport).toHaveBeenCalledWith(
+      'flaky',
+      expect.objectContaining({
+        open: [expect.objectContaining({id: 'f1', title: 'Recovered item'})],
+      }),
     )
   })
 })
@@ -472,5 +529,92 @@ describe('Inbox source stability', () => {
     renderWithTheme(<Inbox sources={[churning]} />)
 
     expect(screen.getByText('An unanswered enquiry')).toBeTruthy()
+  })
+})
+
+describe('Inbox runSourceAction', () => {
+  // The `action` object is built once, outside `useItems`, and referenced by
+  // closure rather than recreated per call — same reasoning as `TODOS_ITEMS`/
+  // `TODOS_CREATE` above: a fresh object every render would make `sameReport`
+  // (`SourceFeed.tsx`) see a "new" report on every pass and re-fire `onReport`
+  // forever, the exact "Maximum update depth exceeded" class of bug this
+  // repo's own doctrine warns about, not the thing this test means to cover.
+  function actionSource(
+    name: string,
+    title: string,
+    action: {label: string; run: () => Promise<string | void>},
+  ): InboxSource {
+    return {name, title, useItems: () => ({items: [], action})}
+  }
+
+  // Plan 066: `runSourceAction` was guarded only by `disabled={running}`, a
+  // `useState` read that is stale for both clicks landing in the same React
+  // batch — the same class of race `summarizeInFlightRef` documents. Its own
+  // `.finally` also cleared the running flag unconditionally, which is a
+  // second, related bug this guard also has to close (see the concurrent-
+  // source case below).
+  it('runs a source action only once even when both clicks land in the same React batch', async () => {
+    let resolveRun!: (value?: string) => void
+    const run = vi.fn(
+      () =>
+        new Promise<string | void>((resolve) => {
+          resolveRun = resolve
+        }),
+    )
+    const action = {label: 'scan.action', run}
+
+    renderWithTheme(<Inbox sources={[actionSource('scan', 'Scan', action)]} />)
+
+    const button = screen.getByRole('button', {name: 'scan.action'})
+
+    act(() => {
+      fireEvent.click(button)
+      fireEvent.click(button)
+    })
+
+    expect(run).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolveRun()
+      await Promise.resolve()
+    })
+  })
+
+  // The guard must be keyed by source name, not a single boolean: several
+  // `main` sources can each offer their own action (see the comment above
+  // `actionSources` in `Inbox.tsx`), and a single boolean would let the
+  // first source's in-flight action swallow a second, unrelated source's
+  // click.
+  it("lets a different source's action run concurrently, not blocked by another source's in-flight action", async () => {
+    let resolveA!: (value?: string) => void
+    const runA = vi.fn(
+      () =>
+        new Promise<string | void>((resolve) => {
+          resolveA = resolve
+        }),
+    )
+    const runB = vi.fn().mockResolvedValue(undefined)
+    const actionA = {label: 'scanA.action', run: runA}
+    const actionB = {label: 'scanB.action', run: runB}
+
+    renderWithTheme(
+      <Inbox
+        sources={[actionSource('scanA', 'Scan A', actionA), actionSource('scanB', 'Scan B', actionB)]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', {name: 'scanA.action'}))
+    expect(runA).toHaveBeenCalledTimes(1)
+
+    // Source A's own action is still in flight (its promise hasn't resolved)
+    // when source B's is clicked — this is what proves the guard is keyed
+    // per source rather than a single shared boolean.
+    fireEvent.click(screen.getByRole('button', {name: 'scanB.action'}))
+    expect(runB).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolveA()
+      await Promise.resolve()
+    })
   })
 })

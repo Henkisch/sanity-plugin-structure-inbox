@@ -4,9 +4,7 @@ import {useCallback, useMemo} from 'react'
 import {useObservable} from 'react-rx'
 import {Observable, of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
-// `useUserListWithPermissions` stays out of this named import — see
-// `optionalHook` in `capability.ts`.
-import {useClient, useCurrentUser, useSchema} from 'sanity'
+import {useClient, useSchema} from 'sanity'
 import {
   getFindingKey,
   isProblemFinding,
@@ -31,8 +29,8 @@ import {
   type InboxSource,
   type InboxSourceResult,
 } from '../types'
-import {ASSIGNMENT_TYPE, useAssignmentStore} from './assignmentStore'
-import {useAssignableUsers} from './capability'
+import {targetIdFromItemId, useAssignmentCapability} from './assignmentCapability'
+import {SIMPLE_FIELD_PATH} from './simpleFieldPath'
 
 export interface LinkCheckerFindingsOptions {
   /** Cap on rows shown, after filtering. Defaults to 50 — a report can carry far more findings than a pane should ever list at once. */
@@ -90,8 +88,45 @@ export interface LinkCheckerFindingsOptions {
 const DEFAULT_ACTION_DESCRIPTION =
   'Scans every document in the dataset for broken external links and references to deleted documents.'
 
-/** A plain top-level field name — no `[index]`/`.nested` — the only shape `singleReferenceTargetType` below knows how to resolve or `proposeFix` knows how to patch. */
-const SIMPLE_FIELD_PATH = /^[a-zA-Z0-9_]+$/
+/**
+ * The GROQ query (and its shape) that both hands Agent Actions its
+ * `$candidates` list and is re-run here to fetch that same list into code —
+ * one constant, used in both places, so the set `validateChosenReference`
+ * checks against is provably the same set the model was shown. If the two
+ * ever drifted, validation would start rejecting genuinely valid answers.
+ */
+const CANDIDATES_QUERY = '*[_type == $type][0...20]{_id, "label": coalesce(title, name, _id)}'
+
+/**
+ * The id a model picked, but only if it is genuinely one of the candidates we
+ * offered it.
+ *
+ * The model's answer is unvalidated JSON, not a trusted shape: `raw.id` can
+ * be a number, an object, or a string `_id` that was never in the candidate
+ * list at all — invented, or remembered from a stale context. Writing an
+ * unchecked value here would make this fix create exactly the dangling
+ * reference the source exists to report, so an id that is not a non-empty
+ * string, or not in `candidateIds`, is dropped rather than trusted. Same
+ * posture as `selectionFromResponse` in `src/ai/askInbox.ts`, and for the
+ * same stated reason: a model will eventually invent a plausible-looking id.
+ *
+ * Exported for its own tests — the same reasoning as `toItems`/`groupOccurrences`.
+ */
+export function validateChosenReference(
+  raw: unknown,
+  candidateIds: ReadonlySet<string>,
+): {id: string; label: string; reason: string} | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  if (!('id' in raw) || typeof raw.id !== 'string') return null
+
+  const trimmed = raw.id.trim()
+  if (!trimmed || !candidateIds.has(trimmed)) return null
+
+  const label = 'label' in raw && typeof raw.label === 'string' ? raw.label : ''
+  const reason = 'reason' in raw && typeof raw.reason === 'string' ? raw.reason : ''
+
+  return {id: trimmed, label, reason}
+}
 
 /**
  * The one document type a broken reference's own field could point back
@@ -444,13 +479,14 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
       const client = useClient({apiVersion: API_VERSION})
       const agentClient = useAgentClient()
       const schema = useSchema()
-      const currentUser = useCurrentUser()
-      const userId = currentUser?.id
       // `null` documentValue: not scoped to one finding, since any of them
       // could be assigned — every project member able to update documents is
       // a sensible assignee, same reasoning `unpublishedDrafts.ts` uses.
-      const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
-      const assignments = useAssignmentStore(client, ASSIGNMENT_TYPE)
+      // `item.id` is already this source's own finding key (`getFindingKey`)
+      // — see `assignmentCapability.ts`'s own doc comment on `targetIdFromItemId`.
+      const {assigneesById, byTarget, assign} = useAssignmentCapability(client, {
+        targetId: targetIdFromItemId,
+      })
 
       // Runs the actual scan (`runScan`, the same engine the standalone
       // plugin's own "Run scan" button and CLI call) and persists it
@@ -478,44 +514,15 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
         return `Found ${issueCount} issue${issueCount === 1 ? '' : 's'} (${parts.join(', ')}).`
       }, [client])
 
-      // Same shape and reasoning as `unpublishedDrafts.ts`'s own
-      // `assigneesById`: `assignable` has everyone's display name and photo
-      // except a reliable one for the current user, whose own profile fills
-      // that gap instead.
-      const assigneesById = useMemo(() => {
-        const byId = new Map<string, {id: string; label: string; imageUrl?: string}>()
-        for (const user of assignable ?? []) {
-          const isSelf = user.id === userId
-          byId.set(user.id, {
-            id: user.id,
-            label: user.displayName || user.email || user.id,
-            imageUrl: (isSelf && currentUser?.profileImage) || user.imageUrl,
-          })
-        }
-        return byId
-      }, [assignable, userId, currentUser])
-
       const items = useMemo(
         () =>
           result.items.map((item): InboxItem => {
-            const assignedTo = assignments.byTarget.get(item.id)
+            const assignedTo = byTarget.get(item.id)
             const assignee = assignedTo ? assigneesById.get(assignedTo) : undefined
             return assignee ? {...item, assignee} : item
           }),
-        [result.items, assignments.byTarget, assigneesById],
+        [result.items, byTarget, assigneesById],
       )
-
-      const assign = useMemo(() => {
-        if (!assignable) return undefined
-
-        return {
-          users: assignable
-            .filter((user) => user.granted)
-            .map((user) => ({id: user.id, label: user.displayName || user.email || user.id})),
-          toUser: (item: InboxItem, assignedTo: string) => assignments.assign(item.id, assignedTo),
-          unassign: (item: InboxItem) => assignments.unassign(item.id),
-        }
-      }, [assignable, assignments])
 
       // Keyed the same way `toItem` derives `InboxItem.id` (`getFindingKey`),
       // so `assess` below can go from a clicked item straight back to the
@@ -630,14 +637,18 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
           const targetType = singleReferenceTargetType(schema, finding.fromType, finding.fieldPath)
           if (!targetType) return null
 
-          const candidateCount = await client.fetch<number>('count(*[_type == $type])', {
+          // Fetched — and validated against, below — *before* the paid
+          // Agent Actions call: if this fetch fails there is no point
+          // spending that request, and a failed fetch this way costs
+          // nothing rather than wasting one.
+          const candidates = await client.fetch<{_id: string; label?: string}[]>(CANDIDATES_QUERY, {
             type: targetType,
           })
-          if (candidateCount === 0) return null
+          if (candidates.length === 0) return null
 
-          type FixChoice = {id: string | null; label: string | null; reason: string}
+          const candidateIds = new Set(candidates.map((row) => row._id))
 
-          const choice = await promptJson<FixChoice>(
+          const choice = await promptJson<unknown>(
             agentClient,
             "Given the following document:\n$document\n---\nField '" +
               finding.fieldPath +
@@ -655,21 +666,23 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
               document: {type: 'document', documentId: finding.fromId},
               candidates: {
                 type: 'groq',
-                query: '*[_type == $type][0...20]{_id, "label": coalesce(title, name, _id)}',
+                query: CANDIDATES_QUERY,
                 params: {type: targetType},
               },
             },
           )
 
-          if (!choice?.id) return null
+          const validated = validateChosenReference(choice, candidateIds)
+          if (!validated) return null
 
-          const chosenId = choice.id
           return {
-            summary: choice.reason ? `Replace with "${choice.label}" — ${choice.reason}` : `Replace with "${choice.label}"`,
+            summary: validated.reason
+              ? `Replace with "${validated.label}" — ${validated.reason}`
+              : `Replace with "${validated.label}"`,
             apply: async () => {
               await client
                 .patch(finding.fromId)
-                .set({[finding.fieldPath]: {_type: 'reference', _ref: chosenId}})
+                .set({[finding.fieldPath]: {_type: 'reference', _ref: validated.id}})
                 .commit()
             },
           }

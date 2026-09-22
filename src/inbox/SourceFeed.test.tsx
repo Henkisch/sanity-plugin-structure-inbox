@@ -16,6 +16,16 @@ function fakeSnoozes(): Snoozes {
   return {state: EMPTY_SNOOZES, snooze: vi.fn(), wake: vi.fn()}
 }
 
+// Redeclared here rather than imported: `SourceFeed.tsx`'s own `CapabilityKey`
+// is internal machinery (not exported — it's not part of this plugin's public
+// API), so this test restates it structurally from the same `Omit`. It must
+// be a named type alias, not the mapped type written inline in the fixture's
+// own annotation below — written inline, `tsc` does not flag a missing key
+// here (confirmed while building this guard: the exact same mapped type,
+// inline vs. aliased, silently stopped catching a removed field). A named
+// alias is the only form that reliably fires.
+type CapabilityKey = keyof Omit<InboxSourceResult, 'items' | 'loading' | 'error'>
+
 describe('SourceFeed', () => {
   // One full result exercising every optional `InboxSourceResult` field at
   // once — a real bug this session found live: `reopen` was never added to
@@ -36,8 +46,16 @@ describe('SourceFeed', () => {
     const update = vi.fn()
     const openDetail = vi.fn()
     const run = vi.fn()
+    const suggestSnooze = vi.fn()
+    const transferToUser = vi.fn()
 
-    const result: InboxSourceResult = {
+    // Typed as `InboxSourceResult & {[K in CapabilityKey]: unknown}` rather
+    // than plain `InboxSourceResult` so that a future capability field is a
+    // missing-property error right here, in the fixture, rather than a silent
+    // gap in what this test actually exercises — the same drift that let this
+    // fixture itself fall two fields (`suggestSnooze`, `transfer`) behind
+    // `InboxSourceResult` despite this test's own name.
+    const result: InboxSourceResult & {[K in CapabilityKey]: unknown} = {
       items: [],
       resolve,
       reopen,
@@ -46,11 +64,13 @@ describe('SourceFeed', () => {
       proposeFix,
       assign: {users: [], toUser},
       assigneeReadOnly: true,
+      suggestSnooze,
       remove,
       update,
       openDetail,
       action: {label: 'Scan', run},
       acknowledgable: false,
+      transfer: {users: [], toUser: transferToUser},
     }
 
     const source: InboxSource = {name: 'everything', title: 'Everything', useItems: () => result}
@@ -73,6 +93,8 @@ describe('SourceFeed', () => {
     expect(report.openDetail).toBe(openDetail)
     expect(report.action?.run).toBe(run)
     expect(report.acknowledgable).toBe(false)
+    expect(report.suggestSnooze).toBe(suggestSnooze)
+    expect(report.transfer?.toUser).toBe(transferToUser)
   })
 
   // The test above hands `SourceFeed` one hoisted `result` object, which is

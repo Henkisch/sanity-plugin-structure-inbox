@@ -40,6 +40,18 @@ function renderRow(ui: ReactElement) {
   )
 }
 
+// `render`'s own `rerender` replaces the whole tree it was given, not just
+// the row — so a re-render that only swaps props must still pass the same
+// `ThemeProvider`/`ToastProvider` wrapper `renderRow` used, or it tears that
+// context down along with the row itself.
+function rerenderRow(rerender: (ui: ReactElement) => void, ui: ReactElement) {
+  rerender(
+    <ThemeProvider theme={theme}>
+      <ToastProvider>{ui}</ToastProvider>
+    </ThemeProvider>,
+  )
+}
+
 // `StrictMode` only for the one test that needs it: React double-invokes a
 // `setState` updater function under `StrictMode` specifically to catch an
 // impure one — every other test in this file renders without it, since
@@ -319,6 +331,154 @@ describe('InboxRow', () => {
         resolveOnAssess({message: 'Looks ready to publish.'})
         await Promise.resolve()
       })
+    })
+
+    // Plan 070: `initialAssessment` used to be read exactly once, in a lazy
+    // `useState` initializer that only ever runs at mount. The assessments
+    // store loads asynchronously, so on a cold pane a row routinely mounts
+    // *before* its cached document resolves — the initializer saw `undefined`
+    // and the value that showed up a moment later was silently thrown away,
+    // so the editor paid for an "Ask AI" click the cache exists to avoid.
+    // Before this plan's fix, this test failed: the row stayed idle forever.
+    it('adopts a cached assessment that resolves after the row has already mounted', () => {
+      const onAssess = vi.fn()
+
+      const {rerender} = renderRow(
+        <InboxRow
+          item={item({changedAt: 'v1'})}
+          onAssess={onAssess}
+          onSelectedChange={vi.fn()}
+          selected={false}
+        />,
+      )
+
+      expect(screen.queryByText('Looks ready to publish.')).toBeNull()
+
+      rerenderRow(
+        rerender,
+        <InboxRow
+          item={item({changedAt: 'v1'})}
+          onAssess={onAssess}
+          initialAssessment={{message: 'Looks ready to publish.'}}
+          onSelectedChange={vi.fn()}
+          selected={false}
+        />,
+      )
+
+      expect(screen.getByText('Looks ready to publish.')).toBeTruthy()
+    })
+
+    // The adoption above must never clobber a request that is genuinely in
+    // flight, or a result that just landed live — `assessInFlightRef` (the
+    // same ref that already closes the double-click race above) is what
+    // this plan's sync reuses to tell the two apart.
+    it('does not let a late cache arrival stomp an assess request that is still loading', async () => {
+      let resolveOnAssess!: (value: {message: string}) => void
+      const onAssess = vi.fn().mockImplementation(() => new Promise((resolve) => (resolveOnAssess = resolve)))
+
+      const {rerender} = renderRow(
+        <InboxRow
+          item={item({changedAt: 'v1'})}
+          onAssess={onAssess}
+          onSelectedChange={vi.fn()}
+          selected={false}
+        />,
+      )
+
+      askAi()
+      expect(await screen.findByText('assess.loading')).toBeTruthy()
+
+      // A cache document for this same version resolves while the live
+      // request is still in flight.
+      rerenderRow(
+        rerender,
+        <InboxRow
+          item={item({changedAt: 'v1'})}
+          onAssess={onAssess}
+          initialAssessment={{message: 'Stale cached answer.'}}
+          onSelectedChange={vi.fn()}
+          selected={false}
+        />,
+      )
+
+      expect(screen.getByText('assess.loading')).toBeTruthy()
+      expect(screen.queryByText('Stale cached answer.')).toBeNull()
+
+      await act(async () => {
+        resolveOnAssess({message: 'Live answer.'})
+        await Promise.resolve()
+      })
+
+      expect(await screen.findByText('Live answer.')).toBeTruthy()
+    })
+
+    // This is the guarantee `src/store/assessments.ts:66-77` promises on the
+    // cache-read side — that a row must never show a confidently-wrong
+    // verdict about a since-edited draft. Before this plan's fix, the row's
+    // local `assessment` state survived a `changedAt` change untouched (its
+    // key, `mergeItems.ts`'s `${sourceName} ${item.id}`, does not include
+    // `changedAt`, so the row never remounts), and this test failed: the old
+    // verdict stayed on screen.
+    it('drops a cached assessment once the document it was about has changed', () => {
+      const onAssess = vi.fn()
+
+      const {rerender} = renderRow(
+        <InboxRow
+          item={item({changedAt: 'v1'})}
+          onAssess={onAssess}
+          initialAssessment={{message: 'Looks ready to publish.'}}
+          onSelectedChange={vi.fn()}
+          selected={false}
+        />,
+      )
+
+      expect(screen.getByText('Looks ready to publish.')).toBeTruthy()
+
+      // The document was edited: `changedAt` moves, and `assessments.read()`
+      // (invalidated on exactly that field) now returns nothing.
+      rerenderRow(
+        rerender,
+        <InboxRow
+          item={item({changedAt: 'v2'})}
+          onAssess={onAssess}
+          onSelectedChange={vi.fn()}
+          selected={false}
+        />,
+      )
+
+      expect(screen.queryByText('Looks ready to publish.')).toBeNull()
+    })
+
+    // The cache write for a just-returned live result may not have reached
+    // `MergedList` yet, so `initialAssessment` can legitimately recompute as
+    // `undefined` on the very next render even though nothing about the
+    // document changed. That must not be read as an invalidation.
+    it('keeps a live result on a re-render that recomputes initialAssessment as undefined', async () => {
+      const onAssess = vi.fn().mockResolvedValue({message: 'Live answer.'})
+
+      const {rerender} = renderRow(
+        <InboxRow
+          item={item({changedAt: 'v1'})}
+          onAssess={onAssess}
+          onSelectedChange={vi.fn()}
+          selected={false}
+        />,
+      )
+
+      askAi()
+      expect(await screen.findByText('Live answer.')).toBeTruthy()
+
+      rerenderRow(
+        rerender,
+        <InboxRow
+          item={item({changedAt: 'v1'})}
+          onAssess={onAssess}
+          onSelectedChange={vi.fn()}
+          selected={false}
+        />,
+      )
+
+      expect(screen.getByText('Live answer.')).toBeTruthy()
     })
   })
 

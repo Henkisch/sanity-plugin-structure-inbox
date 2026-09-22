@@ -112,7 +112,14 @@ export function useStableItems(items: InboxItem[], sourceName = 'a source'): Inb
   // documented public API. Without a bound, this hook's own `setStable` below
   // then runs on every render, which is a render-phase update loop — upstream
   // of `sameReport` and of the error boundary around `SourceFeed`, so neither
-  // can contain it. Confirmed by test, not assumed.
+  // can contain it. Two functions with the *same* name still compare equal
+  // (below) — that's the deliberate fix for a per-render inline `icon`, and
+  // why that case settles instead of freezing. What still can't ever compare
+  // equal is a `Date`/`Map`/`Set`/class instance, or a function whose name
+  // differs on every render — confirmed by test (`freezes after
+  // MAX_CONSECUTIVE_ADOPTIONS rather than looping forever`,
+  // `useStableItems.test.ts`), which uses the latter: no `InboxItem` field is
+  // typed to hold a `Date`.
   //
   // The counter resets below on the *equal* path — a render where the content
   // did compare the same. That is the honest signal that this source can

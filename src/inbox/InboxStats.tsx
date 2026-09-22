@@ -69,6 +69,11 @@ export function oldestOpenAgeDays(rows: readonly MergedRow[], now: number): numb
     if (!Number.isFinite(time)) continue
 
     const ageDays = (now - time) / DAY_MS
+    // A future `timestamp` is a due date, not a wait — `types.ts:30-35`
+    // documents that it may be in the future, and `todos.ts:118` uses `dueBy`.
+    // Including it produced "Oldest open item: -6 days", and even ignoring the
+    // sign it measured the wrong thing.
+    if (ageDays < 0) continue
     if (oldest === null || ageDays > oldest) oldest = ageDays
   }
 
@@ -87,11 +92,21 @@ export function oldestOpenAgeDays(rows: readonly MergedRow[], now: number): numb
  */
 export function nextWake(snoozedRows: readonly MergedRow[], snoozed: SnoozeState['snoozed']): string | null {
   let earliest: string | null = null
+  let earliestTime = Infinity
 
   for (const row of snoozedRows) {
     const until = snoozed[row.sourceName]?.[row.item.id]?.until
     if (!until) continue
-    if (earliest === null || until < earliest) earliest = until
+    // Parsed, not string-compared: `until` is only guaranteed UTC-`Z` when it
+    // came from `resolveSnoozeUntil`. A source's own `suggestSnooze` may return
+    // any ISO string (`types.ts:449`), and an offset-form value sorts wrong as
+    // a string.
+    const time = Date.parse(until)
+    if (!Number.isFinite(time)) continue
+    if (time < earliestTime) {
+      earliestTime = time
+      earliest = until
+    }
   }
 
   return earliest
