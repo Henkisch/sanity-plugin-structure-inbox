@@ -1,5 +1,7 @@
 import {isDismissed, type DismissalState} from '../store/dismissals'
+import {type SnoozeState} from '../store/snoozes'
 import {type SourceReport} from './SourceFeed'
+import {splitItems} from './splitItems'
 import {type InboxItem, type InboxView} from './types'
 
 export interface MergedRow {
@@ -68,6 +70,60 @@ export function compareMergedRows(a: MergedRow, b: MergedRow): number {
 }
 
 /**
+ * Whether an otherwise-open item has been manually cleared by this editor —
+ * the single definition of the dismissal axis that `splitItems` deliberately
+ * knows nothing about (see its own doc comment).
+ *
+ * Deliberately the *only* place this rule is written down. Both numbers an
+ * editor can see are derived from it: the pane's own open list (`mergeRows`
+ * below, feeding `Inbox.tsx`'s headline) and the always-visible navbar badge
+ * (`countOpenItems` below, feeding `useInboxOpenCount()`). They used to
+ * compute openness independently, and drifted apart the moment this axis was
+ * added to one of them — the pane said "3 things waiting" while the badge
+ * still said "8". Anything that changes what "open" means belongs here, so
+ * both keep agreeing by construction rather than by review.
+ *
+ * `acknowledgable` is the source's own opt-out (`todos`): a source that never
+ * offered a manual clear has no dismissal to honour, so any entry on record
+ * for one is ignored — matching the write side no longer offering a way to
+ * create one. `undefined` means the default, which is "yes".
+ */
+export function isManuallyCleared(
+  dismissals: DismissalState,
+  sourceName: string,
+  item: InboxItem,
+  acknowledgable: boolean | undefined,
+): boolean {
+  return acknowledgable !== false && isDismissed(dismissals, sourceName, item.id, item.changedAt)
+}
+
+/**
+ * How many of one source's items an editor still has waiting — the count
+ * behind `InboxSource.useOpenCount`, and by construction the same number the
+ * pane's own Open view would show for that source.
+ *
+ * The two filters run in the same order the pane runs them: `splitItems`
+ * first (real, source-confirmed completion and snoozes, from each item's own
+ * data), then the per-editor dismissal axis on top of what survived — exactly
+ * `SourceFeed` handing `report.open` to `mergeRows`.
+ */
+export function countOpenItems(
+  items: InboxItem[],
+  sourceName: string,
+  snoozes: SnoozeState,
+  now: number,
+  dismissals: DismissalState,
+  acknowledgable?: boolean,
+): number {
+  const {open} = splitItems(items, sourceName, snoozes, now)
+  return open.reduce(
+    (total, item) =>
+      isManuallyCleared(dismissals, sourceName, item, acknowledgable) ? total : total + 1,
+    0,
+  )
+}
+
+/**
  * Flattens every reporting source's items for one view into a single,
  * sorted list.
  *
@@ -106,11 +162,8 @@ export function mergeRows(
       continue
     }
 
-    const canManuallyClear = report.acknowledgable !== false
-
     for (const item of report.open) {
-      const manuallyCleared =
-        canManuallyClear && isDismissed(dismissals, sourceName, item.id, item.changedAt)
+      const manuallyCleared = isManuallyCleared(dismissals, sourceName, item, report.acknowledgable)
 
       if (view === 'cleared') {
         if (manuallyCleared) {

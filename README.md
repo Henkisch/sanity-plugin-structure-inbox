@@ -238,8 +238,12 @@ re-reports a source's items whenever that array changes, so building it fresh on
 reporting on every render. That is absorbed rather than trusted — the plugin compares the contents
 before acting on a new array — but memoizing keeps the work off the render path to begin with.
 
-A source can also offer `useOpenCount(snoozes, now)`, read by the exported
-`useInboxOpenCount()` hook for a live count usable anywhere in the Studio (e.g. a navbar badge):
+A source can also offer `useOpenCount(snoozes, now, dismissals)`, read by the exported
+`useInboxOpenCount()` hook for a live count usable anywhere in the Studio (e.g. a navbar badge).
+Count only what the pane would still show as open: skip `cleared` items, skip snoozed ones
+(`isSnoozed`), and skip the ones this editor has already ticked off (`isDismissed` — both exported).
+A count that ignores `dismissals` keeps reporting rows the pane has stopped showing, and the badge
+is the number an editor sees all day:
 
 ```tsx
 import {useInboxOpenCount} from 'sanity-plugin-structure-inbox'
