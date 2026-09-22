@@ -29,6 +29,7 @@ row can be opened, handed to a colleague, snoozed or ticked off without leaving 
 - [Optional: finding content gaps](#optional-finding-content-gaps)
 - [How it works](#how-it-works)
 - [Localization](#localization)
+- [API reference](#api-reference)
 - [Develop & test](#develop--test)
 - [License](#license)
 
@@ -680,6 +681,55 @@ i18n: {
   ],
 }
 ```
+
+## API reference
+
+Most of what's published is covered above, next to the feature it belongs to.
+The rest — exported but never named in prose so far — is documented here:
+what it is, and why (or whether) an integrator would touch it.
+
+**`SectionCard` / `SectionCardProps`** — the card component every built-in
+source's items render inside, and the one `Inbox.tsx` itself wraps every
+source's output in. It is exported, but is internal render plumbing rather
+than a building block for a custom source: nothing in "Writing your own"
+above asks you to render one directly, and it calls `useTranslation` against
+this plugin's own `structureInbox` i18n namespace — render it outside a
+Studio where that namespace is loaded (i.e. outside this plugin's own tree)
+and its strings come back untranslated. `SectionCardProps` is exported
+alongside it only so a wrapper around it can be typed.
+
+**`useAssignmentStore`, `assignmentDocId`, `AssignmentStore`** — the shared
+store behind "Assign to…" (see "Selecting and acting"): a live map of
+`structureInbox.assignment` documents for one `docType`, keyed by a hashed
+target id (`assignmentDocId`), plus the `assign`/`unassign` mutations
+(`AssignmentStore`). They are exported with no documented integration use
+case — a custom source that wants its own delegation could reuse them, but
+that isn't a recipe this README currently walks through. Flagged as a
+removal candidate for a future major version (see `plans/README.md`'s "Known
+findings with no plan yet") rather than invented a use for here.
+
+**`AssetTarget`** — the shape of the object `assetIssues`' `openAsset`
+callback receives (`{id, type, url?, filename?, size}`), used in "Where an
+asset row takes you" above. Exported so a custom `openAsset` handler, or a
+wrapper around one, can be typed.
+
+**`suggestAltText`, `AltContext`** — the function behind the Alt text
+card's AI suggestion (see "Alt text" above) and the surrounding-context
+shape it sends to Agent Actions. `suggestAltText` is `@internal`: it is
+exported for `dist` bundling reasons, not as a documented extension point —
+there is no supported way to call it directly outside this plugin's own Alt
+text card.
+
+**`parseDismissals`, `isDismissed`, `parseTodos`, `parseAssessments`** —
+pure, dependency-free readers for the plugin's other per-editor documents
+(`structureInbox.dismissals.<userId>`, `.todos.<userId>`,
+`.assessments.<userId>`), the same family `parseSnoozes` belongs to in
+"Recipe: a digest outside the Studio" above. Useful for the same reason:
+reading an editor's acknowledged/todo/cached-assessment state outside a
+Studio, with no React and no live client needed. `isDismissed` additionally
+answers whether a given item is still considered dismissed, honoring the
+"an edit afterwards un-dismisses it" rule described in "Selecting and
+acting".
 
 ## Develop & test
 

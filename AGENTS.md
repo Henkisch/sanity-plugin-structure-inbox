@@ -23,12 +23,18 @@ setup (env file, workspace layout).
 
 ## Commit messages are load-bearing
 
-`.releaserc.json` extends `@sanity/semantic-release-preset`, so commit
-messages must follow Conventional Commits (`type: summary`, e.g. `fix:` /
-`feat:` / `docs:`). This isn't a style nit — `semantic-release` reads the
-commit history to decide whether to cut a release at all and what version
-bump it gets. An unconventional message can mean no release, or the wrong
-one.
+`release.config.cjs` (not `.releaserc.json`) extends
+`@sanity/semantic-release-preset` and additionally patches
+`commit-analyzer`'s `releaseRules` so a `docs(readme):` commit cuts a patch
+release. Configure releases **only** in that file: semantic-release would
+load a `.releaserc.json` instead of it, silently dropping both that rule and
+`branches: ['main']`.
+
+Commit messages must follow Conventional Commits (`type: summary`, e.g.
+`fix:` / `feat:` / `docs:`). This isn't a style nit — `semantic-release`
+reads the commit history to decide whether to cut a release at all and what
+version bump it gets. An unconventional message can mean no release, or the
+wrong one.
 
 ## Plugin ordering: `structureInbox()` after `structureTool()`
 

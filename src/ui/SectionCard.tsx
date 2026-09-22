@@ -4,7 +4,8 @@ import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 
-interface SectionCardProps {
+/** @public */
+export interface SectionCardProps {
   title?: string
   /** Rendered at the right of the header — a count, usually. */
   badge?: ReactNode

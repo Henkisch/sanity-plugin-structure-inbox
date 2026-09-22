@@ -874,6 +874,12 @@ not re-audited from scratch:
   statement (1-2 sentences, same shape this plugin's README already
   recommends) is a ready-made source to hand-copy into `context` —
   not something to automate.
+- **Exports to reconsider in 3.0** — `useAssignmentStore`, `assignmentDocId`,
+  `AssignmentStore` are internal plumbing published with no documented use
+  case (and `useAssignmentStore` is what dragged 10k lines of `@sanity/client`
+  types into the published surface — see plan 071). Removing them is
+  semver-major; they are now documented as internal rather than removed. Decide
+  at the next major.
 
 ## Direction options (maintainer's call, not queued work)
 

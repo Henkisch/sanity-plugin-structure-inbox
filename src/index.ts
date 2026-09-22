@@ -5,14 +5,17 @@ export {useInboxOpenCount} from './studio/inboxCountLayout'
 export type {StructureInboxConfig} from './types'
 
 export type {
+  CreateItemInput,
   FixProposal,
   InboxAssessment,
   InboxItem,
   InboxSource,
   InboxSourceResult,
+  InboxView,
   SuggestTodosState,
   TodoSuggestion,
 } from './inbox/types'
+export type {AskState} from './inbox/AskInbox'
 export {
   assignmentDocId,
   useAssignmentStore,
@@ -36,7 +39,7 @@ export {
 } from './inbox/sources/unresolvedComments'
 export {upcomingReleases, type UpcomingReleasesOptions} from './inbox/sources/upcomingReleases'
 
-export {SectionCard} from './ui/SectionCard'
+export {SectionCard, type SectionCardProps} from './ui/SectionCard'
 
 // Pure, dependency-free reads of the plugin's own per-editor documents — no
 // React, no Studio context. Exported for code that reads these documents
@@ -47,6 +50,7 @@ export {SectionCard} from './ui/SectionCard'
 export {parseAssessments, type AssessmentState, type CachedAssessment} from './store/assessments'
 export {isDismissed, parseDismissals, type DismissalState} from './store/dismissals'
 export {isSnoozed, parseSnoozes, type SnoozeState} from './store/snoozes'
+export {type SnoozePreset} from './store/snoozePresets'
 export {parseTodos, type TodoItem, type TodosState} from './store/todos'
 export {buildDigest, type DigestEditor, type DigestSource, type EditorDigest} from './digest'
 export {
