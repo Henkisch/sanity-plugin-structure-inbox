@@ -688,15 +688,24 @@ Most of what's published is covered above, next to the feature it belongs to.
 The rest — exported but never named in prose so far — is documented here:
 what it is, and why (or whether) an integrator would touch it.
 
-**`SectionCard` / `SectionCardProps`** — the card component every built-in
-source's items render inside, and the one `Inbox.tsx` itself wraps every
-source's output in. It is exported, but is internal render plumbing rather
-than a building block for a custom source: nothing in "Writing your own"
-above asks you to render one directly, and it calls `useTranslation` against
-this plugin's own `structureInbox` i18n namespace — render it outside a
-Studio where that namespace is loaded (i.e. outside this plugin's own tree)
-and its strings come back untranslated. `SectionCardProps` is exported
-alongside it only so a wrapper around it can be typed.
+**`SectionCard` / `SectionCardProps`** — the boxed card an `aside` source's
+items render inside. It is *not* the general wrapper it looks like: `main`
+sources render through `MergedList`, which merges their items into one list
+and draws its own card, so `SectionCard` survives only on the `aside` column
+and in the error fallback when an `aside` source throws. It is exported, but
+is internal render plumbing rather than a building block for a custom source:
+nothing in "Writing your own" above asks you to render one directly, and its
+error-state strings call `useTranslation` against this plugin's own
+`structureInbox` i18n namespace — render it outside a Studio where that
+namespace is loaded (i.e. outside this plugin's own tree) and those strings
+come back untranslated. `SectionCardProps` is exported alongside it only so a
+wrapper around it can be typed.
+
+**`CreateItemInput`** — the payload an `InboxSource`'s optional `create` and
+`update` callbacks receive (`InboxSource.create`, `.update`). If your source
+lets an editor add or edit a row from the Inbox itself, this is the shape
+your handler is handed; exported so those handlers can be typed outside this
+package.
 
 **`useAssignmentStore`, `assignmentDocId`, `AssignmentStore`** — the shared
 store behind "Assign to…" (see "Selecting and acting"): a live map of
@@ -716,9 +725,9 @@ wrapper around one, can be typed.
 **`suggestAltText`, `AltContext`** — the function behind the Alt text
 card's AI suggestion (see "Alt text" above) and the surrounding-context
 shape it sends to Agent Actions. `suggestAltText` is `@internal`: it is
-exported for `dist` bundling reasons, not as a documented extension point —
-there is no supported way to call it directly outside this plugin's own Alt
-text card.
+exported for its own unit test, not as a documented extension point — the
+supported way to influence it is the `altFromTitle` / `suggestAlt` callbacks
+on `assetIssues`, not calling it directly.
 
 **`parseDismissals`, `isDismissed`, `parseTodos`, `parseAssessments`** —
 pure, dependency-free readers for the plugin's other per-editor documents
