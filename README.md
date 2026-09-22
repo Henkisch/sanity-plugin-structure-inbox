@@ -84,7 +84,7 @@ separate, optional integration:
 | `upcomingReleases({limit})`                          | Releases that are scheduled or still being filled (requires [Content Releases](https://www.sanity.io/pricing), an Enterprise add-on). | Everyone's |
 | `needsAttention({limit})`                            | Releases that are overdue, empty and imminent, or stalling (same Content Releases requirement as above). | Everyone's |
 | `documentValidation({limit, types})`                 | Drafts currently failing their own schema's validation rules.    | Everyone's |
-| `assetIssues({limit, maxSizeBytes, altFieldName, altFromTitle, suggestAlt, describeImage})` | Oversized, unused, missing-alt-text, or poorly alt-texted image/file assets — and, where you say so, a one-click fix for the missing ones. | Everyone's |
+| `assetIssues({limit, maxSizeBytes, openAsset, altFieldName, altFromTitle, suggestAlt, describeImage})` | Oversized, unused, missing-alt-text, or poorly alt-texted image/file assets — and, where you say so, a one-click fix for the missing ones. | Everyone's |
 | `unresolvedComments({limit, onlyMine})`               | Unresolved comment threads (requires the [Growth plan](https://www.sanity.io/pricing) or above). | Yours |
 | `todos({title, placement})`                          | A personal scratch list you type into, right in the pane.        | Yours      |
 | `linkCheckerFindings()`                              | Broken references and dead links — separate entry point, see below. | Everyone's |
@@ -111,6 +111,11 @@ A few operational notes worth knowing before you configure sources:
   error card for that source instead of failing the whole Studio to boot.
 - **`assetIssues`'s "unused" check** is skipped (reports zero rows) once a project has more than
   200 total assets, to avoid a slow query.
+- **`assetIssues` reads your dataset's own assets** (`sanity.imageAsset`/`sanity.fileAsset`).
+  Assets held in [Sanity's Media Library](https://www.sanity.io/docs/media-library) live in a
+  separate resource, not as documents in your dataset, so this source reports nothing about them —
+  an empty asset section on a Media Library Studio is that, not a failure. Use `openAsset` to route
+  asset rows into it yourself.
 - **`assetIssues`'s alt-text checks** cover top-level image fields only, in either convention: an
   `image` field customized with an `alt` sub-field, or a wrapper object (`imageWithAlt`) holding an
   image alongside an `alt`. Images nested inside objects, arrays or Portable Text aren't walked.
@@ -430,6 +435,102 @@ removes the menu item entirely, so no request is ever sent:
 ```ts
 structureInbox({summarize: false, suggestTodos: false, sources: [/* ... */]})
 ```
+
+## Assets
+
+### Where an asset row takes you
+
+**The reporting is unconditional. The destination depends on what your Studio has.**
+
+Every asset row always tells you the same things — what the file is, how big it is, which ceiling
+it tripped, and how many documents use it. That part needs no plugin and no configuration.
+
+Where clicking it goes is the first of these that exists:
+
+1. your own `openAsset` callback, if you passed one
+2. a media-browsing tool registered in the workspace (`sanity-plugin-media` and friends), detected
+   at runtime — this plugin depends on none of them
+3. the file itself, opened in a new tab
+
+This is deliberate rather than a limitation we grew into. **Sanity assets are immutable**: an
+asset's `_id` contains a hash of its bytes (`image-eb94b14e…-1408x768-jpg`), so there is no
+"replace this file" operation anywhere in Sanity — not in core, not in the media plugin. What the
+media plugin calls Replace is a *reference migration*: it points every document at a different
+asset, image assets only, and warns that it may take minutes.
+
+So this source reports, and hands you to whichever surface your Studio actually has for acting:
+
+| | Media plugin installed | No media plugin |
+| --- | --- | --- |
+| See every asset, its usage, delete it | its own tool | only via an image/file field's **Select** dialog |
+| Point all documents at another asset | **Replace** (images only) | not available anywhere |
+| Swap one field's image | field **Upload**/**Select** | field **Upload**/**Select** |
+
+Without a media plugin, Sanity's own asset management lives inside a document field's Select
+dialog — which does include **Show usage** and **Delete** per asset. If your editors work with
+assets often, installing [`sanity-plugin-media`](https://www.sanity.io/plugins/sanity-plugin-media)
+is the honest recommendation; this plugin will find it and use it automatically.
+
+To route these rows somewhere else entirely — Sanity's Media Library, or an asset browser this
+plugin has never heard of:
+
+```ts
+assetIssues({
+  openAsset: (asset) => {
+    // asset: {id, type, url?, filename?, size}
+    window.open(`https://my-asset-admin.example.com/${asset.id}`, '_blank')
+  },
+})
+```
+
+### What counts as oversized
+
+Size ceilings are **per kind of media**, because they are not comparable numbers: 4 MB is an
+alarming JPEG, an unremarkable PDF and a short podcast episode.
+
+| Kind | Matches | Default |
+| --- | --- | --- |
+| `image` | `sanity.imageAsset` | 5 MiB |
+| `pdf` | `application/pdf` | 15 MiB |
+| `audio` | `audio/*` | 30 MiB |
+| `video` | `video/*` | 200 MiB |
+| `other` | any other file — archives, documents, fonts | 25 MiB |
+
+```ts
+assetIssues({
+  maxSizeBytes: {
+    image: 2 * 1024 * 1024, // stricter than default
+    pdf: 25 * 1024 * 1024, // print-ready PDFs are legitimately heavy
+  },
+})
+```
+
+Anything you leave out keeps its default. A plain number still works and applies one ceiling to
+every kind:
+
+```ts
+assetIssues({maxSizeBytes: 10 * 1024 * 1024})
+```
+
+Each row names the kind it tripped — "Oversized image", "Oversized PDF", "Oversized audio" — so it
+is clear which ceiling applied.
+
+Subtitles divide by 1024, so a decimal threshold reads a little oddly: set `10_000_000` and a file
+just over it prints as `9.5 MB`. Use MiB multiples if you want the row to match your config.
+
+### Which asset types this covers
+
+Sanity's dataset has exactly **two** asset document types, and `assetIssues` reads both:
+
+- `sanity.imageAsset` — images.
+- `sanity.fileAsset` — **everything else.** A PDF, an MP3, an MP4, a zip and a font are all file
+  assets; only `mimeType` tells them apart, which is why the ceilings above key off it rather than
+  off the document type.
+
+There is no `sanity.audioAsset`, and no dataset video asset type: `sanity.videoAsset` exists but
+belongs to [Sanity's Media Library](https://www.sanity.io/docs/media-library), a separate resource
+this source cannot see (see the limitation above). So "all default file types" is already covered —
+by `sanity.fileAsset` — and the work is in judging them by the right ceiling.
 
 ## Alt text
 

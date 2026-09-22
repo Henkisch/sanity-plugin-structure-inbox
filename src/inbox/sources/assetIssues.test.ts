@@ -3,8 +3,11 @@ import {describe, expect, it} from 'vitest'
 import {
   assetIssues,
   classifyAltText,
+  assetKind,
+  describeUsage,
   findAltEligibleImageFields,
   formatAssetSize,
+  resolveMaxSizes,
   normalizeForComparison,
   suggestAltText,
 } from './assetIssues'
@@ -363,5 +366,70 @@ describe('suggestAltText', () => {
       },
     })
     expect(seen).toEqual(['person.portrait', 'person-a1b2c3'])
+  })
+})
+
+describe('describeUsage', () => {
+  it('says where the click will land, in the singular and the plural', () => {
+    expect(describeUsage(1)).toBe('used in 1 document')
+    expect(describeUsage(3)).toBe('used in 3 documents')
+  })
+
+  it('is explicit about an orphan rather than saying "used in 0 documents"', () => {
+    expect(describeUsage(0)).toBe('not used anywhere')
+    expect(describeUsage(undefined)).toBe('not used anywhere')
+  })
+})
+
+describe('assetKind', () => {
+  it('calls an image asset an image, whatever its mime type says', () => {
+    expect(assetKind('sanity.imageAsset', 'image/jpeg')).toBe('image')
+    expect(assetKind('sanity.imageAsset', undefined)).toBe('image')
+  })
+
+  it('splits file assets by mime type, because the document type cannot', () => {
+    // Every one of these is a `sanity.fileAsset`. Sanity's dataset has no
+    // audio, video or PDF asset type — `mimeType` is the only thing that
+    // tells them apart, which is why the ceilings key off it.
+    expect(assetKind('sanity.fileAsset', 'application/pdf')).toBe('pdf')
+    expect(assetKind('sanity.fileAsset', 'audio/mpeg')).toBe('audio')
+    expect(assetKind('sanity.fileAsset', 'video/mp4')).toBe('video')
+    expect(assetKind('sanity.fileAsset', 'application/zip')).toBe('other')
+  })
+
+  it('falls back to "other" for a file with no mime type at all', () => {
+    expect(assetKind('sanity.fileAsset', undefined)).toBe('other')
+  })
+})
+
+describe('resolveMaxSizes', () => {
+  it('keeps a plain number working, applied to every kind', () => {
+    // The original option shape. Still supported on purpose — this was a
+    // published API before it grew per-kind ceilings.
+    expect(resolveMaxSizes(1000)).toEqual({
+      image: 1000,
+      video: 1000,
+      audio: 1000,
+      pdf: 1000,
+      other: 1000,
+    })
+  })
+
+  it('fills in defaults for kinds left out', () => {
+    const sizes = resolveMaxSizes({image: 1000})
+    expect(sizes.image).toBe(1000)
+    expect(sizes.pdf).toBe(15 * 1024 * 1024)
+    expect(sizes.video).toBe(200 * 1024 * 1024)
+  })
+
+  it('defaults images to 5 MiB, the documented original', () => {
+    expect(resolveMaxSizes(undefined).image).toBe(5 * 1024 * 1024)
+  })
+
+  it('gives video a far higher ceiling than an image, which is the whole point', () => {
+    const sizes = resolveMaxSizes(undefined)
+    expect(sizes.video).toBeGreaterThan(sizes.image)
+    expect(sizes.audio).toBeGreaterThan(sizes.image)
+    expect(sizes.pdf).toBeGreaterThan(sizes.image)
   })
 })

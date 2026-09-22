@@ -22,6 +22,7 @@ export {
   assetIssues,
   type AltContext,
   type AssetIssuesOptions,
+  type AssetTarget,
   suggestAltText,
 } from './inbox/sources/assetIssues'
 export {documentValidation, type DocumentValidationOptions} from './inbox/sources/documentValidation'
