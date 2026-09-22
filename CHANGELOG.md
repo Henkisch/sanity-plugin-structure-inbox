@@ -5,6 +5,25 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.2.1](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v2.2.0...v2.2.1) (2026-09-22)
+
+### Bug Fixes
+
+- adopt a late-arriving cached assessment, and drop a stale one on edit ([a25cba6](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/a25cba65f1ac1740afeca89e40b2e6932ce0c584))
+- close the double-click race on confirmQuickFix, runSourceAction, and handleSuggestSnooze ([e664fbe](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/e664fbe7daac0276d9380cef8dfe91d59ecc6c79))
+- degrade onlyMine instead of emptying the Drafts card ([1aa7337](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/1aa733782af9a5f5168cdb7564a6372f265138e6))
+- give dismissals and snoozes a tombstone, so a removal survives a late load merge ([fca9c0e](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/fca9c0e1154c63257f10f32b54f4a2266d98ebf3))
+- guard the third unguarded GROQ field-name interpolation ([3a3cad9](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/3a3cad93dbf2d5448b1e30f37b8f253ef3dbc9b7))
+- let a source come back after one transient throw ([fb6353d](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/fb6353dc2c12569ed939f2e6a9b9a110f043ea6a))
+- make a forgotten InboxSourceResult capability a typecheck failure ([3800dda](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/3800dda3ab2cbd0665984c90f2792f3b42d053e4))
+- stop a second tab from silently deleting an editor's todos ([e086634](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/e086634e0e116d48d30d30597c5122a2c354ccf3))
+- stop the Overview card from misreading timestamps ([6553069](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/65530699a3b2651bdb44504f4795058548a94956))
+- stop the validation card claiming all-clear when the prefetch failed ([863e572](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/863e57286b629ab2943af275d23b9a31fc9feda5))
+- survive a failed refetch instead of going dark for the rest of the session ([2e95780](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/2e95780bdf2d9695d64b5923db26ac80d972462b))
+- try every JSON candidate in a model answer, not just the first ([bbf270c](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/bbf270c1a86ce864d810615e8321bc4622c50482))
+- validate the reference a model picked before writing it ([f35920f](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/f35920f42e79bc504ab8e2df91761859f1804183))
+- widen @sanity/types and @sanity/validation dependency ranges ([b3b5e41](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/b3b5e415654caec7b5a402a36ec42c43c92bcaa7))
+
 ## [2.2.0](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v2.1.0...v2.2.0) (2026-09-22)
 
 ### Features
