@@ -295,6 +295,12 @@ Acknowledgments, snoozes and todos each live in their own small, unregistered pe
 (`structureInbox.dismissals.<userId>`, `.snoozes.<userId>`, `.todos.<userId>`) — plain, queryable
 documents in your dataset, not hidden anywhere.
 
+The current tab (Open/Snoozed/Cleared) and both filters live in the pane's own URL params, so
+reloading the page or opening the URL in a new tab — or sending it to someone — comes back to the
+same tab and filters, not the defaults. One limitation, stated plainly: pressing the browser's Back
+or Forward button changes the URL but not what's on screen while the pane stays mounted — only a
+fresh load re-reads it.
+
 ### Recipe: a digest outside the Studio
 
 These per-editor documents make a scheduled digest (a daily "here's what's open" email or Slack
@@ -522,6 +528,15 @@ Where clicking it goes is the first of these that exists:
 2. a media-browsing tool registered in the workspace (`sanity-plugin-media` and friends), detected
    at runtime — this plugin depends on none of them
 3. the file itself, opened in a new tab
+
+Rung 2 can only ever open that tool's own root, never the specific asset — no media browser
+plugin exposes a route or query param an outside caller can address for this. So it also copies
+the asset's filename to the clipboard and shows a toast telling you what to do with it: paste it
+into the tool's own search to find the file, then use its **Replace** to swap in a smaller one
+(or, for an unused asset, delete it there instead — there's nothing to replace it *with*). If the
+clipboard write fails or the browser has no Clipboard API, the toast falls back to naming the
+filename to search for by hand; either way, navigation to the tool still happens. Passing your own
+`openAsset` takes over this rung entirely — no clipboard, no toast.
 
 This is deliberate rather than a limitation we grew into. **Sanity assets are immutable**: an
 asset's `_id` contains a hash of its bytes (`image-eb94b14e…-1408x768-jpg`), so there is no

@@ -73,6 +73,22 @@ interface InboxProps {
   contentGaps?: StructureInboxConfig['contentGaps']
   /** See `StructureInboxConfig.context`'s own doc comment. */
   context?: string
+  /**
+   * Seeds the initial tab/filter state — read once, on mount, from
+   * `InboxPane`'s own pane-scoped URL params. Omit for today's defaults
+   * (`'open'`, no filters).
+   */
+  initialView?: InboxView
+  initialAssigneeFilter?: ReadonlySet<string>
+  initialTypeFilter?: ReadonlySet<string>
+  /**
+   * Fired after the initial mount, whenever the corresponding state actually
+   * changes — lets `InboxPane` mirror it into the URL. Never called for the
+   * value the state was seeded with.
+   */
+  onViewChange?: (view: InboxView) => void
+  onAssigneeFilterChange?: (filter: ReadonlySet<string>) => void
+  onTypeFilterChange?: (filter: ReadonlySet<string>) => void
 }
 
 /**
@@ -365,6 +381,28 @@ export function BoundedSourceFeed(props: BoundedSourceFeedProps) {
   )
 }
 
+/**
+ * Reports every change to `value` upward via `onChange`, skipping the
+ * initial mount — `initialView`/`initialAssigneeFilter`/`initialTypeFilter`
+ * seed the state this watches, and firing `onChange` for that same seeded
+ * value would just round-trip it straight back into `InboxPane`'s
+ * `setParams` for no reason.
+ */
+function useReportChange<T>(value: T, onChange: ((value: T) => void) | undefined) {
+  const onChangeRef = useRef(onChange)
+  useEffect(() => {
+    onChangeRef.current = onChange
+  }, [onChange])
+  const isFirstRender = useRef(true)
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false
+      return
+    }
+    onChangeRef.current?.(value)
+  }, [value])
+}
+
 export function Inbox({
   sources,
   ask = false,
@@ -372,6 +410,12 @@ export function Inbox({
   suggestTodos = true,
   contentGaps,
   context,
+  initialView,
+  initialAssigneeFilter,
+  initialTypeFilter,
+  onViewChange,
+  onAssigneeFilterChange,
+  onTypeFilterChange,
 }: InboxProps) {
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const client = useClient({apiVersion: API_VERSION})
@@ -383,7 +427,8 @@ export function Inbox({
   // only `InboxRow` ever reads or writes one.
   const assessments = useAssessments()
   const currentUser = useCurrentUser()
-  const [view, setView] = useState<InboxView>('open')
+  const [view, setView] = useState<InboxView>(() => initialView ?? 'open')
+  useReportChange(view, onViewChange)
 
   // Caps the Inbox list at the sidebar's own actual rendered height, rather
   // than an eyeballed pixel constant — the sidebar's height already varies
@@ -617,8 +662,14 @@ export function Inbox({
   // everything" — so a fresh pane starts unfiltered rather than blank.
   // Jira-style multi-select: checking several people (or nobody plus several
   // people) narrows to their union, not just one at a time.
-  const [assigneeFilter, setAssigneeFilter] = useState<ReadonlySet<string>>(new Set())
-  const [typeFilter, setTypeFilter] = useState<ReadonlySet<string>>(new Set())
+  const [assigneeFilter, setAssigneeFilter] = useState<ReadonlySet<string>>(
+    () => initialAssigneeFilter ?? new Set(),
+  )
+  useReportChange(assigneeFilter, onAssigneeFilterChange)
+  const [typeFilter, setTypeFilter] = useState<ReadonlySet<string>>(
+    () => initialTypeFilter ?? new Set(),
+  )
+  useReportChange(typeFilter, onTypeFilterChange)
 
   const toggleSetMember = useCallback(
     (setState: (updater: (current: ReadonlySet<string>) => ReadonlySet<string>) => void) =>

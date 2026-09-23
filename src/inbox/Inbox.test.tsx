@@ -532,6 +532,78 @@ describe('Inbox source stability', () => {
   })
 })
 
+describe('Inbox tab/filter persistence', () => {
+  // `t()` has no i18next instance in this suite (see the note at the top of
+  // this file's `sanity` mock, and `InboxSection.test.tsx`'s identical one) —
+  // `t('tab.snoozed')` renders as the raw key, which is exactly what these
+  // assert on.
+
+  // `sources={[]}` renders the "nothing configured" empty state instead of
+  // the tab bar, so these need at least one (empty) source to see tabs at all.
+  const emptySource: InboxSource = {name: 'empty', title: 'Empty', useItems: () => ({items: []})}
+
+  it('mounts on the seeded initialView tab, not the default Open tab', () => {
+    renderWithTheme(<Inbox initialView="snoozed" sources={[emptySource]} />)
+
+    expect(
+      screen.getByText('tab.snoozed').closest('[role="tab"]')?.getAttribute('aria-selected'),
+    ).toBe('true')
+    expect(
+      screen.getByText('tab.open').closest('[role="tab"]')?.getAttribute('aria-selected'),
+    ).toBe('false')
+  })
+
+  it('calls onViewChange when the tab changes, but never for the value it mounted with', () => {
+    const onViewChange = vi.fn()
+    renderWithTheme(<Inbox onViewChange={onViewChange} sources={[emptySource]} />)
+
+    expect(onViewChange).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('tab.cleared'))
+
+    expect(onViewChange).toHaveBeenCalledTimes(1)
+    expect(onViewChange).toHaveBeenCalledWith('cleared')
+  })
+
+  it('pre-filters the open list to the seeded initialAssigneeFilter on mount', () => {
+    const source: InboxSource = {
+      name: 'work',
+      title: 'Work',
+      useItems: () => ({
+        items: [
+          {id: 'ada-item', title: "Ada's item", assignee: {id: 'ada', label: 'Ada'}},
+          {id: 'bo-item', title: "Bo's item", assignee: {id: 'bo', label: 'Bo'}},
+        ],
+      }),
+    }
+
+    renderWithTheme(<Inbox initialAssigneeFilter={new Set(['ada'])} sources={[source]} />)
+
+    expect(screen.getByText("Ada's item")).toBeTruthy()
+    expect(screen.queryByText("Bo's item")).toBeNull()
+  })
+
+  it('pre-filters the open list to the seeded initialTypeFilter on mount', () => {
+    const sourceA: InboxSource = {
+      name: 'sourceA',
+      title: 'Source A',
+      useItems: () => ({items: [{id: 'a-item', title: 'From source A'}]}),
+    }
+    const sourceB: InboxSource = {
+      name: 'sourceB',
+      title: 'Source B',
+      useItems: () => ({items: [{id: 'b-item', title: 'From source B'}]}),
+    }
+
+    renderWithTheme(
+      <Inbox initialTypeFilter={new Set(['sourceA'])} sources={[sourceA, sourceB]} />,
+    )
+
+    expect(screen.getByText('From source A')).toBeTruthy()
+    expect(screen.queryByText('From source B')).toBeNull()
+  })
+})
+
 describe('Inbox runSourceAction', () => {
   // The `action` object is built once, outside `useItems`, and referenced by
   // closure rather than recreated per call — same reasoning as `TODOS_ITEMS`/

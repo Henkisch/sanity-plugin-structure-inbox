@@ -1,13 +1,14 @@
 import {ImageIcon} from '@sanity/icons/Image'
 import {isDocumentSchemaType, isImageSchemaType} from '@sanity/types'
+import {useToast} from '@sanity/ui/toast'
 import {useCallback, useMemo, useRef} from 'react'
 import {useObservable} from 'react-rx'
 import {defer, from, of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
-import {useClient, useSchema, useWorkspace} from 'sanity'
+import {useClient, useSchema, useTranslation, useWorkspace} from 'sanity'
 import {useRouter} from 'sanity/router'
 
-import {API_VERSION} from '../../constants'
+import {API_VERSION, STRUCTURE_INBOX_NAMESPACE} from '../../constants'
 import {isHiddenType} from '../AddMenu'
 import {
   type FixProposal,
@@ -490,6 +491,17 @@ function toAssetTarget(asset: AssetRow): AssetTarget {
 }
 
 /**
+ * `oversized`/`unused` row ids are `` `oversized:${asset._id}` ``/`` `unused:${asset._id}` ``
+ * — the prefix already says which kind of row this is, so `openDetail`'s
+ * toast wording doesn't need a separate field threaded onto `AssetTarget`.
+ */
+function assetRowKind(id: string): 'oversized' | 'unused' | undefined {
+  if (id.startsWith('oversized:')) return 'oversized'
+  if (id.startsWith('unused:')) return 'unused'
+  return undefined
+}
+
+/**
  * The row says where the click lands before it is clicked — "used in 3
  * documents" and "not used anywhere" go to visibly different places.
  */
@@ -563,10 +575,23 @@ interface AssetIssuesFetch {
  * actually registered in this workspace (a media browser is a plugin, not a
  * given), then the file itself in a new tab.
  *
+ * The media-tool rung can only ever open the tool's own root, never the
+ * specific asset — no media browser plugin exposes a route or param an
+ * outside caller can address for this (checked `sanity-plugin-media`'s
+ * bundled source directly). So that rung also copies the asset's filename to
+ * the clipboard and toasts what to do with it: paste it into the tool's own
+ * search, then use its Replace (or, for an unused asset, delete it there) —
+ * the only path that actually fixes the asset for every document that
+ * references it, which a field-level fix cannot do (see below).
+ *
  * An earlier version sent these rows into the document using the asset, with
  * the image field focused. It was removed on maintainer feedback — landing on
  * a field is not "going to the asset" — and could not have served an unused
- * asset at all, which has no such document. See `plans/060`.
+ * asset at all, which has no such document. See `plans/060`. It was
+ * reconsidered once more here, this time because the actual goal turned out
+ * to be replace/edit rather than viewing — but a field-level fix only swaps
+ * one document's reference, leaving the oversized file itself untouched
+ * everywhere else it's used. Still the wrong destination for these rows.
  *
  * Missing- and poor-alt-text rows are different in kind: those are on a real,
  * ordinary document, and keep the `'edit'` intent they have always had.
@@ -613,6 +638,12 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
       const {assigneesById, byTarget, assign} = useAssignmentCapability(client, {
         targetId: targetIdFromItemId,
       })
+
+      // `useToast` throws with no mounted `ToastProvider` — true of some of
+      // this source's own `renderHook`-driven tests — so it goes through
+      // `useSafely` like every other capability this source can't assume.
+      const toast = useSafely(useToast, undefined)
+      const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
       const altEligibleFields = useMemo(() => findAltEligibleImageFields(schema, altFieldName), [schema])
 
@@ -867,26 +898,76 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
       // this workspace, then the file itself. Only a row with no `intent`
       // ever reaches this (`InboxRow`'s click order), so the used-asset rows
       // above can't collide with it.
+      //
+      // The middle rung can only ever land on the tool's own root, never the
+      // specific asset: `sanity-plugin-media`'s asset modal is driven by its
+      // own internal state, with no route or query param an outside caller
+      // can address (checked its bundled source directly — no `router` field
+      // on its tool definition, no `route.create()`, nothing reading a URL
+      // param). So this also copies the asset's filename to the clipboard and
+      // toasts what to do with it: paste it into the tool's own search, then
+      // use *its* Replace — which is what actually fixes an oversized asset
+      // for every document that references it. (A field-level fix, jumping to
+      // one referencing document's image field, only swaps that one
+      // document's reference and leaves the oversized file itself untouched
+      // everywhere else it's used — wrong fix here, and moot for `unused`
+      // rows anyway, which have no document to jump to. See `plans/060` for
+      // why field-level navigation was already tried and removed once.)
       const openDetail = useCallback(
         (item: InboxItem) => {
           const asset = assetsById.get(item.id)
           if (!asset) return
           if (openAsset) {
+            // Integrator's own callback owns this rung fully — no
+            // clipboard, no toast layered on top of it.
             openAsset(asset)
             return
           }
           if (mediaToolName && navigateUrlRef.current) {
             navigateUrlRef.current({path: `${basePath}/${mediaToolName}`})
+
+            const kind = assetRowKind(item.id) ?? 'oversized'
+            const identifier = asset.filename || asset.id
+            const clipboard = typeof navigator === 'undefined' ? undefined : navigator.clipboard
+
+            if (!clipboard) {
+              toast?.push({
+                status: 'info',
+                title: t(`assetIssues.copyFailed.${kind}`, {filename: identifier}),
+              })
+              return
+            }
+
+            clipboard.writeText(identifier).then(
+              () => {
+                const key = asset.filename ? 'filenameCopied' : 'idCopied'
+                toast?.push({
+                  status: 'success',
+                  title: t(`assetIssues.${key}.title`, {filename: identifier}),
+                  description: t(`assetIssues.${key}.${kind}`),
+                })
+                return undefined
+              },
+              () => {
+                toast?.push({
+                  status: 'info',
+                  title: t(`assetIssues.copyFailed.${kind}`, {filename: identifier}),
+                })
+                return undefined
+              },
+            )
             return
           }
           // No deep link into the tool above, and none invented here: whether
           // a given media plugin accepts an asset id in its route is that
           // plugin's business, and a guessed route is a broken destination
-          // dressed up as a working one.
+          // dressed up as a working one. No clipboard/toast on this rung
+          // either — there is no media-tool search box to point the copied
+          // text at, so it would have nothing concrete to say.
           if (asset.url) window.open(asset.url, '_blank', 'noopener,noreferrer')
         },
         // `openAsset` is this source's own option, fixed for the source's lifetime, so it is deliberately not a dependency.
-        [assetsById, mediaToolName, basePath],
+        [assetsById, mediaToolName, basePath, toast, t],
       )
 
       const proposeFix = useCallback(

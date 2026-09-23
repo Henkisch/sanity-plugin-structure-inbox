@@ -293,6 +293,28 @@ const enUS = {
   // `openTasks` — a row's own due-date subtitle.
   'openTasks.overdue': 'Overdue',
   'openTasks.due': 'Due',
+
+  // `assetIssues`'s `openDetail` — the media tool can only ever be opened at
+  // its root, never the specific asset, so these tell the editor what to do
+  // once they're there. Wording differs by row kind: an oversized asset has
+  // something to replace it *with*, an unused one doesn't — the goal there is
+  // deleting it, not replacing it.
+  'assetIssues.filenameCopied.title': 'Copied "{{filename}}"',
+  'assetIssues.filenameCopied.oversized':
+    "Paste it into the media tool's search to find the file, then use its Replace to swap in a smaller one.",
+  'assetIssues.filenameCopied.unused':
+    "Paste it into the media tool's search to find the file, then delete it there.",
+  // No filename on the asset — falls back to its id, worded so it doesn't
+  // claim to have copied something it didn't.
+  'assetIssues.idCopied.title': 'Copied the asset ID',
+  'assetIssues.idCopied.oversized':
+    "Paste it into the media tool's search to find the file, then use its Replace to swap in a smaller one.",
+  'assetIssues.idCopied.unused':
+    "Paste it into the media tool's search to find the file, then delete it there.",
+  // Clipboard write failed or unavailable — still navigated there, but must
+  // not claim a copy that didn't happen.
+  'assetIssues.copyFailed.oversized': 'Search the media tool for "{{filename}}" to replace it.',
+  'assetIssues.copyFailed.unused': 'Search the media tool for "{{filename}}" to delete it.',
 }
 
 export default enUS
