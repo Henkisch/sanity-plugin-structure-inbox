@@ -5,6 +5,16 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.4.0](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v2.3.0...v2.4.0) (2026-09-23)
+
+### Features
+
+- keep the inbox's tab and filters in the pane's own URL ([5545795](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/5545795a5dc52c15231e9c9d6a80d8452c5d55fc))
+
+### Bug Fixes
+
+- copy the filename and say what to do with it, when a media tool can't be told which asset ([30a57a5](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/30a57a5bfbee4536334efe61378c6879bb18490a))
+
 ## [2.3.0](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v2.2.1...v2.3.0) (2026-09-22)
 
 ### Features
