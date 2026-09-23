@@ -15,7 +15,9 @@
   (checked against a real dataset), so every query stays constant.
 - **Filter placement:** the filter is a "Language" group inside the existing filter menu,
   not a new control.
-- **Rows with no language:** these are hidden while a language filter is active.
+- **Rows with no language stay visible under a language filter.** It was first built to hide
+  them. That was reversed on UX grounds: the filter chooses between translations, and hiding
+  language-neutral work made the headline claim a nearly empty queue.
 - **Bug found live, and only in a Studio with no i18n at all:** the schema's abstract
   `document` type has no `fields` at runtime, so detection threw and took down three
   sources. Each failure stayed inside its own card because of 089's boundaries. It is

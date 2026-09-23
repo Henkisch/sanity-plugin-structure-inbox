@@ -780,8 +780,10 @@ and those fixes aren't offered (see [Alt text](#alt-text)).
 **Document-level translation** ([`@sanity/document-internationalization`](https://github.com/sanity-io/document-internationalization))
 also works without setup. Each translation is its own document, so the translations of one page
 would otherwise show up as identical rows. Instead, each row gets a small language badge (`SV`, `EN`),
-and once two or more languages are present, the filter menu gains a **Language** group. The filter
-is saved in the pane's URL along with the others. Only document types whose schema declares the
+and once two or more languages are present, the filter menu gains a **Language** group. It chooses
+between translations: rows that aren't in any one language (tasks, comments, field-level-localized
+documents) stay visible, so filtering never hides work. The filter is saved in the pane's URL along
+with the others. Only document types whose schema declares the
 language field are read (`language`, or set `i18n.languageField` to match your plugin config; `false`
 turns it off). A Studio without document-level translation sees no difference.
 

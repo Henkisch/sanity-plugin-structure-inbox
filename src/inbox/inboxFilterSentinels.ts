@@ -25,9 +25,7 @@ export function matchesInboxFilters(
   row: {sourceName: string; item: InboxItem},
   assigneeFilter: ReadonlySet<string>,
   typeFilter: ReadonlySet<string>,
-  // Optional so every existing two-filter call site keeps its meaning. A row
-  // with no language (anything that isn't a document-level translation)
-  // never matches a language filter: "show me the English ones" means those.
+  // Optional so every existing two-filter call site keeps its meaning.
   languageFilter: ReadonlySet<string> = NO_FILTER,
 ): boolean {
   if (assigneeFilter.size > 0) {
@@ -38,7 +36,12 @@ export function matchesInboxFilters(
     if (!assigneeFilter.has(key)) return false
   }
   if (typeFilter.size > 0 && !typeFilter.has(row.sourceName)) return false
-  if (languageFilter.size > 0 && !(row.item.language && languageFilter.has(row.item.language))) {
+  // Chooses *between translations* — it never hides a row that has no
+  // language at all (a task, a comment, a todo, a field-level-localized
+  // document). Those aren't the Swedish or the English version of anything,
+  // so they aren't what an editor is narrowing away, and hiding them made
+  // the headline claim a nearly empty queue while real work sat out of view.
+  if (languageFilter.size > 0 && row.item.language && !languageFilter.has(row.item.language)) {
     return false
   }
   return true

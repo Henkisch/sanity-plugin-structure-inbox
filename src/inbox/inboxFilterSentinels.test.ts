@@ -63,7 +63,10 @@ describe('matchesInboxFilters — language', () => {
     expect(matchesInboxFilters(row('drafts', {language: 'sv'}), new Set(), new Set(), filter)).toBe(false)
   })
 
-  it('drops a row with no language while a language filter is on', () => {
-    expect(matchesInboxFilters(row('drafts'), new Set(), new Set(), new Set(['en']))).toBe(false)
+  it('keeps a row with no language visible while a language filter is on', () => {
+    // A task or a field-level-localized document isn't one language's
+    // version of anything — the filter picks between translations, it
+    // doesn't hide language-neutral work.
+    expect(matchesInboxFilters(row('drafts'), new Set(), new Set(), new Set(['en']))).toBe(true)
   })
 })
