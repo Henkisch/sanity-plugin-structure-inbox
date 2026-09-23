@@ -5,6 +5,19 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.5.0](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v2.4.0...v2.5.0) (2026-09-23)
+
+### Features
+
+- keep language-neutral rows visible under a language filter ([7195a5d](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/7195a5d16fb454e529898ba11b897da5408c390a))
+- show which language a row is in, and filter by it ([10b31d3](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/10b31d3461acb917841b06016164179d90ac0632))
+
+### Bug Fixes
+
+- keep a restored filter selection clearable ([5c9f568](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/5c9f56860482db6dcdf38f341aaa6dc7f12c94d5))
+- read localized titles as text instead of crashing the Structure tool ([e34eb16](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/e34eb16d37f52ed7dd0f52d2d874c5c5853f3faf))
+- retry drafts whose validation timed out instead of dropping them ([ec98bb4](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/ec98bb4f9ae31282762069b8b825f5305387e63a))
+
 ## [2.4.0](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v2.3.0...v2.4.0) (2026-09-23)
 
 ### Features
