@@ -64,6 +64,14 @@ describe('getRealDocumentTypeNames', () => {
     expect(getRealDocumentTypeNames(schema)).toEqual([{name: 'post', title: 'Post'}])
   })
 
+  it("excludes document-internationalization's own translation.metadata", () => {
+    const schema = schemaWith([
+      {name: 'post', title: 'Post'},
+      {name: 'translation.metadata', title: 'Translation metadata'},
+    ])
+    expect(getRealDocumentTypeNames(schema)).toEqual([{name: 'post', title: 'Post'}])
+  })
+
   it('falls back to the type name when no title is set', () => {
     const schema = schemaWith([{name: 'post'}])
     expect(getRealDocumentTypeNames(schema)).toEqual([{name: 'post', title: 'post'}])

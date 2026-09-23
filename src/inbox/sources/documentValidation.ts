@@ -14,7 +14,10 @@ import {catchError, map, startWith} from 'rxjs/operators'
 import {useClient, useCurrentUser, useSchema} from 'sanity'
 
 import {API_VERSION} from '../../constants'
+import {toDisplayTitle} from '../../i18n/contentText'
+import {useContentLanguages} from '../../i18n/useContentLanguages'
 import {mapWithConcurrency} from '../concurrency'
+import {getRealDocumentTypeNames} from '../projectDigest'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {targetIdFromIntentParamsId, useAssignmentCapability} from './assignmentCapability'
 import {optionalExport} from './capability'
@@ -160,7 +163,10 @@ export function summarizeErrors(result: ValidateDocumentResult): string | null {
  * with `typeof` guards rather than a cast, since a draft's own shape is
  * whatever its schema allows, not something this source controls.
  */
-function draftMeta(draft: Record<string, unknown>): {
+function draftMeta(
+  draft: Record<string, unknown>,
+  languages: readonly string[],
+): {
   id: string
   type: string
   title: string
@@ -168,7 +174,7 @@ function draftMeta(draft: Record<string, unknown>): {
 } {
   const id = String(draft._id)
   const type = typeof draft._type === 'string' ? draft._type : 'unknown'
-  const title = typeof draft.title === 'string' && draft.title ? draft.title : type || id
+  const title = toDisplayTitle(draft.title, languages) ?? (type || id)
   const updatedAt = typeof draft._updatedAt === 'string' ? draft._updatedAt : undefined
   return {id, type, title, updatedAt}
 }
@@ -201,7 +207,11 @@ export interface DocumentValidationOptions {
   limit?: number
   /** Row category label. Defaults to a translated "Needs fixing"; a custom value is shown exactly as given. */
   title?: string
-  /** Restrict to these document types. Defaults to every type in the schema. */
+  /**
+   * Restrict to these document types. Defaults to every content type in the
+   * schema — system types (`sanity.*`) and plugin bookkeeping like
+   * `translation.metadata` left out.
+   */
   types?: string[]
 }
 
@@ -425,8 +435,12 @@ export function documentValidation(options: DocumentValidationOptions = {}): Inb
         targetId: targetIdFromIntentParamsId,
       })
 
+      const languages = useContentLanguages()
+
       const fetch$ = useMemo(() => {
-        const params = {limit, types: types ?? null}
+        // Same default `unpublishedDrafts` uses, for the same reason: `null`
+        // (every type) let through drafts nobody can act on.
+        const params = {limit, types: types ?? getRealDocumentTypeNames(schema).map((type) => type.name)}
         // The `map` to `DraftsFetch` now lives inside `readDrafts$` itself,
         // not after `liveQuery$` — so `onFetchError`'s empty result and a
         // successful fetch's mapped result are the same shape by the time
@@ -442,7 +456,7 @@ export function documentValidation(options: DocumentValidationOptions = {}): Inb
           startWith<DraftsFetch>({drafts: [], loading: true}),
           catchError((error: Error) => of<DraftsFetch>({drafts: [], error})),
         )
-      }, [client])
+      }, [client, schema])
 
       const {drafts, loading, error: draftsError} = useObservable(fetch$, {drafts: [], loading: true})
       const {results, error: validationError} = useValidationResults(client, schema, currentUser, drafts)
@@ -450,7 +464,7 @@ export function documentValidation(options: DocumentValidationOptions = {}): Inb
       const items = useMemo(() => {
         const rows: InboxItem[] = []
         for (const draft of drafts) {
-          const meta = draftMeta(draft)
+          const meta = draftMeta(draft, languages)
           const result = results.get(meta.id)
           if (!result || result.status !== 'failed') continue
 
@@ -481,7 +495,7 @@ export function documentValidation(options: DocumentValidationOptions = {}): Inb
           rows.push(assignee ? {...row, assignee} : row)
         }
         return rows
-      }, [drafts, results, byTarget, assigneesById])
+      }, [drafts, results, byTarget, assigneesById, languages])
 
       return {items, loading, error: draftsError ?? validationError, assign}
     },

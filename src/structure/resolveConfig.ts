@@ -18,5 +18,6 @@ export function resolveConfig(config: StructureInboxConfig = {}): ResolvedStruct
     title: config.title,
     contentGaps: config.contentGaps,
     context: config.context,
+    i18n: config.i18n,
   }
 }

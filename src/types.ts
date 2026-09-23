@@ -116,6 +116,36 @@ export interface StructureInboxConfig {
    * judgment call across the whole project.
    */
   context?: string
+
+  /**
+   * How the inbox reads localized content — a title stored by
+   * `sanity-plugin-internationalized-array`, a `localeString`-style object,
+   * and localized image alt text. Nothing to configure for most Studios:
+   * without it, content is read in the editor's Studio language, falling
+   * back to whichever language a document does have.
+   */
+  i18n?: StructureInboxI18nConfig
+}
+
+/**
+ * Options for {@link StructureInboxConfig.i18n}.
+ *
+ * @public
+ */
+export interface StructureInboxI18nConfig {
+  /**
+   * Content languages to prefer, in order, as the ids your content stores
+   * (`'sv'`, `'en'`). A row shows the first of these a document has text in,
+   * and otherwise any language it does have. Alt-text checks treat the first
+   * as the language an image must be described in.
+   *
+   * Set this when content is written in a different language than the
+   * Studio's UI — a Swedish site edited in an English Studio would otherwise
+   * prefer `en`.
+   *
+   * @defaultValue the editor's Studio locale, then its bare language (`en-US`, `en`)
+   */
+  languages?: string[]
 }
 
 /** @internal */
@@ -130,4 +160,4 @@ export type ResolvedStructureInboxConfig = Required<
     | 'suggestTodos'
   >
 > &
-  Pick<StructureInboxConfig, 'title' | 'contentGaps' | 'context'>
+  Pick<StructureInboxConfig, 'title' | 'contentGaps' | 'context' | 'i18n'>

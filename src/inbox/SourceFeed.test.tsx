@@ -4,7 +4,7 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {EMPTY_SNOOZES} from '../store/snoozes'
 import {type Snoozes} from '../store/useSnoozes'
-import {SourceFeed, type SourceReport} from './SourceFeed'
+import {normalizeItemText, SourceFeed, type SourceReport} from './SourceFeed'
 import {type InboxSource, type InboxSourceResult} from './types'
 
 afterEach(cleanup)
@@ -179,5 +179,53 @@ describe('SourceFeed with an item value that never compares equal', () => {
 
     expect(() => render(<Host />)).not.toThrow()
     expect(onReport.mock.calls.length).toBeLessThan(10)
+  })
+})
+
+describe('normalizeItemText', () => {
+  it('hands back the same array when every title is already text', () => {
+    const items = [{id: 'a', title: 'A', subtitle: 'Post'}, {id: 'b', title: 'B'}]
+    const onFixed = vi.fn()
+    expect(normalizeItemText(items, ['en'], 'Untitled', onFixed)).toBe(items)
+    expect(onFixed).not.toHaveBeenCalled()
+  })
+
+  it('turns a localized title into text, and an unreadable one into the fallback', () => {
+    const localized = [{_key: 'sv', language: 'sv', value: 'Hej'}]
+    const untouched = {id: 'c', title: 'C'}
+    const items = [
+      {id: 'a', title: localized as unknown as string, subtitle: {foo: 1} as unknown as string},
+      {id: 'b', title: 42 as unknown as string},
+      untouched,
+    ]
+    const onFixed = vi.fn()
+
+    const result = normalizeItemText(items, ['en'], 'Untitled', onFixed)
+
+    expect(result[0]).toMatchObject({id: 'a', title: 'Hej', subtitle: undefined})
+    expect(result[1]).toMatchObject({id: 'b', title: 'Untitled'})
+    // Only the offending items are rebuilt.
+    expect(result[2]).toBe(untouched)
+    expect(onFixed).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('SourceFeed with a non-text title', () => {
+  it('reports the title as text, for an integrator source as much as a built-in', () => {
+    const source: InboxSource = {
+      name: 'integrator',
+      title: 'Integrator',
+      useItems: () => ({
+        items: [{id: 'doc-1', title: [{_key: 'en', language: 'en', value: 'Hello'}] as unknown as string}],
+      }),
+    }
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const onReport = vi.fn()
+
+    render(<SourceFeed now={NOW} onReport={onReport} snoozes={fakeSnoozes()} source={source} />)
+
+    const report = onReport.mock.calls.at(-1)?.[1] as SourceReport
+    expect(report.open[0]?.title).toBe('Hello')
+    warn.mockRestore()
   })
 })

@@ -11,10 +11,13 @@ import {promptJson} from '../../ai/promptJson'
 import {parseSnoozeSuggestion} from '../../ai/snoozeSuggestion'
 import {useAgentClient} from '../../ai/useAgentClient'
 import {API_VERSION} from '../../constants'
+import {toDisplayTitle} from '../../i18n/contentText'
+import {useContentLanguages} from '../../i18n/useContentLanguages'
 import {EMPTY_DISMISSALS, type DismissalState} from '../../store/dismissals'
 import {type SnoozeState} from '../../store/snoozes'
 import {warnOnce} from '../../warnOnce'
 import {countOpenItems} from '../mergeItems'
+import {getRealDocumentTypeNames} from '../projectDigest'
 import {type InboxAssessment, type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {targetIdFromIntentParamsId, useAssignmentCapability} from './assignmentCapability'
 import {fetchDocumentAuthors, filterAuthoredBy} from './authoredBy'
@@ -28,7 +31,11 @@ export interface UnpublishedDraftsOptions {
   olderThanDays?: number
   /** Cap on rows. Defaults to 10. */
   limit?: number
-  /** Restrict to these document types. Defaults to every type in the schema. */
+  /**
+   * Restrict to these document types. Defaults to every content type in the
+   * schema — system types (`sanity.*`) and plugin bookkeeping like
+   * `translation.metadata` left out.
+   */
   types?: string[]
   /** Row category label. Defaults to a translated "Draft"; a custom value is shown exactly as given. */
   title?: string
@@ -65,8 +72,10 @@ interface DraftRow {
   _type: string
   _updatedAt: string
   // `null`, not just possibly absent: the query's own `coalesce()` returns
-  // `null` for a document with no title/name/label field, never `_id`.
-  title?: string | null
+  // `null` for a document with no title/name/label field, never `_id`. And
+  // not necessarily a string: a localized title is an array or an object —
+  // see `toDisplayTitle`.
+  title?: unknown
 }
 
 /**
@@ -166,6 +175,7 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
     schema: ReturnType<typeof useSchema>,
     userId: string | undefined,
   ): InboxSourceResult {
+    const languages = useContentLanguages()
     const result$ = useMemo(() => {
       // Read once per `[client, schema, userId]` recompute, same as this
       // logic did inline inside `useItems()` before this hook was extracted
@@ -173,7 +183,16 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
       // eslint-disable-next-line react/purity -- see comment above
       const before = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString()
       const rawLimit = onlyMine ? limit * ONLY_MINE_OVERFETCH_MULTIPLIER : limit
-      const params = {before, limit: rawLimit, types: types ?? null}
+      // Without an explicit `types`, only the project's own content types —
+      // not `null` (every type), which let through drafts of system types
+      // (`sanity.previewUrlSecret`), of plugin bookkeeping
+      // (`translation.metadata`), and of types since removed from the schema,
+      // none of which an editor can do anything with from here.
+      const params = {
+        before,
+        limit: rawLimit,
+        types: types ?? getRealDocumentTypeNames(schema).map((type) => type.name),
+      }
 
       const toItem = (row: DraftRow): InboxItem => {
         // A draft can exist with no title at all (that's exactly what
@@ -183,7 +202,7 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
         const typeName = typeDisplayName(schema, row._type)
         return {
           id: row._id,
-          title: row.title || typeName,
+          title: toDisplayTitle(row.title, languages) ?? typeName,
           subtitle: typeName,
           timestamp: row._updatedAt,
           changedAt: row._updatedAt,
@@ -239,7 +258,7 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
         startWith<InboxSourceResult>({items: [], loading: true}),
         catchError((error: Error) => of<InboxSourceResult>({items: [], error})),
       )
-    }, [client, schema, userId])
+    }, [client, schema, userId, languages])
 
     return useObservable(result$, {items: [], loading: true})
   }

@@ -9,6 +9,8 @@ import {useClient, useSchema, useTranslation, useWorkspace} from 'sanity'
 import {useRouter} from 'sanity/router'
 
 import {API_VERSION, STRUCTURE_INBOX_NAMESPACE} from '../../constants'
+import {toDisplayTitle} from '../../i18n/contentText'
+import {useContentLanguages, useContentWriteLanguage} from '../../i18n/useContentLanguages'
 import {isHiddenType} from '../AddMenu'
 import {
   type FixProposal,
@@ -50,12 +52,36 @@ function imageSubfieldName(
   return fields?.find((sub) => isImageSchemaType(sub.type))?.name
 }
 
-/** True when some sub-field is named `altFieldName` — works the same whether `fields` came from a direct image type or a wrapper object type. */
-function hasAltSibling(
+/** The sub-field named `altFieldName`, if any — works the same whether `fields` came from a direct image type or a wrapper object type. */
+function altSibling(
   fields: {name: string; type: WalkableSchemaType}[] | undefined,
   altFieldName: string,
-): boolean {
-  return Boolean(fields?.some((sub) => sub.name === altFieldName))
+): {name: string; type: WalkableSchemaType} | undefined {
+  return fields?.find((sub) => sub.name === altFieldName)
+}
+
+/**
+ * What an alt field stores, as far as reading and fixing it goes.
+ *
+ * - `string`: a plain string field — the only shape before localization was
+ *   considered, and still the common one.
+ * - `internationalizedArray`: `sanity-plugin-internationalized-array`'s
+ *   `[{_key, _type, language, value}]`. Readable, and fixable by writing one
+ *   entry — the plugin's own entry type is `<field type>Value`.
+ * - `localized`: any other non-string shape (a `localeString` object, some
+ *   other array). Readable through `toDisplayTitle`, never written: this
+ *   source has no way to know that shape's write contract, and a plain
+ *   string patched over it would corrupt the field.
+ */
+export type AltFieldShape = 'string' | 'internationalizedArray' | 'localized'
+
+/** Exported for its own test. */
+export function altFieldShape(type: WalkableSchemaType): AltFieldShape {
+  if (type.name.startsWith('internationalizedArray') && type.jsonType === 'array') {
+    return 'internationalizedArray'
+  }
+  if (type.jsonType === undefined || type.jsonType === 'string') return 'string'
+  return 'localized'
 }
 
 interface EligibleImageField {
@@ -71,6 +97,10 @@ interface EligibleImageField {
    * separately.
    */
   imagePath: string
+  /** How the alt sub-field stores its text — see {@link AltFieldShape}. */
+  altShape: AltFieldShape
+  /** The alt sub-field's own schema type name — an internationalized array's entries are `<this>Value`. */
+  altTypeName: string
 }
 
 /**
@@ -85,6 +115,8 @@ interface EligibleImageField {
 interface WalkableSchemaType {
   name: string
   title?: string
+  /** Absent on hand-built test fixtures, which the walk treats as a plain string field. */
+  jsonType?: string
   type?: WalkableSchemaType
   fields?: {name: string; type: WalkableSchemaType}[]
 }
@@ -127,7 +159,8 @@ export function findAltEligibleImageFields(
       const isDirectImage = isImageSchemaType(fieldType)
       const subfield = isDirectImage ? undefined : imageSubfieldName(fieldType.fields)
       if (!isDirectImage && !subfield) continue
-      if (!hasAltSibling(fieldType.fields, altFieldName)) continue
+      const alt = altSibling(fieldType.fields, altFieldName)
+      if (!alt) continue
       // Guards the GROQ interpolation below (`assetIssues`'s missing-/poor-alt
       // queries splice `field.fieldName` and `imagePath` straight into the
       // query string) — a real Sanity field name is already restricted to a
@@ -144,6 +177,8 @@ export function findAltEligibleImageFields(
         fieldName: field.name,
         fieldTitle: fieldType.title || field.name,
         imagePath: subfield ? `${field.name}.${subfield}` : field.name,
+        altShape: altFieldShape(alt.type),
+        altTypeName: alt.type.name,
       })
     }
   }
@@ -207,8 +242,18 @@ export interface AltContext {
   documentId: string
   documentType: string
   fieldName: string
-  /** The document's own title/name/label — absent when it has none. */
+  /**
+   * The document's own title/name/label — absent when it has none. On a
+   * localized document, the text in `language` when that's set, and in the
+   * editor's preferred content language otherwise.
+   */
   title?: string
+  /**
+   * The content language the alt text will be written in — set only for a
+   * localized alt field, and then always the first of the plugin's own
+   * `i18n.languages`. Describe the image in this language.
+   */
+  language?: string
 }
 
 /**
@@ -440,14 +485,15 @@ const ASSET_COUNT_QUERY = `count(*[_type in $assetTypes])`
 
 interface MissingAltRow {
   _id: string
-  title: string
+  /** `unknown`, not `string`: a localized title is an array or an object — see `toDisplayTitle`. */
+  title: unknown
   /**
    * The document's own title/name/label, *without* the `_id` fallback
    * `title` carries. `title` is display text and is always a string; this is
    * the only one a fix is allowed to write, because `alt="person-a1b2c3"` is
    * worse than no alt text at all.
    */
-  safeTitle?: string
+  safeTitle?: unknown
   /** The image asset's CDN url, for `describeImage`. Absent when the field holds no asset. */
   imageUrl?: string
   _updatedAt?: string
@@ -455,10 +501,28 @@ interface MissingAltRow {
 
 interface PoorAltRow {
   _id: string
-  title: string
+  title: unknown
   _updatedAt?: string
-  alt: string
+  /** A string on a plain alt field; an array or an object on a localized one. */
+  alt: unknown
   assetFilename?: string
+}
+
+/**
+ * The GROQ condition for "this image has no alt text", per alt field shape.
+ * For an internationalized array that is "no entry has any text, in any
+ * language" — not "none in the preferred language": that would be a
+ * translation-coverage check, and on a Studio whose UI locale isn't a content
+ * language at all it would flag every image in the dataset. Both path
+ * segments are `SIMPLE_FIELD_PATH`-guarded by the schema walk, like every
+ * other interpolation in this file.
+ */
+function missingAltFilter(field: EligibleImageField, altFieldName: string): string {
+  const path = `${field.fieldName}.${altFieldName}`
+  if (field.altShape === 'internationalizedArray') {
+    return `(!defined(${path}) || count(${path}[defined(value) && value != ""]) == 0)`
+  }
+  return `!defined(${path})`
 }
 
 /** Distinct row `category` text per `AltTextIssue` kind — three separate findings, not one vague bucket. */
@@ -476,6 +540,8 @@ const ALT_ISSUE_CATEGORY: Record<AltTextIssue, string> = {
  */
 interface AltTarget extends AltContext {
   imageUrl?: string
+  altShape: AltFieldShape
+  altTypeName: string
   /** Non-null exactly when a deterministic answer exists — this is what makes a row quick-fixable. */
   suggestion: string | null
 }
@@ -646,6 +712,8 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
       const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
       const altEligibleFields = useMemo(() => findAltEligibleImageFields(schema, altFieldName), [schema])
+      const languages = useContentLanguages()
+      const writeLanguage = useContentWriteLanguage()
 
       // Both of these throw rather than return a fallback when their context
       // isn't mounted (`Could not find \`source\` context`, `Router: missing
@@ -699,7 +767,7 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
                 Promise.all(
                   altEligibleFields.map((field) =>
                     client.fetch<MissingAltRow[]>(
-                      `*[_type == $type && defined(${field.fieldName}) && !defined(${field.fieldName}.${altFieldName})] | order(_updatedAt desc)[0...$limit]{_id, "title": coalesce(title, name, label, _id), "safeTitle": coalesce(title, name, label), "imageUrl": ${field.imagePath}.asset->url, _updatedAt}`,
+                      `*[_type == $type && defined(${field.fieldName}) && ${missingAltFilter(field, altFieldName)}] | order(_updatedAt desc)[0...$limit]{_id, "title": coalesce(title, name, label, _id), "safeTitle": coalesce(title, name, label), "imageUrl": ${field.imagePath}.asset->url, _updatedAt}`,
                       {type: field.documentType, limit},
                     ),
                   ),
@@ -808,22 +876,45 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
         for (const [index, fieldMissingAlt] of missingAlt.entries()) {
           const field = altEligibleFields[index]
           if (!field) continue
+          // A localized alt field is only writable in a language the
+          // integrator named (`useContentWriteLanguage`), and a non-array
+          // localized shape not at all — see `AltFieldShape`. Such a row still
+          // shows and still opens the document; it just offers no fix.
+          const writable =
+            field.altShape === 'string' ||
+            (field.altShape === 'internationalizedArray' && writeLanguage !== undefined)
+          const language = field.altShape === 'string' ? undefined : writeLanguage
           for (const doc of fieldMissingAlt) {
             const id = `missingAlt:${doc._id}:${field.fieldName}`
-            const ctx = {
+            const ctx: AltContext = {
               documentId: doc._id,
               documentType: field.documentType,
               fieldName: field.fieldName,
-              title: doc.safeTitle,
+              // Writing in one specific language wants the title in that
+              // language or nothing — a Swedish alt text copied from the
+              // English title is wrong, not approximately right.
+              title:
+                (language
+                  ? toDisplayTitle(doc.safeTitle, [language], {strict: true})
+                  : toDisplayTitle(doc.safeTitle, languages)) ?? undefined,
+              ...(language ? {language} : {}),
             }
-            const suggestion = suggestAltText(ctx, {altFromTitle, suggestAlt})
+            const suggestion = writable ? suggestAltText(ctx, {altFromTitle, suggestAlt}) : null
 
-            targets.set(id, {...ctx, imageUrl: doc.imageUrl, suggestion})
+            if (writable) {
+              targets.set(id, {
+                ...ctx,
+                imageUrl: doc.imageUrl,
+                suggestion,
+                altShape: field.altShape,
+                altTypeName: field.altTypeName,
+              })
+            }
 
             rows.push(
               withAssignee({
                 id,
-                title: doc.title,
+                title: toDisplayTitle(doc.title, languages) ?? doc._id,
                 subtitle: `${field.documentTypeTitle} · ${field.fieldTitle}`,
                 category: 'Missing alt text',
                 tone: 'caution',
@@ -846,7 +937,7 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
                 // deterministic one this plugin can write for free, or an
                 // image an integrator's own model could be asked about.
                 quickFixable: suggestion !== null,
-                fixable: suggestion !== null || Boolean(describeImage && doc.imageUrl),
+                fixable: suggestion !== null || (writable && Boolean(describeImage && doc.imageUrl)),
               }),
             )
           }
@@ -856,12 +947,18 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
           const field = altEligibleFields[index]
           if (!field) continue
           for (const doc of fieldPoorAlt) {
-            const issue = classifyAltText(doc.alt, doc.assetFilename)
+            // A plain string is classified as-is, `''` included (that's
+            // `tooShort`, as it always was). A localized value is classified
+            // in the preferred language; one with no text at all is the
+            // missing-alt check's row, not this one's.
+            const altText = typeof doc.alt === 'string' ? doc.alt : toDisplayTitle(doc.alt, languages)
+            if (altText === null) continue
+            const issue = classifyAltText(altText, doc.assetFilename)
             if (!issue) continue
             rows.push(
               withAssignee({
                 id: `poorAlt:${doc._id}:${field.fieldName}`,
-                title: doc.title,
+                title: toDisplayTitle(doc.title, languages) ?? doc._id,
                 subtitle: `${field.documentTypeTitle} · ${field.fieldTitle}`,
                 category: ALT_ISSUE_CATEGORY[issue],
                 tone: 'caution',
@@ -890,6 +987,8 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
         altEligibleFields,
         byTarget,
         assigneesById,
+        languages,
+        writeLanguage,
       ])
 
       // Where an asset row goes when no document uses it — a ladder, because a
@@ -984,12 +1083,37 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
             `*[_id == $id][0].${target.fieldName}.${altFieldName}`,
             {id: target.documentId},
           )
-          if (typeof current === 'string' && current.trim()) return null
+          // Any text at all, in any shape or language, means someone got
+          // here first — and for a localized field it is also what stops a
+          // plain string from ever being written over existing entries.
+          if (toDisplayTitle(current, [])) return null
 
+          const path = `${target.fieldName}.${altFieldName}`
           const write = (alt: string) => async () => {
+            if (target.altShape === 'internationalizedArray' && target.language) {
+              // Replacing the whole array is safe only because of the guard
+              // above: every entry in it is empty. `_key` *and* `language`
+              // carry the language, so both the plugin's older (`_key`) and
+              // current (`language`) readers find it.
+              await client
+                .patch(target.documentId)
+                .set({
+                  [path]: [
+                    {
+                      _key: target.language,
+                      _type: `${target.altTypeName}Value`,
+                      language: target.language,
+                      value: alt,
+                    },
+                  ],
+                })
+                .commit()
+              return
+            }
+            if (target.altShape !== 'string') return
             await client
               .patch(target.documentId)
-              .set({[`${target.fieldName}.${altFieldName}`]: alt})
+              .set({[path]: alt})
               .commit()
           }
 
@@ -1007,6 +1131,7 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
             documentType: target.documentType,
             fieldName: target.fieldName,
             title: target.title,
+            ...(target.language ? {language: target.language} : {}),
             // Capped width: the integrator pays for this call, and no vision
             // model needs the full-resolution original to write one sentence.
             imageUrl: `${target.imageUrl}?w=1024&fit=max&auto=format`,

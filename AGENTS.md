@@ -86,6 +86,20 @@ fallback result, an error, an empty list — belongs at module scope or behind a
 `useMemo`, never built inline. Integrators' own sources are covered by
 `useStableItems`; the built-ins should not be relying on it.
 
+## A document field is not a string until `toDisplayTitle` says so
+
+`coalesce(title, name, label)` is a string only in a Studio that doesn't
+localize its fields. `sanity-plugin-internationalized-array` makes it
+`[{_key, _type, language, value}]`, which a built-in once passed straight to a
+row — and a React child that is an object throws, which took down a customer's
+whole Structure tool (plan 089). Any row text read from a document's own field
+goes through `toDisplayTitle` (`src/i18n/contentText.ts`) with
+`useContentLanguages()`; type such query results `unknown`, never `string`.
+`SourceFeed`'s `normalizeItemText` and `RowBoundary` are the backstops, not the
+contract. And never *write* a plain string to a field without checking its
+shape: `assetIssues`' `altFieldShape` exists because a string patched over a
+localized alt array silently corrupts it.
+
 ## A new `InboxSourceResult` field must be wired in three places
 
 `SourceFeed.tsx` is the one funnel every source's result passes through

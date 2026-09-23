@@ -81,6 +81,12 @@ const enUS = {
   'selection.all': 'All',
   'selection.none': 'None',
   'row.menu': 'More actions',
+  // A row whose source gave it no usable title — a localized or otherwise
+  // non-text value this plugin couldn't read.
+  'row.untitled': 'Untitled',
+  // Shown in place of a row that threw while rendering, so one bad row costs
+  // itself rather than the list around it.
+  'row.renderFailed': "Couldn't display this item",
   'selection.cancel': 'Cancel',
   'selection.undo': 'Undo',
   'selection.count_one': '{{count}} selected',

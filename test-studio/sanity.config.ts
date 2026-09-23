@@ -1,4 +1,5 @@
 import {visionTool} from '@sanity/vision'
+import {internationalizedArray} from 'sanity-plugin-internationalized-array'
 import {media} from 'sanity-plugin-media'
 import {defineConfig} from 'sanity'
 import {
@@ -47,6 +48,15 @@ export default defineConfig({
   dataset,
   plugins: [
     structureTool({structure}),
+    // Field-level localization for the `cocktail` type — the plugin behind
+    // the localized-title crash (plan 089).
+    internationalizedArray({
+      languages: [
+        {id: 'sv', title: 'Swedish'},
+        {id: 'en', title: 'English'},
+      ],
+      fieldTypes: ['string'],
+    }),
     // The real `sanity-plugin-media`, behind an env toggle, because
     // `assetIssues` has to work in *both* states: it detects a media tool at
     // runtime (`useTools`) rather than depending on one, and the only honest
@@ -66,6 +76,9 @@ export default defineConfig({
       // Off by default (plan 022) — on here so this workspace exercises
       // it too, alongside every other surface it's built to demo.
       ask: true,
+      // Content here is Swedish first, whatever the editor's UI language —
+      // which is also what lets a localized alt-text fix write at all.
+      i18n: {languages: ['sv', 'en']},
       // Off by default — on here for the same reason `ask` is.
       contentGaps: {},
       // Grounds every AI read (Summarize, Suggest todos, Ask, Find
@@ -96,7 +109,7 @@ export default defineConfig({
           // name is the correct alt text — free, instant, and bulk-able.
           // `post.heroImage` and `event.coverImage` deliberately stay out of
           // this: a hero image is not a picture of its headline.
-          altFromTitle: ['author.portrait'],
+          altFromTitle: ['author.portrait', 'cocktail.photo'],
           // Stands in for a real vision model, so the per-row paid path is
           // reachable in this workspace without wiring up an API key. The
           // point being exercised is *when* this is called, not what it says.

@@ -2,7 +2,7 @@ export {DEFAULT_TOOL_NAME, INBOX_PANE_ID, STRUCTURE_INBOX_NAMESPACE} from './con
 export {structureInbox} from './plugin'
 export {inboxListItem} from './structure/inboxNode'
 export {useInboxOpenCount} from './studio/inboxCountLayout'
-export type {StructureInboxConfig} from './types'
+export type {StructureInboxConfig, StructureInboxI18nConfig} from './types'
 
 export type {
   CreateItemInput,

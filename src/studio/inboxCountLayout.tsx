@@ -1,6 +1,7 @@
 import {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react'
 import {type LayoutProps} from 'sanity'
 
+import {ContentI18nContext} from '../i18n/useContentLanguages'
 import {type DismissalState} from '../store/dismissals'
 import {type SnoozeState} from '../store/snoozes'
 import {useDismissals, type Dismissals} from '../store/useDismissals'
@@ -176,27 +177,29 @@ export function createInboxCountLayout(config: ResolvedStructureInboxConfig) {
     )
 
     return (
-      <SharedInboxStoreContext.Provider value={store}>
-        <InboxOpenCountContext.Provider value={openCount}>
-          {countableSources.map((source) => (
-            <SectionErrorBoundary
-              fallback={null}
-              key={source.name}
-              onCatch={() => handleCount(source.name, null)}
-              resetKey={sourceRetryKeys[source.name]}
-            >
-              <OpenCountFeed
-                dismissals={dismissals.state}
-                now={now}
-                onCount={handleCount}
-                snoozes={snoozes.state}
-                source={source}
-              />
-            </SectionErrorBoundary>
-          ))}
-          {props.renderDefault(props)}
-        </InboxOpenCountContext.Provider>
-      </SharedInboxStoreContext.Provider>
+      <ContentI18nContext.Provider value={config.i18n}>
+        <SharedInboxStoreContext.Provider value={store}>
+          <InboxOpenCountContext.Provider value={openCount}>
+            {countableSources.map((source) => (
+              <SectionErrorBoundary
+                fallback={null}
+                key={source.name}
+                onCatch={() => handleCount(source.name, null)}
+                resetKey={sourceRetryKeys[source.name]}
+              >
+                <OpenCountFeed
+                  dismissals={dismissals.state}
+                  now={now}
+                  onCount={handleCount}
+                  snoozes={snoozes.state}
+                  source={source}
+                />
+              </SectionErrorBoundary>
+            ))}
+            {props.renderDefault(props)}
+          </InboxOpenCountContext.Provider>
+        </SharedInboxStoreContext.Provider>
+      </ContentI18nContext.Provider>
     )
   }
 }

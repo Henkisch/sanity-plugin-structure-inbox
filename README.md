@@ -29,6 +29,7 @@ row can be opened, handed to a colleague, snoozed or ticked off without leaving 
 - [Optional: asking about all your items](#optional-asking-about-all-your-items)
 - [Optional: finding content gaps](#optional-finding-content-gaps)
 - [How it works](#how-it-works)
+- [Localized content](#localized-content)
 - [Localization](#localization)
 - [API reference](#api-reference)
 - [Develop & test](#develop--test)
@@ -359,6 +360,7 @@ this is a smaller door into the same room, not a migration you have to make.
 | `context`           | `string`        | —                  | Project description prepended to every AI read. See below.                       |
 | `summarize`         | `boolean`       | `true`             | Set to `false` to remove the "Summarize" AI read entirely — no menu item, no cost. |
 | `suggestTodos`      | `boolean`       | `true`             | Set to `false` to remove the "Suggest todos" AI read entirely — no menu item, no cost. |
+| `i18n`              | `{languages?: string[]}` | Studio locale | Which content language to read localized titles and alt text in. See [Localized content](#localized-content). |
 
 ### Getting back to the Inbox
 
@@ -680,6 +682,12 @@ Either way the proposal is shown before anything is written, and the patch runs 
 clicks Apply. Poorly-worded existing alt text is deliberately **not** fixable: filling an empty field
 can't destroy what someone wrote, and replacing one can.
 
+A localized alt field (`sanity-plugin-internationalized-array`) is checked too. It counts as missing
+when no language has any text, and its fix writes one entry, in the first of `i18n.languages`. Without
+that option, such a row still shows up and opens the document, but offers no fix: the Studio's UI
+language isn't a reliable guess for which language your content is in. Any other localized shape (a
+`localeString` object, say) is read but never written. See [Localized content](#localized-content).
+
 ## Optional: broken links via `sanity-plugin-link-checker`
 
 [`sanity-plugin-link-checker`](https://www.sanity.io/plugins/sanity-plugin-link-checker) scans your
@@ -747,6 +755,34 @@ attached to.
 **Limitation:** a structure resolver that returns an _observable_ can't be extended this way — rare,
 but if you do, the plugin warns and disables the redirect rather than sending editors to a URL that
 resolves to nothing.
+
+## Localized content
+
+Field-level localization works without any setup. A title stored by
+[`sanity-plugin-internationalized-array`](https://github.com/sanity-io/sanity-plugin-internationalized-array)
+(`[{_key, language, value}]`), a `localeString`-style object (`{en, sv}`), or Portable Text is read
+as plain text. Every row title goes through this, including the ones from your own sources.
+
+By default, a localized value is read in the editor's Studio locale (`sv-SE`, then `sv`), and
+otherwise in whichever language the document has. If your content language differs from your
+Studio's UI language, set the order yourself:
+
+```ts
+structureInbox({
+  i18n: {languages: ['sv', 'en']},
+  sources: [/* ... */],
+})
+```
+
+The first language in that list is also the one localized alt-text fixes write in. Leave it unset
+and those fixes aren't offered (see [Alt text](#alt-text)).
+
+Neither `unpublishedDrafts` nor `documentValidation` lists system types (`sanity.*`) or
+`@sanity/document-internationalization`'s own `translation.metadata` documents unless you name them in
+`types`.
+
+A row that still can't be rendered is replaced by a short "Couldn't display this item" line. The rest
+of the inbox, and the Structure tool around it, keep working.
 
 ## Localization
 
