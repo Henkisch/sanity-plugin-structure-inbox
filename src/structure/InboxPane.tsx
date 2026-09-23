@@ -1,13 +1,20 @@
 import {ArrowLeftIcon} from '@sanity/icons/ArrowLeft'
 import {Box, Button, Card, Flex, Text} from '@sanity/ui'
+import {useCallback, useEffect, useMemo, useRef} from 'react'
 import {useTranslation} from 'sanity'
 import {usePaneRouter, useStructureTool} from 'sanity/structure'
 import {styled} from 'styled-components'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {Inbox} from '../inbox/Inbox'
-import {type InboxSource} from '../inbox/types'
+import {type InboxSource, type InboxView} from '../inbox/types'
 import {type StructureInboxConfig} from '../types'
+import {
+  INBOX_ASSIGNEE_PARAM,
+  INBOX_TYPE_PARAM,
+  INBOX_VIEW_PARAM,
+  parseInboxPaneParams,
+} from './inboxPaneParams'
 
 /**
  * Props the structure tool hands a `S.component()` pane. Only `options` matters
@@ -90,6 +97,49 @@ function CollapsedBackBar() {
  * this only has to render the inbox.
  */
 export function InboxPane(props: InboxPaneProps) {
+  const paneRouter = usePaneRouter()
+
+  // `paneRouter` is rebuilt on virtually every router-state change anywhere
+  // in the pane tree, not just this pane's own — same reasoning
+  // `assetIssues.ts`'s `navigateUrlRef` doc comment gives for `useRouter()`.
+  // Held in a ref so the callbacks below don't churn identity on an
+  // unrelated re-render.
+  const paneRouterRef = useRef(paneRouter)
+  useEffect(() => {
+    paneRouterRef.current = paneRouter
+  }, [paneRouter])
+
+  // Read once, to seed `Inbox`'s initial state — recomputing this on every
+  // render is cheap and harmless, since only the *values themselves* matter
+  // to `Inbox`'s lazy `useState` initializers, which read them exactly once.
+  const initial = useMemo(() => parseInboxPaneParams(paneRouter.params), [paneRouter.params])
+
+  const handleViewChange = useCallback((view: InboxView) => {
+    const current = paneRouterRef.current
+    current.setParams({
+      ...current.params,
+      [INBOX_VIEW_PARAM]: view === 'open' ? undefined : view,
+    })
+  }, [])
+
+  const handleAssigneeFilterChange = useCallback((filter: ReadonlySet<string>) => {
+    const current = paneRouterRef.current
+    current.setParams({
+      ...current.params,
+      [INBOX_ASSIGNEE_PARAM]:
+        filter.size === 0 ? undefined : [...filter].map(encodeURIComponent).join(','),
+    })
+  }, [])
+
+  const handleTypeFilterChange = useCallback((filter: ReadonlySet<string>) => {
+    const current = paneRouterRef.current
+    current.setParams({
+      ...current.params,
+      [INBOX_TYPE_PARAM]:
+        filter.size === 0 ? undefined : [...filter].map(encodeURIComponent).join(','),
+    })
+  }, [])
+
   return (
     <>
       <CollapsedBackBar />
@@ -97,6 +147,12 @@ export function InboxPane(props: InboxPaneProps) {
         ask={props.options?.ask ?? false}
         contentGaps={props.options?.contentGaps}
         context={props.options?.context}
+        initialAssigneeFilter={initial.assigneeFilter}
+        initialTypeFilter={initial.typeFilter}
+        initialView={initial.view}
+        onAssigneeFilterChange={handleAssigneeFilterChange}
+        onTypeFilterChange={handleTypeFilterChange}
+        onViewChange={handleViewChange}
         sources={props.options?.sources ?? []}
         summarize={props.options?.summarize ?? true}
         suggestTodos={props.options?.suggestTodos ?? true}

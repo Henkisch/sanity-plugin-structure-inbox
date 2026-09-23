@@ -295,6 +295,12 @@ Acknowledgments, snoozes and todos each live in their own small, unregistered pe
 (`structureInbox.dismissals.<userId>`, `.snoozes.<userId>`, `.todos.<userId>`) — plain, queryable
 documents in your dataset, not hidden anywhere.
 
+The current tab (Open/Snoozed/Cleared) and both filters live in the pane's own URL params, so
+reloading the page or opening the URL in a new tab — or sending it to someone — comes back to the
+same tab and filters, not the defaults. One limitation, stated plainly: pressing the browser's Back
+or Forward button changes the URL but not what's on screen while the pane stays mounted — only a
+fresh load re-reads it.
+
 ### Recipe: a digest outside the Studio
 
 These per-editor documents make a scheduled digest (a daily "here's what's open" email or Slack
