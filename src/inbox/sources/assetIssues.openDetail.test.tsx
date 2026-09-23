@@ -32,7 +32,7 @@ const personType = {
   fields: [{name: 'portrait', type: imageType}],
 }
 
-const {useClientMock, stableSchema, toolsMock} = vi.hoisted(() => ({
+const {useClientMock, stableSchema, toolsMock, pushToastMock, useToastMock} = vi.hoisted(() => ({
   useClientMock: vi.fn(),
   stableSchema: {
     getTypeNames: () => ['person'],
@@ -41,11 +41,21 @@ const {useClientMock, stableSchema, toolsMock} = vi.hoisted(() => ({
   // A hook, so each test can decide which tools this Studio has — the whole
   // point of the media rung is that it is not the same Studio everywhere.
   toolsMock: vi.fn(),
+  pushToastMock: vi.fn(),
+  // Mocked (rather than rendering a real `ToastProvider`) so a "no provider"
+  // test can make it throw, exactly like the real hook does when unmounted —
+  // `useSafely` is what's under test there, not `@sanity/ui/toast` itself.
+  useToastMock: vi.fn(() => ({push: pushToastMock})),
 }))
 
 vi.mock('./capability', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./capability')>()),
   useAssignableUsers: () => ({data: undefined}),
+}))
+
+vi.mock('@sanity/ui/toast', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@sanity/ui/toast')>()),
+  useToast: useToastMock,
 }))
 
 vi.mock('sanity', async (importOriginal) => {
@@ -82,8 +92,21 @@ const ORPHAN_FILE = {
   url: 'https://cdn.sanity.io/files/p/d/9f8e7d6c5b4a.pdf',
 }
 
-function stubClient(orphan: typeof ORPHAN = ORPHAN) {
+const OVERSIZED_ASSET = {
+  _id: 'image-def456-4000x3000-jpg',
+  _type: 'sanity.imageAsset',
+  originalFilename: 'hero-full-res.jpg',
+  size: 7_500_000,
+  url: 'https://cdn.sanity.io/images/p/d/def456-4000x3000.jpg',
+  mimeType: 'image/jpeg',
+  useCount: 1,
+}
+
+function stubClient(orphan: typeof ORPHAN = ORPHAN, oversized: (typeof OVERSIZED_ASSET)[] = []) {
   const fetch = vi.fn(async (query: string) => {
+    // The oversized query is the only one distinguishable by an actual
+    // parameter name it interpolates, rather than by structure alone.
+    if (query.includes('$maxImage')) return oversized
     // The unused check runs only under the asset-count ceiling, so this stub
     // has to answer the count query too.
     if (query.startsWith('count(')) return 1
@@ -103,6 +126,20 @@ function stubClient(orphan: typeof ORPHAN = ORPHAN) {
 const NO_TOOLS: {name: string}[] = []
 const WITH_MEDIA_TOOL = [{name: 'media'}]
 
+/**
+ * Returns the `writeText` mock itself, rather than leaving callers to read it
+ * back off `navigator.clipboard` — asserting on that property access directly
+ * trips oxlint's `unbound-method` rule.
+ */
+function stubClipboard(writeText: (text: string) => Promise<void>) {
+  const writeTextMock = vi.fn(writeText)
+  Object.defineProperty(navigator, 'clipboard', {
+    value: {writeText: writeTextMock},
+    configurable: true,
+  })
+  return writeTextMock
+}
+
 async function renderSource(options: Parameters<typeof assetIssues>[0] = {}) {
   useClientMock.mockReturnValue(stubClient())
   const source = assetIssues(options)
@@ -115,6 +152,7 @@ const openSpy = vi.fn()
 
 beforeEach(() => {
   toolsMock.mockReturnValue(NO_TOOLS)
+  useToastMock.mockReturnValue({push: pushToastMock})
   vi.stubGlobal('open', openSpy)
 })
 
@@ -123,7 +161,15 @@ afterEach(() => {
   useClientMock.mockReset()
   navigateUrl.mockReset()
   openSpy.mockReset()
+  pushToastMock.mockReset()
+  useToastMock.mockReset()
   vi.unstubAllGlobals()
+  // `Object.defineProperty(navigator, 'clipboard', …)` (used by several
+  // tests below) isn't a `vi.stubGlobal` — `unstubAllGlobals` above doesn't
+  // touch it, so a test that defines it would otherwise leak into the next
+  // one, which is exactly what the "clipboard API unavailable" case needs
+  // jsdom's own absence of.
+  Reflect.deleteProperty(navigator, 'clipboard')
 })
 
 describe('assetIssues openDetail', () => {
@@ -160,6 +206,103 @@ describe('assetIssues openDetail', () => {
     // Deliberately no asset id in that path: a guessed route into someone
     // else's plugin is a broken destination dressed up as a working one.
     expect(openSpy).not.toHaveBeenCalled()
+  })
+
+  it('copies the filename and toasts a Replace-flavored message for an oversized row', async () => {
+    toolsMock.mockReturnValue(WITH_MEDIA_TOOL)
+    const writeText = stubClipboard(() => Promise.resolve())
+    useClientMock.mockReturnValue(stubClient(ORPHAN, [OVERSIZED_ASSET]))
+    const source = assetIssues()
+    const {result} = renderHook(() => source.useItems())
+    await waitFor(() =>
+      expect(result.current.items.some((item) => item.id.startsWith('oversized:'))).toBe(true),
+    )
+    const row = result.current.items.find((item) => item.id.startsWith('oversized:'))!
+
+    result.current.openDetail!(row)
+    await waitFor(() => expect(pushToastMock).toHaveBeenCalled())
+
+    expect(writeText).toHaveBeenCalledWith(OVERSIZED_ASSET.originalFilename)
+    expect(pushToastMock).toHaveBeenCalledWith({
+      status: 'success',
+      title: 'assetIssues.filenameCopied.title',
+      description: 'assetIssues.filenameCopied.oversized',
+    })
+  })
+
+  it('toasts a delete-flavored message for an unused row', async () => {
+    toolsMock.mockReturnValue(WITH_MEDIA_TOOL)
+    stubClipboard(() => Promise.resolve())
+    const result = await renderSource()
+
+    result.current.openDetail!(result.current.items[0])
+    await waitFor(() => expect(pushToastMock).toHaveBeenCalled())
+
+    expect(pushToastMock).toHaveBeenCalledWith({
+      status: 'success',
+      title: 'assetIssues.filenameCopied.title',
+      description: 'assetIssues.filenameCopied.unused',
+    })
+  })
+
+  it('shows an info toast, not a false "copied" one, when the clipboard write fails', async () => {
+    toolsMock.mockReturnValue(WITH_MEDIA_TOOL)
+    stubClipboard(() => Promise.reject(new Error('denied')))
+    const result = await renderSource()
+
+    result.current.openDetail!(result.current.items[0])
+    await waitFor(() => expect(pushToastMock).toHaveBeenCalled())
+
+    expect(pushToastMock).toHaveBeenCalledWith({
+      status: 'info',
+      title: 'assetIssues.copyFailed.unused',
+    })
+  })
+
+  it('shows the same info toast when the clipboard API is unavailable', async () => {
+    toolsMock.mockReturnValue(WITH_MEDIA_TOOL)
+    // No `stubClipboard` here — jsdom has no Clipboard API by default, which
+    // is exactly the case this covers.
+    const result = await renderSource()
+
+    result.current.openDetail!(result.current.items[0])
+
+    expect(pushToastMock).toHaveBeenCalledWith({
+      status: 'info',
+      title: 'assetIssues.copyFailed.unused',
+    })
+  })
+
+  it('never copies or toasts when no ToastProvider is mounted', async () => {
+    toolsMock.mockReturnValue(WITH_MEDIA_TOOL)
+    useToastMock.mockImplementation(() => {
+      throw new Error('No ToastProvider')
+    })
+    const result = await renderSource()
+
+    expect(() => result.current.openDetail!(result.current.items[0])).not.toThrow()
+    expect(navigateUrl).toHaveBeenCalledWith({path: '/default/media'})
+  })
+
+  it('skips the clipboard and toast entirely when the integrator supplies openAsset', async () => {
+    toolsMock.mockReturnValue(WITH_MEDIA_TOOL)
+    const writeText = stubClipboard(() => Promise.resolve())
+    const result = await renderSource({openAsset: vi.fn()})
+
+    result.current.openDetail!(result.current.items[0])
+
+    expect(writeText).not.toHaveBeenCalled()
+    expect(pushToastMock).not.toHaveBeenCalled()
+  })
+
+  it('skips the clipboard and toast on the raw-file rung (no media tool registered)', async () => {
+    const writeText = stubClipboard(() => Promise.resolve())
+    const result = await renderSource()
+
+    result.current.openDetail!(result.current.items[0])
+
+    expect(writeText).not.toHaveBeenCalled()
+    expect(pushToastMock).not.toHaveBeenCalled()
   })
 
   it("lets the integrator's own openAsset win over both fallbacks", async () => {

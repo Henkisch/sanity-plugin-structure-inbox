@@ -523,6 +523,15 @@ Where clicking it goes is the first of these that exists:
    at runtime — this plugin depends on none of them
 3. the file itself, opened in a new tab
 
+Rung 2 can only ever open that tool's own root, never the specific asset — no media browser
+plugin exposes a route or query param an outside caller can address for this. So it also copies
+the asset's filename to the clipboard and shows a toast telling you what to do with it: paste it
+into the tool's own search to find the file, then use its **Replace** to swap in a smaller one
+(or, for an unused asset, delete it there instead — there's nothing to replace it *with*). If the
+clipboard write fails or the browser has no Clipboard API, the toast falls back to naming the
+filename to search for by hand; either way, navigation to the tool still happens. Passing your own
+`openAsset` takes over this rung entirely — no clipboard, no toast.
+
 This is deliberate rather than a limitation we grew into. **Sanity assets are immutable**: an
 asset's `_id` contains a hash of its bytes (`image-eb94b14e…-1408x768-jpg`), so there is no
 "replace this file" operation anywhere in Sanity — not in core, not in the media plugin. What the
