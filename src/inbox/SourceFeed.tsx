@@ -1,6 +1,11 @@
 import {useEffect, useMemo, useRef} from 'react'
+import {useTranslation} from 'sanity'
 
+import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
+import {toDisplayTitle} from '../i18n/contentText'
+import {useContentLanguages} from '../i18n/useContentLanguages'
 import {type Snoozes} from '../store/useSnoozes'
+import {warnOnce} from '../warnOnce'
 import {splitItems} from './splitItems'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from './types'
 import {useStableItems} from './useStableItems'
@@ -37,6 +42,42 @@ export function sameReport(a: SourceReport | undefined, b: SourceReport): boolea
     if (Reflect.get(a, key) !== Reflect.get(b, key)) return false
   }
   return true
+}
+
+/**
+ * `items` with every `title`/`subtitle` guaranteed to be a string (or, for
+ * `subtitle`, absent) — the same array back, by identity, when that already
+ * holds, which is every render of every well-behaved source.
+ *
+ * Both fields are typed `string`, but a source's data comes from a dataset,
+ * not from TypeScript: a built-in once passed a localized title
+ * (`[{_key, language, value}]`) straight through, and rendering that as a
+ * React child throws. Every consumer downstream of here — row text, the
+ * headline, Ask's prompt, the edit dialog's prefill — assumes a string, so
+ * this is the one place that makes it true, for integrators' sources as well
+ * as the built-ins.
+ *
+ * @internal
+ */
+export function normalizeItemText(
+  items: InboxItem[],
+  languages: readonly string[],
+  untitled: string,
+  onFixed?: () => void,
+): InboxItem[] {
+  const needsFix = (item: InboxItem) =>
+    typeof item.title !== 'string' ||
+    (item.subtitle !== undefined && typeof item.subtitle !== 'string')
+  if (!items.some(needsFix)) return items
+
+  onFixed?.()
+  return items.map((item) => {
+    if (!needsFix(item)) return item
+    const title = toDisplayTitle(item.title, languages) ?? untitled
+    const subtitle =
+      item.subtitle === undefined ? undefined : (toDisplayTitle(item.subtitle, languages) ?? undefined)
+    return {...item, title, subtitle}
+  })
 }
 
 /**
@@ -77,7 +118,21 @@ export function SourceFeed(props: SourceFeedProps) {
   // source naturally takes), and a new array identity every render would re-fire
   // the report effect below forever — see `useStableItems`' own doc comment for
   // the crash this prevents.
-  const items = useStableItems(result.items, source.name)
+  const stableItems = useStableItems(result.items, source.name)
+  const languages = useContentLanguages()
+  const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
+  const untitled = t('row.untitled')
+  const items = useMemo(
+    () =>
+      normalizeItemText(stableItems, languages, untitled, () =>
+        warnOnce(
+          `Source "${source.name}" returned an item whose title or subtitle is not a string ` +
+            `(a localized field value, perhaps). It was converted to text for display; ` +
+            `return strings from useItems to control what is shown.`,
+        ),
+      ),
+    [stableItems, languages, untitled, source.name],
+  )
 
   const {
     loading,

@@ -72,6 +72,15 @@ function item(extra: Partial<InboxItem> = {}): InboxItem {
 }
 
 describe('InboxRow', () => {
+  it('shows a language badge for a document-level translation, and none otherwise', () => {
+    const {unmount} = renderRow(<InboxRow item={item({language: 'sv'})} selected={false} />)
+    expect(screen.getByText('sv')).toBeTruthy()
+    unmount()
+
+    renderRow(<InboxRow item={item()} selected={false} />)
+    expect(document.querySelector('[data-ui="Badge"]')).toBeNull()
+  })
+
   it('opens the document on click when the item has an intent, instead of selecting it', () => {
     const onSelectedChange = vi.fn()
 

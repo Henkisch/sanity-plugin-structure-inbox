@@ -10,6 +10,7 @@ import {type Snoozes} from '../store/useSnoozes'
 import {SectionCard} from '../ui/SectionCard'
 import {CreateItemRow} from './CreateItemRow'
 import {InboxRow} from './InboxRow'
+import {RowBoundary} from './RowBoundary'
 import {type InboxItem, type InboxSource, type InboxView} from './types'
 import {useUndoToast} from './useUndoToast'
 
@@ -171,49 +172,50 @@ export function InboxSection(props: InboxSectionProps) {
         <Stack>
           <Stack gap={1} padding={1}>
             {visible.map((item) => (
-              <InboxRow
-                assignableUsers={assign?.users}
-                compact={compact}
-                done={view === 'cleared'}
-                item={item}
-                key={item.id}
-                onEdit={update ? () => setEditingId(item.id) : undefined}
-                reassignVerb={assign ? t('action.assign') : undefined}
-                onReassign={
-                  assign
-                    ? (targetItem, userId) => {
-                        const assignee = assign.users.find((u) => u.id === userId)?.label ?? userId
-                        assign
-                          .toUser(targetItem, userId)
-                          .then(() =>
-                            showUndoToast({title: t('undo.assigned', {count: 1, name: assignee})}),
-                          )
-                          .catch((error: unknown) => {
-                            console.error(
-                              '[sanity-plugin-structure-inbox] could not assign item',
-                              error,
+              <RowBoundary key={item.id} resetKey={item}>
+                <InboxRow
+                  assignableUsers={assign?.users}
+                  compact={compact}
+                  done={view === 'cleared'}
+                  item={item}
+                  onEdit={update ? () => setEditingId(item.id) : undefined}
+                  reassignVerb={assign ? t('action.assign') : undefined}
+                  onReassign={
+                    assign
+                      ? (targetItem, userId) => {
+                          const assignee = assign.users.find((u) => u.id === userId)?.label ?? userId
+                          assign
+                            .toUser(targetItem, userId)
+                            .then(() =>
+                              showUndoToast({title: t('undo.assigned', {count: 1, name: assignee})}),
                             )
-                          })
-                      }
-                    : undefined
-                }
-                onUnassign={
-                  assign?.unassign
-                    ? (targetItem) => {
-                        const unassign = assign.unassign
-                        if (!unassign) return
-                        unassign(targetItem)
-                          .then(() => showUndoToast({title: t('undo.unassigned')}))
-                          .catch((error: unknown) => {
-                            console.error(
-                              '[sanity-plugin-structure-inbox] could not unassign item',
-                              error,
-                            )
-                          })
-                      }
-                    : undefined
-                }
-              />
+                            .catch((error: unknown) => {
+                              console.error(
+                                '[sanity-plugin-structure-inbox] could not assign item',
+                                error,
+                              )
+                            })
+                        }
+                      : undefined
+                  }
+                  onUnassign={
+                    assign?.unassign
+                      ? (targetItem) => {
+                          const unassign = assign.unassign
+                          if (!unassign) return
+                          unassign(targetItem)
+                            .then(() => showUndoToast({title: t('undo.unassigned')}))
+                            .catch((error: unknown) => {
+                              console.error(
+                                '[sanity-plugin-structure-inbox] could not unassign item',
+                                error,
+                              )
+                            })
+                        }
+                      : undefined
+                  }
+                />
+              </RowBoundary>
             ))}
           </Stack>
         </Stack>

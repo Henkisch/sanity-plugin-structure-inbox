@@ -30,6 +30,15 @@ export interface InboxItem {
   /** Context under the title: who, when, which type. */
   subtitle?: string
   /**
+   * The content language this item is in, as the dataset stores it (`'sv'`,
+   * `'en'`) — for document-level translation, where each language is its own
+   * document and two rows otherwise read identically. Shown as a small badge
+   * on the row, and offered as a filter once two or more languages are
+   * present. Leave it unset for anything that isn't one language's version of
+   * something.
+   */
+  language?: string
+  /**
    * When this became relevant. Shown as a relative time, and used to order
    * within a group. May be in the future (a due date, a publish date) — this
    * field is for display only and is never used to decide whether an item is

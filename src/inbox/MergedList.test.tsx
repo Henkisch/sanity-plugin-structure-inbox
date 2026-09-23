@@ -140,6 +140,30 @@ function renderList(props: {
 }
 
 describe('MergedList', () => {
+  it('replaces a row that throws while rendering, and keeps rendering its siblings', () => {
+    // An object as a title is exactly what took the Structure tool down: a
+    // localized title reaching a React child. `SourceFeed` now normalizes it
+    // before it ever gets here, so this goes around it on purpose — the
+    // boundary is for the next unrenderable value, not this known one.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const reports = {
+      drafts: report('drafts', 'Drafts', {
+        open: [
+          item('ok-1'),
+          item('bad', {title: [{_key: 'sv', language: 'sv', value: 'Hej'}] as unknown as string}),
+          item('ok-2'),
+        ],
+      }),
+    }
+
+    renderList({reports, order: ['drafts']})
+
+    expect(screen.getByText('Item ok-1')).toBeTruthy()
+    expect(screen.getByText('Item ok-2')).toBeTruthy()
+    expect(screen.getByText('row.renderFailed')).toBeTruthy()
+    consoleError.mockRestore()
+  })
+
   it('merges items from every source into one sorted list', () => {
     const reports = {
       drafts: report('drafts', 'Drafts', {open: [item('d1', {tone: 'default'})]}),

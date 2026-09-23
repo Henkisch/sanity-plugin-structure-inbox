@@ -24,8 +24,18 @@ import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
  */
 export const HIDDEN_TYPE_PREFIXES = ['sanity.', 'system.', 'media.']
 
+/**
+ * Plugin-owned bookkeeping types that a Studio registers as real document
+ * types, so the prefix list above can't catch them. `translation.metadata` is
+ * `@sanity/document-internationalization`'s link between a document's
+ * translations — one per translated document, never something an editor
+ * creates, drafts, or needs to hear about. Matched exactly: `translation.` is
+ * too generic a prefix to claim.
+ */
+export const HIDDEN_TYPE_NAMES: ReadonlySet<string> = new Set(['translation.metadata'])
+
 export function isHiddenType(name: string): boolean {
-  return HIDDEN_TYPE_PREFIXES.some((prefix) => name.startsWith(prefix))
+  return HIDDEN_TYPE_NAMES.has(name) || HIDDEN_TYPE_PREFIXES.some((prefix) => name.startsWith(prefix))
 }
 
 /**

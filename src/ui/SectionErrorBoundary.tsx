@@ -35,6 +35,12 @@ interface SectionErrorBoundaryProps {
    * triggers a reset on its own.
    */
   resetKey?: unknown
+  /**
+   * What the console message says threw, for a developer reading it —
+   * defaults to `inbox source threw`, which is what most boundaries here
+   * wrap. `RowBoundary` wraps a single rendered row instead.
+   */
+  label?: string
 }
 
 interface SectionErrorBoundaryState {
@@ -71,7 +77,11 @@ export class SectionErrorBoundary extends Component<
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     // Developers get the component stack; editors get the message in the card.
-    console.error('[sanity-plugin-structure-inbox] inbox source threw', error, info.componentStack)
+    console.error(
+      `[sanity-plugin-structure-inbox] ${this.props.label ?? 'inbox source threw'}`,
+      error,
+      info.componentStack,
+    )
     this.props.onCatch(error)
   }
 

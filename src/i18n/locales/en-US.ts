@@ -57,6 +57,9 @@ const enUS = {
   // set — see its own doc comment on `InboxSourceResult`.
   'assignee.readOnly': "assigned via Sanity's own Tasks, not editable here",
   'filter.type': 'Type',
+  // Heads the language group in the same filter menu — only shown when rows
+  // carry two or more document-level translation languages.
+  'filter.language': 'Language',
   'source.loading': 'Loading…',
   'source.error.title': 'This section could not load',
   'source.error.retry': 'Try again',
@@ -81,6 +84,12 @@ const enUS = {
   'selection.all': 'All',
   'selection.none': 'None',
   'row.menu': 'More actions',
+  // A row whose source gave it no usable title — a localized or otherwise
+  // non-text value this plugin couldn't read.
+  'row.untitled': 'Untitled',
+  // Shown in place of a row that threw while rendering, so one bad row costs
+  // itself rather than the list around it.
+  'row.renderFailed': "Couldn't display this item",
   'selection.cancel': 'Cancel',
   'selection.undo': 'Undo',
   'selection.count_one': '{{count}} selected',

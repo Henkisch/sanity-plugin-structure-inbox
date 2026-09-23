@@ -20,7 +20,9 @@
   },
   "devDependencies": {
     "@sanity/blueprints": "0.24.0",
+    "@sanity/document-internationalization": "^6.2.37",
     "@sanity/functions": "1.7.3",
+    "sanity-plugin-internationalized-array": "^5.3.1",
     "sanity-plugin-media": "^6.2.0"
   }
 }

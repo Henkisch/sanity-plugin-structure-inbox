@@ -12,6 +12,7 @@ import {styled} from 'styled-components'
 
 import {AssessmentUnavailableError} from '../ai/assessment'
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
+import {LanguageBadge} from '../ui/LanguageBadge'
 import {RelativeTime} from './RelativeTime'
 import {type FixProposal, type InboxAssessment, type InboxItem} from './types'
 
@@ -806,6 +807,7 @@ export function InboxRow(props: InboxRowProps) {
         >
           {item.title}
         </Text>
+        {item.language && <LanguageBadge language={item.language} />}
       </Flex>
       {(sourceLabel || item.subtitle || item.timestamp) && (
         <Text muted size={0} textOverflow="ellipsis">

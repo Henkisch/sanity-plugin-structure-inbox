@@ -54,7 +54,7 @@ describe('findAltEligibleImageFields', () => {
     const schema = {getTypeNames: () => ['post'], get: () => postType()}
 
     expect(findAltEligibleImageFields(schema, 'alt')).toEqual([
-      {documentType: 'post', documentTypeTitle: 'Post', fieldName: 'heroImage', fieldTitle: 'heroImage', imagePath: 'heroImage'},
+      {documentType: 'post', documentTypeTitle: 'Post', fieldName: 'heroImage', fieldTitle: 'heroImage', imagePath: 'heroImage', altShape: 'string', altTypeName: 'string'},
     ])
   })
 
@@ -107,7 +107,7 @@ describe('findAltEligibleImageFields', () => {
 
     expect(findAltEligibleImageFields(schema, 'alt')).toEqual([])
     expect(findAltEligibleImageFields(schema, 'description')).toEqual([
-      {documentType: 'post', documentTypeTitle: 'Post', fieldName: 'heroImage', fieldTitle: 'heroImage', imagePath: 'heroImage'},
+      {documentType: 'post', documentTypeTitle: 'Post', fieldName: 'heroImage', fieldTitle: 'heroImage', imagePath: 'heroImage', altShape: 'string', altTypeName: 'string'},
     ])
   })
 
@@ -130,7 +130,7 @@ describe('findAltEligibleImageFields', () => {
     const schema = {getTypeNames: () => ['event'], get: () => type}
 
     expect(findAltEligibleImageFields(schema, 'alt')).toEqual([
-      {documentType: 'event', documentTypeTitle: 'Event', fieldName: 'coverImage', fieldTitle: 'coverImage', imagePath: 'coverImage.image'},
+      {documentType: 'event', documentTypeTitle: 'Event', fieldName: 'coverImage', fieldTitle: 'coverImage', imagePath: 'coverImage.image', altShape: 'string', altTypeName: 'string'},
     ])
   })
 
@@ -171,7 +171,7 @@ describe('findAltEligibleImageFields', () => {
     const schema = {getTypeNames: () => ['event'], get: () => type}
 
     expect(findAltEligibleImageFields(schema, 'alt')).toEqual([
-      {documentType: 'event', documentTypeTitle: 'Event', fieldName: 'coverImage', fieldTitle: 'coverImage', imagePath: 'coverImage.asset'},
+      {documentType: 'event', documentTypeTitle: 'Event', fieldName: 'coverImage', fieldTitle: 'coverImage', imagePath: 'coverImage.asset', altShape: 'string', altTypeName: 'string'},
     ])
   })
 

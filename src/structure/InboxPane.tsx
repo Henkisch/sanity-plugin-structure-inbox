@@ -9,8 +9,11 @@ import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
 import {Inbox} from '../inbox/Inbox'
 import {type InboxSource, type InboxView} from '../inbox/types'
 import {type StructureInboxConfig} from '../types'
+import {SectionCard} from '../ui/SectionCard'
+import {SectionErrorBoundary} from '../ui/SectionErrorBoundary'
 import {
   INBOX_ASSIGNEE_PARAM,
+  INBOX_LANGUAGE_PARAM,
   INBOX_TYPE_PARAM,
   INBOX_VIEW_PARAM,
   parseInboxPaneParams,
@@ -90,6 +93,29 @@ function CollapsedBackBar() {
   )
 }
 
+function ignoreCaughtError(): void {}
+
+/**
+ * The last line of containment: anything `Inbox` throws that no inner
+ * boundary caught becomes an error card inside this pane, instead of
+ * unmounting the Structure tool around it — which is what a single
+ * unrenderable row title did before rows had boundaries of their own.
+ */
+function PaneFallback(props: {error: Error; retry: (() => void) | undefined}) {
+  const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
+  return (
+    <Box padding={3}>
+      <SectionCard error={props.error} onRetry={props.retry} title={t('inbox.title')}>
+        {null}
+      </SectionCard>
+    </Box>
+  )
+}
+
+function renderPaneFallback(error: Error, retry: (() => void) | undefined) {
+  return <PaneFallback error={error} retry={retry} />
+}
+
 /**
  * The pane that fills the canvas editors land on.
  *
@@ -140,23 +166,40 @@ export function InboxPane(props: InboxPaneProps) {
     })
   }, [])
 
+  const handleLanguageFilterChange = useCallback((filter: ReadonlySet<string>) => {
+    const current = paneRouterRef.current
+    current.setParams({
+      ...current.params,
+      [INBOX_LANGUAGE_PARAM]:
+        filter.size === 0 ? undefined : [...filter].map(encodeURIComponent).join(','),
+    })
+  }, [])
+
   return (
     <>
       <CollapsedBackBar />
-      <Inbox
-        ask={props.options?.ask ?? false}
-        contentGaps={props.options?.contentGaps}
-        context={props.options?.context}
-        initialAssigneeFilter={initial.assigneeFilter}
-        initialTypeFilter={initial.typeFilter}
-        initialView={initial.view}
-        onAssigneeFilterChange={handleAssigneeFilterChange}
-        onTypeFilterChange={handleTypeFilterChange}
-        onViewChange={handleViewChange}
-        sources={props.options?.sources ?? []}
-        summarize={props.options?.summarize ?? true}
-        suggestTodos={props.options?.suggestTodos ?? true}
-      />
+      <SectionErrorBoundary
+        fallback={renderPaneFallback}
+        label="inbox pane threw"
+        onCatch={ignoreCaughtError}
+      >
+        <Inbox
+          ask={props.options?.ask ?? false}
+          contentGaps={props.options?.contentGaps}
+          context={props.options?.context}
+          initialAssigneeFilter={initial.assigneeFilter}
+          initialLanguageFilter={initial.languageFilter}
+          initialTypeFilter={initial.typeFilter}
+          initialView={initial.view}
+          onAssigneeFilterChange={handleAssigneeFilterChange}
+          onLanguageFilterChange={handleLanguageFilterChange}
+          onTypeFilterChange={handleTypeFilterChange}
+          onViewChange={handleViewChange}
+          sources={props.options?.sources ?? []}
+          summarize={props.options?.summarize ?? true}
+          suggestTodos={props.options?.suggestTodos ?? true}
+        />
+      </SectionErrorBoundary>
     </>
   )
 }

@@ -16,7 +16,7 @@ interface DraftRow {
   _id: string
   _type: string
   _updatedAt: string
-  title?: string
+  title?: unknown
 }
 
 /**
@@ -96,7 +96,7 @@ interface StubAssignableUser {
 const {useClientMock, stableSchema, useAssignableUsersMock} = vi.hoisted(() => {
   return {
     useClientMock: vi.fn(),
-    stableSchema: {get: () => undefined},
+    stableSchema: {getTypeNames: () => [] as string[], get: () => undefined},
     // A `vi.fn()`, not a plain arrow, so the `suggestAssignee` degradation
     // test below can override it to return a real, granted user for one test
     // and nothing else has to change: every other test still gets the same
@@ -338,6 +338,86 @@ describe('unpublishedDrafts — the `ai` opt-out', () => {
     await waitFor(() => expect(result.current.items.length).toBeGreaterThan(0))
     expect(result.current.assess).toBeDefined()
     expect(result.current.suggestSnooze).toBeDefined()
+  })
+})
+
+describe('unpublishedDrafts — localized titles', () => {
+  afterEach(() => {
+    cleanup()
+    useClientMock.mockReset()
+  })
+
+  it('titles a row from an internationalized-array title instead of crashing on it', async () => {
+    // The exact payload from the reported crash: `coalesce(title, name,
+    // label)` returns the array, and this used to reach a <span> as-is.
+    const rows: DraftRow[] = [
+      {
+        _id: 'drafts.cocktail-1',
+        _type: 'cocktail',
+        _updatedAt: '2026-01-01T00:00:00.000Z',
+        title: [
+          {
+            _key: 'sv',
+            _type: 'internationalizedArrayStringValue',
+            language: 'sv',
+            value: 'Skrea Summer Olive Sour',
+          },
+        ],
+      },
+    ]
+    const {client} = stubClient(rows, 'user-1', [])
+    useClientMock.mockReturnValue(client)
+
+    const source = unpublishedDrafts({})
+    const {result} = renderHook(() => source.useItems())
+
+    await waitFor(() => expect(result.current.items.length).toBe(1))
+    expect(result.current.items[0]?.title).toBe('Skrea Summer Olive Sour')
+  })
+
+  it('falls back to the type name for a title it cannot read', async () => {
+    const rows: DraftRow[] = [
+      {_id: 'drafts.x', _type: 'cocktail', _updatedAt: '2026-01-01T00:00:00.000Z', title: {foo: 1}},
+    ]
+    const {client} = stubClient(rows, 'user-1', [])
+    useClientMock.mockReturnValue(client)
+
+    const source = unpublishedDrafts({})
+    const {result} = renderHook(() => source.useItems())
+
+    await waitFor(() => expect(result.current.items.length).toBe(1))
+    expect(result.current.items[0]?.title).toBe('cocktail')
+  })
+
+  it('leaves rows untouched in a Studio with no i18n of any kind', async () => {
+    // No `i18n` option, no localized values, no type declaring a language
+    // field: every row reads exactly as it did before localization support.
+    const rows: DraftRow[] = [
+      {_id: 'drafts.p1', _type: 'post', _updatedAt: '2026-01-01T00:00:00.000Z', title: 'Plain title'},
+      {_id: 'drafts.p2', _type: 'post', _updatedAt: '2026-01-01T00:00:00.000Z', title: null},
+    ]
+    const {client, observableFetch} = stubClient(rows, 'user-1', [])
+    useClientMock.mockReturnValue(client)
+
+    const source = unpublishedDrafts({})
+    const {result} = renderHook(() => source.useItems())
+
+    await waitFor(() => expect(result.current.items.length).toBe(2))
+    expect(result.current.items.map((row) => row.title)).toEqual(['Plain title', 'post'])
+    expect(result.current.items.some((row) => 'language' in row)).toBe(false)
+    const params = observableFetch.mock.calls[0]?.[1] as unknown as {languageField: unknown}
+    expect(params.languageField).toBeNull()
+  })
+
+  it('passes a concrete type list rather than `null` when `types` is left unset', () => {
+    const {client, observableFetch} = stubClient([], 'user-1', [])
+    useClientMock.mockReturnValue(client)
+
+    const source = unpublishedDrafts({})
+    renderHook(() => source.useItems())
+
+    const params = observableFetch.mock.calls[0]?.[1] as unknown as {types: unknown} | undefined
+    expect(Array.isArray(params?.types)).toBe(true)
   })
 })
 

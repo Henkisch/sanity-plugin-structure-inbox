@@ -17,6 +17,7 @@ import {CreateItemRow} from './CreateItemRow'
 import {matchesInboxFilters} from './inboxFilterSentinels'
 import {InboxRow} from './InboxRow'
 import {mergeRows, type MergedRow} from './mergeItems'
+import {RowBoundary} from './RowBoundary'
 import {type ContentTypeSummary} from './projectDigest'
 import {
   SelectionActions,
@@ -94,6 +95,8 @@ interface MergedListProps {
    */
   assigneeFilter: ReadonlySet<string>
   typeFilter: ReadonlySet<string>
+  /** Same convention; optional, since only a Studio with document-level translation ever sets it. */
+  languageFilter?: ReadonlySet<string>
   /**
    * The actual filter controls (avatar stack + type menu), built in
    * `Inbox.tsx` from the same state as `assigneeFilter`/`typeFilter` above —
@@ -194,6 +197,7 @@ export function MergedList(props: MergedListProps) {
     assessments,
     assigneeFilter,
     typeFilter,
+    languageFilter,
     filterBar,
     ask = false,
     context,
@@ -214,8 +218,8 @@ export function MergedList(props: MergedListProps) {
   )
 
   const rows = useMemo(
-    () => allRows.filter((row) => matchesInboxFilters(row, assigneeFilter, typeFilter)),
-    [allRows, assigneeFilter, typeFilter],
+    () => allRows.filter((row) => matchesInboxFilters(row, assigneeFilter, typeFilter, languageFilter)),
+    [allRows, assigneeFilter, typeFilter, languageFilter],
   )
 
   const [selectedKeys, setSelectedKeys] = useState<string[]>([])
@@ -953,78 +957,79 @@ export function MergedList(props: MergedListProps) {
     const assign = report?.assign
     const transfer = report?.transfer
     return (
-      <InboxRow
-        assigneeReadOnly={report?.assigneeReadOnly}
-        assignableUsers={assign?.users ?? transfer?.users}
-        reassignVerb={assign ? t('action.assign') : transfer ? t('action.transfer') : undefined}
-        done={view === 'cleared'}
-        initialAssessment={initialAssessment}
-        item={row.item}
-        key={row.key}
-        leaving={leavingKeys.has(row.key)}
-        menuActions={buildMenuActions(row, report)}
-        onAssess={onAssess}
-        onProposeFix={report?.proposeFix}
-        onFixApplied={handleFixApplied}
-        onEdit={
-          report?.update
-            ? () => setEditingKey(row.key)
-            : report?.openDetail
-              ? () => report.openDetail?.(row.item)
-              : undefined
-        }
-        onReassign={
-          assign
-            ? (item, userId) => {
-                const assignee = assign.users.find((u) => u.id === userId)?.label ?? userId
-                assign
-                  .toUser(item, userId)
-                  .then(() =>
-                    showUndoToast({
-                      title: t('undo.assigned', {count: 1, name: assignee}),
-                    }),
-                  )
-                  .catch((error: unknown) => {
-                    console.error('[sanity-plugin-structure-inbox] could not assign item', error)
-                  })
-              }
-            : transfer
+      <RowBoundary key={row.key} resetKey={row.item}>
+        <InboxRow
+          assigneeReadOnly={report?.assigneeReadOnly}
+          assignableUsers={assign?.users ?? transfer?.users}
+          reassignVerb={assign ? t('action.assign') : transfer ? t('action.transfer') : undefined}
+          done={view === 'cleared'}
+          initialAssessment={initialAssessment}
+          item={row.item}
+          leaving={leavingKeys.has(row.key)}
+          menuActions={buildMenuActions(row, report)}
+          onAssess={onAssess}
+          onProposeFix={report?.proposeFix}
+          onFixApplied={handleFixApplied}
+          onEdit={
+            report?.update
+              ? () => setEditingKey(row.key)
+              : report?.openDetail
+                ? () => report.openDetail?.(row.item)
+                : undefined
+          }
+          onReassign={
+            assign
               ? (item, userId) => {
-                  const recipient = transfer.users.find((u) => u.id === userId)?.label ?? userId
-                  transfer
+                  const assignee = assign.users.find((u) => u.id === userId)?.label ?? userId
+                  assign
                     .toUser(item, userId)
                     .then(() =>
                       showUndoToast({
-                        title: t('undo.transferred', {count: 1, name: recipient}),
+                        title: t('undo.assigned', {count: 1, name: assignee}),
                       }),
                     )
                     .catch((error: unknown) => {
-                      console.error('[sanity-plugin-structure-inbox] could not transfer item', error)
+                      console.error('[sanity-plugin-structure-inbox] could not assign item', error)
+                    })
+                }
+              : transfer
+                ? (item, userId) => {
+                    const recipient = transfer.users.find((u) => u.id === userId)?.label ?? userId
+                    transfer
+                      .toUser(item, userId)
+                      .then(() =>
+                        showUndoToast({
+                          title: t('undo.transferred', {count: 1, name: recipient}),
+                        }),
+                      )
+                      .catch((error: unknown) => {
+                        console.error('[sanity-plugin-structure-inbox] could not transfer item', error)
+                      })
+                  }
+                : undefined
+          }
+          onUnassign={
+            assign?.unassign
+              ? (item) => {
+                  const unassign = assign.unassign
+                  if (!unassign) return
+                  unassign(item)
+                    .then(() => showUndoToast({title: t('undo.unassigned')}))
+                    .catch((error: unknown) => {
+                      console.error('[sanity-plugin-structure-inbox] could not unassign item', error)
                     })
                 }
               : undefined
-        }
-        onUnassign={
-          assign?.unassign
-            ? (item) => {
-                const unassign = assign.unassign
-                if (!unassign) return
-                unassign(item)
-                  .then(() => showUndoToast({title: t('undo.unassigned')}))
-                  .catch((error: unknown) => {
-                    console.error('[sanity-plugin-structure-inbox] could not unassign item', error)
-                  })
-              }
-            : undefined
-        }
-        onSelectedChange={(item: InboxItem, isSelected: boolean) =>
-          setSelectedKeys((current) =>
-            isSelected ? [...current, row.key] : current.filter((existing) => existing !== row.key),
-          )
-        }
-        selected={selectedKeys.includes(row.key)}
-        sourceLabel={sourceLabel}
-      />
+          }
+          onSelectedChange={(item: InboxItem, isSelected: boolean) =>
+            setSelectedKeys((current) =>
+              isSelected ? [...current, row.key] : current.filter((existing) => existing !== row.key),
+            )
+          }
+          selected={selectedKeys.includes(row.key)}
+          sourceLabel={sourceLabel}
+        />
+      </RowBoundary>
     )
   }
 
