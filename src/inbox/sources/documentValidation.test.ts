@@ -5,9 +5,11 @@ import {
   collectReferenceIds,
   documentValidation,
   firstErrorPath,
+  describeValidationPath,
   formatValidationPath,
   toFocusPath,
   runValidation,
+  validateUntilSettled,
   summarizeErrors,
 } from './documentValidation'
 
@@ -305,5 +307,93 @@ describe('firstErrorPath', () => {
   it('returns null when nothing has a focusable path', () => {
     expect(firstErrorPath({markers: [marker('error', [])]} as never)).toBeNull()
     expect(firstErrorPath({markers: []} as never)).toBeNull()
+  })
+})
+
+describe('validateUntilSettled', () => {
+  const draftA = {_id: 'drafts.a'}
+  const draftB = {_id: 'drafts.b'}
+  const failed = {status: 'failed', markers: []} as never
+  const timedOut = {status: 'notEvaluated', markers: []} as never
+
+  it('retries only the drafts that timed out, with the longer timeout, and merges the result', async () => {
+    const validate = vi
+      .fn()
+      .mockResolvedValueOnce({results: new Map([['drafts.a', failed], ['drafts.b', timedOut]])})
+      .mockResolvedValueOnce({results: new Map([['drafts.b', failed]])})
+    const updates: Map<string, unknown>[] = []
+
+    const left = await validateUntilSettled(
+      [draftA, draftB],
+      validate,
+      (run) => updates.push(run.results),
+      () => false,
+      [30_000],
+    )
+
+    expect(validate).toHaveBeenNthCalledWith(2, [draftB], 30_000)
+    // The fast finding is reported straight away, before the retry lands.
+    expect(updates[0]?.get('drafts.a')).toBe(failed)
+    expect(updates.at(-1)?.get('drafts.b')).toBe(failed)
+    expect(left).toBe(0)
+  })
+
+  it('says how many are still unevaluated once the retries run out', async () => {
+    const validate = vi.fn().mockResolvedValue({results: new Map([['drafts.a', timedOut]])})
+    const left = await validateUntilSettled([draftA], validate, () => {}, () => false, [1, 2])
+    expect(validate).toHaveBeenCalledTimes(3)
+    expect(left).toBe(1)
+  })
+
+  it('stops as soon as a newer batch supersedes it', async () => {
+    const validate = vi.fn().mockResolvedValue({results: new Map([['drafts.a', timedOut]])})
+    const onUpdate = vi.fn()
+    await validateUntilSettled([draftA], validate, onUpdate, () => true, [1])
+    expect(onUpdate).not.toHaveBeenCalled()
+    expect(validate).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('describeValidationPath', () => {
+  // The shape of the path reported from a real Studio:
+  // pageBuilder.[key].buttons.[key].url.internal
+  const urlType = {
+    name: 'customUrl',
+    title: 'URL',
+    jsonType: 'object',
+    fields: [{name: 'internal', type: {name: 'reference', title: 'Internal link', jsonType: 'object'}}],
+  }
+  const buttonType = {
+    name: 'button',
+    title: 'Button',
+    jsonType: 'object',
+    fields: [{name: 'url', type: urlType}],
+  }
+  const heroType = {
+    name: 'hero',
+    title: 'Hero',
+    jsonType: 'object',
+    fields: [{name: 'buttons', type: {name: 'array', title: 'Buttons', jsonType: 'array', of: [buttonType]}}],
+  }
+  const pageType = {
+    name: 'page',
+    title: 'Page',
+    jsonType: 'object',
+    fields: [{name: 'pageBuilder', type: {name: 'array', title: 'Page builder', jsonType: 'array', of: [heroType]}}],
+  }
+  const schema = {get: (name: string) => (name === 'page' ? pageType : undefined)}
+  const draft = {
+    _type: 'page',
+    pageBuilder: [{_key: 'h1', _type: 'hero', buttons: [{_key: 'b1', _type: 'button', url: {}}]}],
+  }
+
+  it('reads as the form does: field titles and block types, no keys', () => {
+    expect(
+      describeValidationPath(schema, 'page', draft, ['pageBuilder', {_key: 'h1'}, 'buttons', {_key: 'b1'}, 'url', 'internal']),
+    ).toBe('Page builder › Hero › Buttons › Button › URL › Internal link')
+  })
+
+  it('falls back to field names for anything the schema cannot resolve, never to keys', () => {
+    expect(describeValidationPath(schema, 'unknownType', {}, ['a', {_key: 'x'}, 'b'])).toBe('a › b')
   })
 })

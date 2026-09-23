@@ -20,6 +20,7 @@ import {
   useContentLanguages,
   useDocumentLanguageField,
 } from '../../i18n/useContentLanguages'
+import {warnOnce} from '../../warnOnce'
 import {mapWithConcurrency} from '../concurrency'
 import {getRealDocumentTypeNames} from '../projectDigest'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
@@ -97,6 +98,81 @@ export function formatValidationPath(path: unknown[]): string {
     .join('.')
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined
+}
+
+function titleOf(type: unknown): string | undefined {
+  const title = asRecord(type)?.title
+  return typeof title === 'string' && title ? title : undefined
+}
+
+/**
+ * A validation path in the words the editor sees in the form — field titles,
+ * and the title of each array item's own block type, joined with `›` —
+ * instead of `pageBuilder.[59ef9b1141c5].buttons.[0176b0ddf1ab].url.internal`,
+ * which no editor can read (reported from a real Studio).
+ *
+ * Walks the schema alongside the draft itself, because a keyed array
+ * segment only says *which* item, not what type it is; the item's own
+ * `_type` does. Any step it can't resolve falls back to the raw field name
+ * for that step and carries on, so the worst case is today's text minus the
+ * keys, never an empty string.
+ *
+ * @internal
+ */
+export function describeValidationPath(
+  schema: {get: (name: string) => unknown},
+  documentType: string,
+  document: unknown,
+  path: unknown[],
+): string {
+  let type: unknown = schema.get(documentType)
+  let value: unknown = document
+  const parts: string[] = []
+
+  for (const segment of path) {
+    if (typeof segment === 'string') {
+      const fields = asRecord(type)?.fields
+      const field = Array.isArray(fields)
+        ? fields.map(asRecord).find((candidate) => candidate?.name === segment)
+        : undefined
+      parts.push(titleOf(field?.type) ?? titleOf(field) ?? segment)
+      type = field?.type
+      value = asRecord(value)?.[segment]
+      continue
+    }
+
+    // An array step, by `_key` or by index: find the item, then its member
+    // type by the item's own `_type`.
+    const items = Array.isArray(value) ? value : []
+    const key = asRecord(segment)?._key
+    const item =
+      typeof segment === 'number'
+        ? items[segment]
+        : items.find((candidate) => asRecord(candidate)?._key === key)
+    const itemType = asRecord(item)?._type
+    const members = asRecord(type)?.of
+    const member = Array.isArray(members)
+      ? members.map(asRecord).find((candidate) => candidate?.name === itemType)
+      : undefined
+    // Name the item only when it's a block of its own (a "Hero", a "Button
+    // group"), not a bare string or an anonymous object in a list.
+    const memberTitle = titleOf(member)
+    if (memberTitle && typeof itemType === 'string' && asRecord(member)?.jsonType === 'object') {
+      parts.push(memberTitle)
+    }
+    type = member
+    value = item
+  }
+
+  return parts.join(' › ')
+}
+
 /**
  * The same `PathSegment[]`, rendered the way Sanity's own edit intent wants
  * it — `body[_key=="a1b2"].caption`, not `formatValidationPath`'s display
@@ -154,12 +230,13 @@ export function firstErrorPath(result: ValidateDocumentResult): string | null {
 }
 
 /** One row's own subtitle: every `'error'`-level marker on a document, joined. Exported for its own test. */
-export function summarizeErrors(result: ValidateDocumentResult): string | null {
+export function summarizeErrors(
+  result: ValidateDocumentResult,
+  formatPath: (path: ValidateDocumentResult['markers'][number]['path']) => string = formatValidationPath,
+): string | null {
   const errors = result.markers.filter((marker) => marker.level === 'error')
   if (errors.length === 0) return null
-  return errors
-    .map((marker) => `${formatValidationPath(marker.path) || '(document)'}: ${marker.message}`)
-    .join(' · ')
+  return errors.map((marker) => `${formatPath(marker.path) || '(document)'}: ${marker.message}`).join(' · ')
 }
 
 /**
@@ -184,6 +261,17 @@ function draftMeta(
 }
 
 const TIMEOUT_MS = 10_000
+
+/**
+ * Longer timeouts for a second and third attempt at only the drafts that
+ * timed out. A cold Studio load is exactly when validation is slowest — every
+ * async rule (`isUnique` slug checks, reference lookups) competes with the
+ * Studio's own startup requests — and a draft that times out used to be
+ * dropped silently, with no retry: its finding appeared on one reload and not
+ * the next (reproduced live on a real Studio). Retrying only the stragglers
+ * keeps the fast findings immediate.
+ */
+const RETRY_TIMEOUTS_MS = [30_000, 60_000]
 
 function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: T): Promise<T> {
   return new Promise((resolve) => {
@@ -257,6 +345,7 @@ export async function runValidation(
   schema: ReturnType<typeof useSchema>,
   currentUser: ReturnType<typeof useCurrentUser>,
   drafts: Record<string, unknown>[],
+  timeoutMs: number = TIMEOUT_MS,
 ): Promise<ValidationRun> {
   const referenceIds = new Set<string>()
   for (const draft of drafts) collectReferenceIds(draft, referenceIds)
@@ -307,7 +396,7 @@ export async function runValidation(
             ? ({id}) => Promise.resolve(referenceExistence.has(id))
             : undefined,
         }),
-        TIMEOUT_MS,
+        timeoutMs,
         {status: 'notEvaluated' as const, markers: []},
       )
       return [String(draft._id), result] as const
@@ -323,6 +412,46 @@ export async function runValidation(
     console.error('[sanity-plugin-structure-inbox] validation run failed', error)
     return {results: new Map(), error: error instanceof Error ? error : new Error(String(error))}
   }
+}
+
+/**
+ * Validates `drafts`, then retries only the ones that timed out
+ * (`notEvaluated`) with each of `retryTimeoutsMs` in turn, reporting every
+ * intermediate result through `onUpdate` so findings that came back fast show
+ * immediately. Stops early once nothing is pending, on a run-level error, or
+ * when `isCancelled()` says a newer batch superseded this one. Resolves with
+ * how many drafts still couldn't be evaluated.
+ *
+ * Takes `validate` rather than calling `runValidation` itself, so the retry
+ * policy is testable without a real schema. Exported for that test.
+ *
+ * @internal
+ */
+export async function validateUntilSettled(
+  drafts: Record<string, unknown>[],
+  validate: (drafts: Record<string, unknown>[], timeoutMs?: number) => Promise<ValidationRun>,
+  onUpdate: (run: ValidationRun) => void,
+  isCancelled: () => boolean,
+  retryTimeoutsMs: readonly number[] = RETRY_TIMEOUTS_MS,
+): Promise<number> {
+  const pendingOf = (run: ValidationRun) =>
+    drafts.filter((draft) => run.results.get(String(draft._id))?.status === 'notEvaluated')
+
+  let run = await validate(drafts)
+  if (isCancelled()) return 0
+  onUpdate(run)
+
+  for (const timeoutMs of retryTimeoutsMs) {
+    const pending = pendingOf(run)
+    if (pending.length === 0 || run.error) return 0
+    // eslint-disable-next-line no-await-in-loop -- sequential on purpose: each attempt only retries what the previous one left pending.
+    const retry = await validate(pending, timeoutMs)
+    if (isCancelled()) return 0
+    run = {results: new Map([...run.results, ...retry.results]), error: run.error ?? retry.error}
+    onUpdate(run)
+  }
+
+  return run.error ? 0 : pendingOf(run).length
 }
 
 /**
@@ -351,8 +480,18 @@ function useValidationResults(
     let cancelled = false
 
     async function run(): Promise<void> {
-      const next = await runValidation(client, schema, currentUser, drafts)
-      if (!cancelled) setValidationRun(next)
+      const unevaluated = await validateUntilSettled(
+        drafts,
+        (batch, timeoutMs) => runValidation(client, schema, currentUser, batch, timeoutMs),
+        setValidationRun,
+        () => cancelled,
+      )
+      if (unevaluated > 0) {
+        warnOnce(
+          `documentValidation could not validate ${unevaluated} draft(s) even after retrying, ` +
+            'so their errors (if any) are not shown. Their validation rules may be slow or never resolve.',
+        )
+      }
     }
 
     // `runValidation` itself never rejects — every failure it can reach
@@ -473,7 +612,9 @@ export function documentValidation(options: DocumentValidationOptions = {}): Inb
           const result = results.get(meta.id)
           if (!result || result.status !== 'failed') continue
 
-          const subtitle = summarizeErrors(result)
+          const subtitle = summarizeErrors(result, (path) =>
+            describeValidationPath(schema, meta.type, draft, path),
+          )
           if (!subtitle) continue
 
           const canonicalId = meta.id.replace(/^drafts\./, '')
@@ -504,7 +645,7 @@ export function documentValidation(options: DocumentValidationOptions = {}): Inb
           rows.push(assignee ? {...row, assignee} : row)
         }
         return rows
-      }, [drafts, results, byTarget, assigneesById, languages, languageField])
+      }, [drafts, results, byTarget, assigneesById, languages, languageField, schema])
 
       return {items, loading, error: draftsError ?? validationError, assign}
     },
