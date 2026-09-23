@@ -389,6 +389,26 @@ describe('unpublishedDrafts — localized titles', () => {
     expect(result.current.items[0]?.title).toBe('cocktail')
   })
 
+  it('leaves rows untouched in a Studio with no i18n of any kind', async () => {
+    // No `i18n` option, no localized values, no type declaring a language
+    // field: every row reads exactly as it did before localization support.
+    const rows: DraftRow[] = [
+      {_id: 'drafts.p1', _type: 'post', _updatedAt: '2026-01-01T00:00:00.000Z', title: 'Plain title'},
+      {_id: 'drafts.p2', _type: 'post', _updatedAt: '2026-01-01T00:00:00.000Z', title: null},
+    ]
+    const {client, observableFetch} = stubClient(rows, 'user-1', [])
+    useClientMock.mockReturnValue(client)
+
+    const source = unpublishedDrafts({})
+    const {result} = renderHook(() => source.useItems())
+
+    await waitFor(() => expect(result.current.items.length).toBe(2))
+    expect(result.current.items.map((row) => row.title)).toEqual(['Plain title', 'post'])
+    expect(result.current.items.some((row) => 'language' in row)).toBe(false)
+    const params = observableFetch.mock.calls[0]?.[1] as unknown as {languageField: unknown}
+    expect(params.languageField).toBeNull()
+  })
+
   it('passes a concrete type list rather than `null` when `types` is left unset', () => {
     const {client, observableFetch} = stubClient([], 'user-1', [])
     useClientMock.mockReturnValue(client)

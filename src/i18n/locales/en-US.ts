@@ -57,6 +57,9 @@ const enUS = {
   // set — see its own doc comment on `InboxSourceResult`.
   'assignee.readOnly': "assigned via Sanity's own Tasks, not editable here",
   'filter.type': 'Type',
+  // Heads the language group in the same filter menu — only shown when rows
+  // carry two or more document-level translation languages.
+  'filter.language': 'Language',
   'source.loading': 'Loading…',
   'source.error.title': 'This section could not load',
   'source.error.retry': 'Try again',

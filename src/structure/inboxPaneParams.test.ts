@@ -2,6 +2,7 @@ import {describe, expect, it} from 'vitest'
 
 import {
   INBOX_ASSIGNEE_PARAM,
+  INBOX_LANGUAGE_PARAM,
   INBOX_TYPE_PARAM,
   INBOX_VIEW_PARAM,
   parseInboxPaneParams,
@@ -14,11 +15,13 @@ describe('parseInboxPaneParams', () => {
       view: 'open',
       assigneeFilter: new Set(),
       typeFilter: new Set(),
+      languageFilter: new Set(),
     })
     expect(parseInboxPaneParams({})).toEqual({
       view: 'open',
       assigneeFilter: new Set(),
       typeFilter: new Set(),
+      languageFilter: new Set(),
     })
   })
 
@@ -28,11 +31,13 @@ describe('parseInboxPaneParams', () => {
         [INBOX_VIEW_PARAM]: 'snoozed',
         [INBOX_ASSIGNEE_PARAM]: 'ada,__unassigned__',
         [INBOX_TYPE_PARAM]: 'drafts',
+        [INBOX_LANGUAGE_PARAM]: 'sv,en',
       }),
     ).toEqual({
       view: 'snoozed',
       assigneeFilter: new Set(['ada', '__unassigned__']),
       typeFilter: new Set(['drafts']),
+      languageFilter: new Set(['sv', 'en']),
     })
   })
 
@@ -51,11 +56,17 @@ describe('parseInboxPaneParams', () => {
 describe('serializeInboxPaneParams', () => {
   it('omits every param at its default, keeping the unfiltered URL clean', () => {
     expect(
-      serializeInboxPaneParams({view: 'open', assigneeFilter: new Set(), typeFilter: new Set()}),
+      serializeInboxPaneParams({
+        view: 'open',
+        assigneeFilter: new Set(),
+        typeFilter: new Set(),
+        languageFilter: new Set(),
+      }),
     ).toEqual({
       [INBOX_VIEW_PARAM]: undefined,
       [INBOX_ASSIGNEE_PARAM]: undefined,
       [INBOX_TYPE_PARAM]: undefined,
+      [INBOX_LANGUAGE_PARAM]: undefined,
     })
   })
 
@@ -64,6 +75,7 @@ describe('serializeInboxPaneParams', () => {
       view: 'cleared' as const,
       assigneeFilter: new Set(['ada', '__unassigned__']),
       typeFilter: new Set(['drafts', 'todos']),
+      languageFilter: new Set(['sv']),
     }
     expect(parseInboxPaneParams(serializeInboxPaneParams(state))).toEqual(state)
   })
@@ -73,6 +85,7 @@ describe('serializeInboxPaneParams', () => {
       view: 'open' as const,
       assigneeFilter: new Set(['team,lead']),
       typeFilter: new Set<string>(),
+      languageFilter: new Set<string>(),
     }
     expect(parseInboxPaneParams(serializeInboxPaneParams(state))).toEqual(state)
   })

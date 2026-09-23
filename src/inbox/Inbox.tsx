@@ -17,10 +17,10 @@ import {
   TabPanel,
   Text,
 } from '@sanity/ui'
-import {Menu, MenuButton, MenuItem} from '@sanity/ui/menu'
+import {Menu, MenuButton, MenuDivider, MenuItem} from '@sanity/ui/menu'
 import {Tooltip} from '@sanity/ui/tooltip'
 import {type ReactNode, useCallback, useEffect, useMemo, useRef, useState} from 'react'
-import {useClient, useCurrentUser, useSchema, useTranslation} from 'sanity'
+import {useClient, useCurrentLocale, useCurrentUser, useSchema, useTranslation} from 'sanity'
 import {keyframes, styled} from 'styled-components'
 
 import {promptJson} from '../ai/promptJson'
@@ -32,6 +32,7 @@ import {type useSnoozes} from '../store/useSnoozes'
 import {useSharedInboxStore} from '../studio/inboxCountLayout'
 import {type StructureInboxConfig} from '../types'
 import {COUNT_MONOSPACE_FONT_FAMILY, CountBadge} from '../ui/CountBadge'
+import {languageDisplayName} from '../ui/LanguageBadge'
 import {SectionCard} from '../ui/SectionCard'
 import {SectionErrorBoundary} from '../ui/SectionErrorBoundary'
 import {StatusDot} from '../ui/StatusDot'
@@ -46,6 +47,7 @@ import {initials, UnassignedAvatar} from './InboxRow'
 import {mergeRows} from './mergeItems'
 import {MergedList} from './MergedList'
 import {sameReport, SourceFeed, type SourceReport} from './SourceFeed'
+import {useSafely} from './sources/capability'
 import {type InboxSource, type InboxView, type SuggestTodosState, type TodoSuggestion} from './types'
 import {unwrapAiRead, useAiRead} from './useAiRead'
 import {useElementHeight, useElementWidth} from './useElementHeight'
@@ -60,6 +62,9 @@ import {useElementHeight, useElementWidth} from './useElementHeight'
  * minutes of staleness to matter.
  */
 const PROJECT_DIGEST_TTL_MS = 5 * 60 * 1000
+
+/** `useCurrentLocale` with no `LocaleContext` (a unit test) — only ever names a language in the filter menu. */
+const FALLBACK_UI_LOCALE = {id: 'en-US'}
 
 interface InboxProps {
   sources: InboxSource[]
@@ -81,6 +86,7 @@ interface InboxProps {
   initialView?: InboxView
   initialAssigneeFilter?: ReadonlySet<string>
   initialTypeFilter?: ReadonlySet<string>
+  initialLanguageFilter?: ReadonlySet<string>
   /**
    * Fired after the initial mount, whenever the corresponding state actually
    * changes — lets `InboxPane` mirror it into the URL. Never called for the
@@ -89,6 +95,7 @@ interface InboxProps {
   onViewChange?: (view: InboxView) => void
   onAssigneeFilterChange?: (filter: ReadonlySet<string>) => void
   onTypeFilterChange?: (filter: ReadonlySet<string>) => void
+  onLanguageFilterChange?: (filter: ReadonlySet<string>) => void
 }
 
 /**
@@ -413,11 +420,14 @@ export function Inbox({
   initialView,
   initialAssigneeFilter,
   initialTypeFilter,
+  initialLanguageFilter,
   onViewChange,
   onAssigneeFilterChange,
   onTypeFilterChange,
+  onLanguageFilterChange,
 }: InboxProps) {
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
+  const uiLocale = useSafely<{id: string}>(useCurrentLocale, FALLBACK_UI_LOCALE).id
   const client = useClient({apiVersion: API_VERSION})
   const schema = useSchema()
   const {dismissals, snoozes, sourceRetryKeys, retrySource} = useSharedInboxStore()
@@ -658,6 +668,18 @@ export function Inbox({
       .filter((report): report is SourceReport => Boolean(report) && present.has(report.source.name))
   }, [allRowsAnyView, mainOrder, reports])
 
+  // Every language a row carries anywhere, sorted — document-level
+  // translation's `InboxItem.language`. Same "only what's present" reasoning
+  // as the two lists above; empty for a Studio without it, which keeps the
+  // filter menu exactly as it was.
+  const availableLanguages = useMemo(() => {
+    const present = new Set<string>()
+    for (const row of allRowsAnyView) {
+      if (row.item.language) present.add(row.item.language)
+    }
+    return [...present].sort()
+  }, [allRowsAnyView])
+
   // Both empty means "no filter applied" (show everything) — not "hide
   // everything" — so a fresh pane starts unfiltered rather than blank.
   // Jira-style multi-select: checking several people (or nobody plus several
@@ -670,6 +692,10 @@ export function Inbox({
     () => initialTypeFilter ?? new Set(),
   )
   useReportChange(typeFilter, onTypeFilterChange)
+  const [languageFilter, setLanguageFilter] = useState<ReadonlySet<string>>(
+    () => initialLanguageFilter ?? new Set(),
+  )
+  useReportChange(languageFilter, onLanguageFilterChange)
 
   const toggleSetMember = useCallback(
     (setState: (updater: (current: ReadonlySet<string>) => ReadonlySet<string>) => void) =>
@@ -685,6 +711,7 @@ export function Inbox({
   )
   const toggleAssignee = useMemo(() => toggleSetMember(setAssigneeFilter), [toggleSetMember])
   const toggleType = useMemo(() => toggleSetMember(setTypeFilter), [toggleSetMember])
+  const toggleLanguage = useMemo(() => toggleSetMember(setLanguageFilter), [toggleSetMember])
 
   // Fixed to the `open` view regardless of which tab is actually selected —
   // the headline above the tabs is always "how many things are open," even
@@ -903,8 +930,10 @@ export function Inbox({
   // the same assignee/type state as the list below, so the headline never
   // says "8 things" while a filter is only showing 2 of them.
   const openCount = useMemo(
-    () => openRows.filter((row) => matchesInboxFilters(row, assigneeFilter, typeFilter)).length,
-    [openRows, assigneeFilter, typeFilter],
+    () =>
+      openRows.filter((row) => matchesInboxFilters(row, assigneeFilter, typeFilter, languageFilter))
+        .length,
+    [openRows, assigneeFilter, typeFilter, languageFilter],
   )
 
   // Names who the headline is about — a shared team inbox by default (no
@@ -1081,18 +1110,18 @@ export function Inbox({
         </AvatarStack>
       )}
 
-      {availableTypes.length > 1 && (
+      {(availableTypes.length > 1 || availableLanguages.length > 1) && (
         <MenuButton
           button={
             <Box style={{position: 'relative'}}>
               <Button aria-label={t('filter.type')} fontSize={1} icon={FilterIcon} mode="bleed" padding={2} />
-              {typeFilter.size > 0 && (
+              {typeFilter.size + languageFilter.size > 0 && (
                 // A count instead of a blue "active" fill — the fill read as
                 // just another button state, not as "N filters applied."
                 // The positioning here is this call site's own job; the pill
                 // itself (size/centering/font) is `CountBadge`'s.
                 <Box style={{pointerEvents: 'none', position: 'absolute', right: -4, top: -4}}>
-                  <CountBadge tone="primary">{typeFilter.size}</CountBadge>
+                  <CountBadge tone="primary">{typeFilter.size + languageFilter.size}</CountBadge>
                 </Box>
               )}
             </Box>
@@ -1110,20 +1139,48 @@ export function Inbox({
                   row of type chips next to the assignee avatars — one
                   collapsed control instead of two things competing for
                   attention on first glance. */}
-              <Box paddingX={3} paddingY={2}>
-                <Text muted size={0} weight="semibold">
-                  {t('filter.type')}
-                </Text>
-              </Box>
-              {availableTypes.map((report) => (
-                <MenuItem
-                  iconRight={typeFilter.has(report.source.name) ? CheckmarkIcon : undefined}
-                  key={report.source.name}
-                  onClick={() => toggleType(report.source.name)}
-                  pressed={typeFilter.has(report.source.name)}
-                  text={t(report.source.title)}
-                />
-              ))}
+              {availableTypes.length > 1 && (
+                <>
+                  <Box paddingX={3} paddingY={2}>
+                    <Text muted size={0} weight="semibold">
+                      {t('filter.type')}
+                    </Text>
+                  </Box>
+                  {availableTypes.map((report) => (
+                    <MenuItem
+                      iconRight={typeFilter.has(report.source.name) ? CheckmarkIcon : undefined}
+                      key={report.source.name}
+                      onClick={() => toggleType(report.source.name)}
+                      pressed={typeFilter.has(report.source.name)}
+                      text={t(report.source.title)}
+                    />
+                  ))}
+                </>
+              )}
+              {/* Document-level translation only: each language is its own
+                  document, so "just the English ones" is a real way to work
+                  through a queue. Grouped into this same menu rather than a
+                  control of its own, for the same "one collapsed control"
+                  reason the type list above is. */}
+              {availableLanguages.length > 1 && (
+                <>
+                  {availableTypes.length > 1 && <MenuDivider />}
+                  <Box paddingX={3} paddingY={2}>
+                    <Text muted size={0} weight="semibold">
+                      {t('filter.language')}
+                    </Text>
+                  </Box>
+                  {availableLanguages.map((language) => (
+                    <MenuItem
+                      iconRight={languageFilter.has(language) ? CheckmarkIcon : undefined}
+                      key={language}
+                      onClick={() => toggleLanguage(language)}
+                      pressed={languageFilter.has(language)}
+                      text={languageDisplayName(language, uiLocale)}
+                    />
+                  ))}
+                </>
+              )}
             </Menu>
           }
           popover={{placement: 'bottom-end', portal: true}}
@@ -1884,6 +1941,7 @@ export function Inbox({
                   results={hasMainColumnResults ? mainColumnResults : undefined}
                   scrollable={!isStacked}
                   snoozes={snoozes}
+                  languageFilter={languageFilter}
                   typeFilter={typeFilter}
                   view={view}
                 />

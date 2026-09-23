@@ -95,6 +95,8 @@ interface MergedListProps {
    */
   assigneeFilter: ReadonlySet<string>
   typeFilter: ReadonlySet<string>
+  /** Same convention; optional, since only a Studio with document-level translation ever sets it. */
+  languageFilter?: ReadonlySet<string>
   /**
    * The actual filter controls (avatar stack + type menu), built in
    * `Inbox.tsx` from the same state as `assigneeFilter`/`typeFilter` above —
@@ -195,6 +197,7 @@ export function MergedList(props: MergedListProps) {
     assessments,
     assigneeFilter,
     typeFilter,
+    languageFilter,
     filterBar,
     ask = false,
     context,
@@ -215,8 +218,8 @@ export function MergedList(props: MergedListProps) {
   )
 
   const rows = useMemo(
-    () => allRows.filter((row) => matchesInboxFilters(row, assigneeFilter, typeFilter)),
-    [allRows, assigneeFilter, typeFilter],
+    () => allRows.filter((row) => matchesInboxFilters(row, assigneeFilter, typeFilter, languageFilter)),
+    [allRows, assigneeFilter, typeFilter, languageFilter],
   )
 
   const [selectedKeys, setSelectedKeys] = useState<string[]>([])

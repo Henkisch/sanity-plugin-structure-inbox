@@ -146,6 +146,16 @@ export interface StructureInboxI18nConfig {
    * @defaultValue the editor's Studio locale, then its bare language (`en-US`, `en`)
    */
   languages?: string[]
+  /**
+   * The field that says which language a document is in, for
+   * document-level translation (`@sanity/document-internationalization`'s
+   * own `languageField`). Only document types whose schema actually declares
+   * a field by this name are read, so a Studio without document-level
+   * translation is unaffected. `false` turns it off.
+   *
+   * @defaultValue 'language'
+   */
+  languageField?: string | false
 }
 
 /** @internal */

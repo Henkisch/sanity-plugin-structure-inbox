@@ -50,3 +50,20 @@ describe('matchesInboxFilters', () => {
     expect(matchesInboxFilters(r, new Set(['ada']), new Set(['drafts']))).toBe(true)
   })
 })
+
+describe('matchesInboxFilters — language', () => {
+  it('ignores language entirely when no language filter is passed', () => {
+    expect(matchesInboxFilters(row('drafts', {language: 'sv'}), new Set(), new Set())).toBe(true)
+    expect(matchesInboxFilters(row('drafts'), new Set(), new Set(), new Set())).toBe(true)
+  })
+
+  it('keeps only rows in a selected language', () => {
+    const filter = new Set(['en'])
+    expect(matchesInboxFilters(row('drafts', {language: 'en'}), new Set(), new Set(), filter)).toBe(true)
+    expect(matchesInboxFilters(row('drafts', {language: 'sv'}), new Set(), new Set(), filter)).toBe(false)
+  })
+
+  it('drops a row with no language while a language filter is on', () => {
+    expect(matchesInboxFilters(row('drafts'), new Set(), new Set(), new Set(['en']))).toBe(false)
+  })
+})

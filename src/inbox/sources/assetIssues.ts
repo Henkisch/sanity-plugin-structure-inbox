@@ -10,7 +10,12 @@ import {useRouter} from 'sanity/router'
 
 import {API_VERSION, STRUCTURE_INBOX_NAMESPACE} from '../../constants'
 import {toDisplayTitle} from '../../i18n/contentText'
-import {useContentLanguages, useContentWriteLanguage} from '../../i18n/useContentLanguages'
+import {
+  documentLanguage,
+  useContentLanguages,
+  useContentWriteLanguage,
+  useDocumentLanguageField,
+} from '../../i18n/useContentLanguages'
 import {isHiddenType} from '../AddMenu'
 import {
   type FixProposal,
@@ -497,6 +502,8 @@ interface MissingAltRow {
   /** The image asset's CDN url, for `describeImage`. Absent when the field holds no asset. */
   imageUrl?: string
   _updatedAt?: string
+  /** Document-level translation's language — see `LANGUAGE_PROJECTION`. */
+  language?: unknown
 }
 
 interface PoorAltRow {
@@ -505,8 +512,15 @@ interface PoorAltRow {
   _updatedAt?: string
   /** A string on a plain alt field; an array or an object on a localized one. */
   alt: unknown
+  language?: unknown
   assetFilename?: string
 }
+
+/**
+ * A document-level translation's language, by a parameterised field name so
+ * the query text doesn't change with it; `null` when that isn't in use.
+ */
+const LANGUAGE_PROJECTION = `"language": select(defined($languageField) => @[$languageField])`
 
 /**
  * The GROQ condition for "this image has no alt text", per alt field shape.
@@ -714,6 +728,7 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
       const altEligibleFields = useMemo(() => findAltEligibleImageFields(schema, altFieldName), [schema])
       const languages = useContentLanguages()
       const writeLanguage = useContentWriteLanguage()
+      const languageField = useDocumentLanguageField()
 
       // Both of these throw rather than return a fallback when their context
       // isn't mounted (`Could not find \`source\` context`, `Router: missing
@@ -767,16 +782,16 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
                 Promise.all(
                   altEligibleFields.map((field) =>
                     client.fetch<MissingAltRow[]>(
-                      `*[_type == $type && defined(${field.fieldName}) && ${missingAltFilter(field, altFieldName)}] | order(_updatedAt desc)[0...$limit]{_id, "title": coalesce(title, name, label, _id), "safeTitle": coalesce(title, name, label), "imageUrl": ${field.imagePath}.asset->url, _updatedAt}`,
-                      {type: field.documentType, limit},
+                      `*[_type == $type && defined(${field.fieldName}) && ${missingAltFilter(field, altFieldName)}] | order(_updatedAt desc)[0...$limit]{_id, "title": coalesce(title, name, label, _id), "safeTitle": coalesce(title, name, label), "imageUrl": ${field.imagePath}.asset->url, _updatedAt, ${LANGUAGE_PROJECTION}}`,
+                      {type: field.documentType, limit, languageField: languageField?.field ?? null},
                     ),
                   ),
                 ),
                 Promise.all(
                   altEligibleFields.map((field) =>
                     client.fetch<PoorAltRow[]>(
-                      `*[_type == $type && defined(${field.fieldName}.${altFieldName})] | order(_updatedAt desc)[0...$limit]{_id, "title": coalesce(title, name, label, _id), _updatedAt, "alt": ${field.fieldName}.${altFieldName}, "assetFilename": ${field.imagePath}.asset->originalFilename}`,
-                      {type: field.documentType, limit},
+                      `*[_type == $type && defined(${field.fieldName}.${altFieldName})] | order(_updatedAt desc)[0...$limit]{_id, "title": coalesce(title, name, label, _id), _updatedAt, "alt": ${field.fieldName}.${altFieldName}, "assetFilename": ${field.imagePath}.asset->originalFilename, ${LANGUAGE_PROJECTION}}`,
+                      {type: field.documentType, limit, languageField: languageField?.field ?? null},
                     ),
                   ),
                 ),
@@ -820,7 +835,7 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
         // `maxSizeBytes: {image: 1e6}` inline in their config cannot cause a
         // refetch loop with a fresh object identity per render (AGENTS.md).
         // eslint-disable-next-line react-hooks/exhaustive-deps -- `altEligibleFields` is a derived, memoized array (schema is stable for this pane's lifetime); re-running this on every render it appears in would defeat the memoization the schema walk is already doing.
-      }, [client, limit])
+      }, [client, limit, languageField])
 
       const {oversized, unused, missingAlt, poorAlt, loading, error} = useObservable(fetch$, {
         oversized: [] as AssetRow[],
@@ -911,8 +926,10 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
               })
             }
 
+            const docLanguage = documentLanguage(languageField, field.documentType, doc.language)
             rows.push(
               withAssignee({
+                ...(docLanguage ? {language: docLanguage} : {}),
                 id,
                 title: toDisplayTitle(doc.title, languages) ?? doc._id,
                 subtitle: `${field.documentTypeTitle} · ${field.fieldTitle}`,
@@ -955,8 +972,10 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
             if (altText === null) continue
             const issue = classifyAltText(altText, doc.assetFilename)
             if (!issue) continue
+            const docLanguage = documentLanguage(languageField, field.documentType, doc.language)
             rows.push(
               withAssignee({
+                ...(docLanguage ? {language: docLanguage} : {}),
                 id: `poorAlt:${doc._id}:${field.fieldName}`,
                 title: toDisplayTitle(doc.title, languages) ?? doc._id,
                 subtitle: `${field.documentTypeTitle} · ${field.fieldTitle}`,
@@ -989,6 +1008,7 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
         assigneesById,
         languages,
         writeLanguage,
+        languageField,
       ])
 
       // Where an asset row goes when no document uses it — a ladder, because a

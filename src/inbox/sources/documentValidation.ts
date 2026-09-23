@@ -15,7 +15,11 @@ import {useClient, useCurrentUser, useSchema} from 'sanity'
 
 import {API_VERSION} from '../../constants'
 import {toDisplayTitle} from '../../i18n/contentText'
-import {useContentLanguages} from '../../i18n/useContentLanguages'
+import {
+  documentLanguage,
+  useContentLanguages,
+  useDocumentLanguageField,
+} from '../../i18n/useContentLanguages'
 import {mapWithConcurrency} from '../concurrency'
 import {getRealDocumentTypeNames} from '../projectDigest'
 import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
@@ -436,6 +440,7 @@ export function documentValidation(options: DocumentValidationOptions = {}): Inb
       })
 
       const languages = useContentLanguages()
+      const languageField = useDocumentLanguageField()
 
       const fetch$ = useMemo(() => {
         // Same default `unpublishedDrafts` uses, for the same reason: `null`
@@ -476,7 +481,11 @@ export function documentValidation(options: DocumentValidationOptions = {}): Inb
           const assignedTo = byTarget.get(canonicalId)
           const assignee = assignedTo ? assigneesById.get(assignedTo) : undefined
 
+          const language = languageField
+            ? documentLanguage(languageField, meta.type, draft[languageField.field])
+            : undefined
           const row: InboxItem = {
+            ...(language ? {language} : {}),
             id: meta.id,
             title: meta.title,
             subtitle,
@@ -495,7 +504,7 @@ export function documentValidation(options: DocumentValidationOptions = {}): Inb
           rows.push(assignee ? {...row, assignee} : row)
         }
         return rows
-      }, [drafts, results, byTarget, assigneesById, languages])
+      }, [drafts, results, byTarget, assigneesById, languages, languageField])
 
       return {items, loading, error: draftsError ?? validationError, assign}
     },

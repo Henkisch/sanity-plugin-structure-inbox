@@ -12,7 +12,11 @@ import {parseSnoozeSuggestion} from '../../ai/snoozeSuggestion'
 import {useAgentClient} from '../../ai/useAgentClient'
 import {API_VERSION} from '../../constants'
 import {toDisplayTitle} from '../../i18n/contentText'
-import {useContentLanguages} from '../../i18n/useContentLanguages'
+import {
+  documentLanguage,
+  useContentLanguages,
+  useDocumentLanguageField,
+} from '../../i18n/useContentLanguages'
 import {EMPTY_DISMISSALS, type DismissalState} from '../../store/dismissals'
 import {type SnoozeState} from '../../store/snoozes'
 import {warnOnce} from '../../warnOnce'
@@ -76,6 +80,8 @@ interface DraftRow {
   // not necessarily a string: a localized title is an array or an object —
   // see `toDisplayTitle`.
   title?: unknown
+  /** The document-level translation's language — `null` when not asked for (see `QUERY`). */
+  language?: unknown
 }
 
 /**
@@ -99,7 +105,11 @@ const QUERY = `*[
   // document id here would make \`row.title\` always truthy, which would
   // silently defeat \`toItem\`'s own friendlier "no title at all" fallback
   // below — this needs to come back \`null\`, not a technical-looking id.
-  "title": coalesce(title, name, label)
+  "title": coalesce(title, name, label),
+  // A parameterised field name (\`@[$languageField]\`), so the query text
+  // stays constant; \`select\` keeps it \`null\` when document-level
+  // translation isn't in use.
+  "language": select(defined($languageField) => @[$languageField])
 }`
 
 /**
@@ -176,6 +186,7 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
     userId: string | undefined,
   ): InboxSourceResult {
     const languages = useContentLanguages()
+    const languageField = useDocumentLanguageField()
     const result$ = useMemo(() => {
       // Read once per `[client, schema, userId]` recompute, same as this
       // logic did inline inside `useItems()` before this hook was extracted
@@ -192,6 +203,7 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
         before,
         limit: rawLimit,
         types: types ?? getRealDocumentTypeNames(schema).map((type) => type.name),
+        languageField: languageField?.field ?? null,
       }
 
       const toItem = (row: DraftRow): InboxItem => {
@@ -200,7 +212,9 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
         // fair fallback for a row title, so this falls back to the same
         // friendly type name the subtitle already computes.
         const typeName = typeDisplayName(schema, row._type)
+        const language = documentLanguage(languageField, row._type, row.language)
         return {
+          ...(language ? {language} : {}),
           id: row._id,
           title: toDisplayTitle(row.title, languages) ?? typeName,
           subtitle: typeName,
@@ -258,7 +272,7 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
         startWith<InboxSourceResult>({items: [], loading: true}),
         catchError((error: Error) => of<InboxSourceResult>({items: [], error})),
       )
-    }, [client, schema, userId, languages])
+    }, [client, schema, userId, languages, languageField])
 
     return useObservable(result$, {items: [], loading: true})
   }

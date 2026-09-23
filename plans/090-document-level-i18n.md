@@ -7,6 +7,21 @@
 - **Category**: feature / content i18n (document-level)
 - **Depends on**: 089, which provides the `i18n` option, `ContentI18nContext` and
   `translation.metadata` hiding.
+- **State**: DONE 2026-09-23. Shipped together with 089 in one release.
+
+## Outcome
+
+- **Language field and param:** `@[$languageField]` inside `select(defined(...))` works
+  (checked against a real dataset), so every query stays constant.
+- **Filter placement:** the filter is a "Language" group inside the existing filter menu,
+  not a new control.
+- **Rows with no language:** these are hidden while a language filter is active.
+- **Bug found live, and only in a Studio with no i18n at all:** the schema's abstract
+  `document` type has no `fields` at runtime, so detection threw and took down three
+  sources. Each failure stayed inside its own card because of 089's boundaries. It is
+  fixed and has a regression test.
+- **test-studio:** i18n now sits behind `SANITY_STUDIO_NO_I18N=1`, so both states can be
+  run for real.
 
 ## The gap
 

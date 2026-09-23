@@ -360,7 +360,7 @@ this is a smaller door into the same room, not a migration you have to make.
 | `context`           | `string`        | —                  | Project description prepended to every AI read. See below.                       |
 | `summarize`         | `boolean`       | `true`             | Set to `false` to remove the "Summarize" AI read entirely — no menu item, no cost. |
 | `suggestTodos`      | `boolean`       | `true`             | Set to `false` to remove the "Suggest todos" AI read entirely — no menu item, no cost. |
-| `i18n`              | `{languages?: string[]}` | Studio locale | Which content language to read localized titles and alt text in. See [Localized content](#localized-content). |
+| `i18n`              | `{languages?, languageField?}` | Studio locale, `'language'` | How localized content is read: which language to prefer, and which field marks a document-level translation. See [Localized content](#localized-content). |
 
 ### Getting back to the Inbox
 
@@ -776,6 +776,18 @@ structureInbox({
 
 The first language in that list is also the one localized alt-text fixes write in. Leave it unset
 and those fixes aren't offered (see [Alt text](#alt-text)).
+
+**Document-level translation** ([`@sanity/document-internationalization`](https://github.com/sanity-io/document-internationalization))
+also works without setup. Each translation is its own document, so the translations of one page
+would otherwise show up as identical rows. Instead, each row gets a small language badge (`SV`, `EN`),
+and once two or more languages are present, the filter menu gains a **Language** group. The filter
+is saved in the pane's URL along with the others. Only document types whose schema declares the
+language field are read (`language`, or set `i18n.languageField` to match your plugin config; `false`
+turns it off). A Studio without document-level translation sees no difference.
+
+This covers `unpublishedDrafts`, `documentValidation` and `assetIssues`. Tasks and comments don't
+fetch the document they're about, so their rows have no language. Your own sources can set
+`language` on an item to get the same badge and filter.
 
 Neither `unpublishedDrafts` nor `documentValidation` lists system types (`sanity.*`) or
 `@sanity/document-internationalization`'s own `translation.metadata` documents unless you name them in

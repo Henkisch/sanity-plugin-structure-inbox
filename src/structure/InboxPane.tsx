@@ -13,6 +13,7 @@ import {SectionCard} from '../ui/SectionCard'
 import {SectionErrorBoundary} from '../ui/SectionErrorBoundary'
 import {
   INBOX_ASSIGNEE_PARAM,
+  INBOX_LANGUAGE_PARAM,
   INBOX_TYPE_PARAM,
   INBOX_VIEW_PARAM,
   parseInboxPaneParams,
@@ -165,6 +166,15 @@ export function InboxPane(props: InboxPaneProps) {
     })
   }, [])
 
+  const handleLanguageFilterChange = useCallback((filter: ReadonlySet<string>) => {
+    const current = paneRouterRef.current
+    current.setParams({
+      ...current.params,
+      [INBOX_LANGUAGE_PARAM]:
+        filter.size === 0 ? undefined : [...filter].map(encodeURIComponent).join(','),
+    })
+  }, [])
+
   return (
     <>
       <CollapsedBackBar />
@@ -178,9 +188,11 @@ export function InboxPane(props: InboxPaneProps) {
           contentGaps={props.options?.contentGaps}
           context={props.options?.context}
           initialAssigneeFilter={initial.assigneeFilter}
+          initialLanguageFilter={initial.languageFilter}
           initialTypeFilter={initial.typeFilter}
           initialView={initial.view}
           onAssigneeFilterChange={handleAssigneeFilterChange}
+          onLanguageFilterChange={handleLanguageFilterChange}
           onTypeFilterChange={handleTypeFilterChange}
           onViewChange={handleViewChange}
           sources={props.options?.sources ?? []}

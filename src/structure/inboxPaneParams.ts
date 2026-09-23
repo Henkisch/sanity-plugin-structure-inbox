@@ -7,11 +7,13 @@ import {type InboxView} from '../inbox/types'
 export const INBOX_VIEW_PARAM = 'inboxView'
 export const INBOX_ASSIGNEE_PARAM = 'inboxAssignee'
 export const INBOX_TYPE_PARAM = 'inboxType'
+export const INBOX_LANGUAGE_PARAM = 'inboxLanguage'
 
 export interface InboxPaneFilterState {
   view: InboxView
   assigneeFilter: ReadonlySet<string>
   typeFilter: ReadonlySet<string>
+  languageFilter: ReadonlySet<string>
 }
 
 function isInboxView(value: string): value is InboxView {
@@ -42,6 +44,7 @@ export function parseInboxPaneParams(
     view: rawView && isInboxView(rawView) ? rawView : 'open',
     assigneeFilter: splitParam(params?.[INBOX_ASSIGNEE_PARAM]),
     typeFilter: splitParam(params?.[INBOX_TYPE_PARAM]),
+    languageFilter: splitParam(params?.[INBOX_LANGUAGE_PARAM]),
   }
 }
 
@@ -57,5 +60,6 @@ export function serializeInboxPaneParams(
     [INBOX_VIEW_PARAM]: state.view === 'open' ? undefined : state.view,
     [INBOX_ASSIGNEE_PARAM]: joinParam(state.assigneeFilter),
     [INBOX_TYPE_PARAM]: joinParam(state.typeFilter),
+    [INBOX_LANGUAGE_PARAM]: joinParam(state.languageFilter),
   }
 }
