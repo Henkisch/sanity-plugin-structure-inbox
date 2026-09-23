@@ -713,6 +713,35 @@ export function Inbox({
   const toggleType = useMemo(() => toggleSetMember(setTypeFilter), [toggleSetMember])
   const toggleLanguage = useMemo(() => toggleSetMember(setLanguageFilter), [toggleSetMember])
 
+  // What the filter menu offers: everything present, plus anything currently
+  // *selected* even if no row carries it right now. Both filters live in the
+  // pane URL, so a reload can restore a selection before (or without) the rows
+  // that justified it — a slow validation run, a source that's since emptied.
+  // Offering only what's present then hid the one control that could clear
+  // the filter while it went on narrowing the list (found in a real Studio).
+  const typeOptions = useMemo(
+    () =>
+      typeFilter.size === 0
+        ? availableTypes
+        : mainOrder
+            .map((name) => reports[name])
+            .filter(
+              (report): report is SourceReport =>
+                Boolean(report) &&
+                (availableTypes.includes(report) || typeFilter.has(report.source.name)),
+            ),
+    [availableTypes, typeFilter, mainOrder, reports],
+  )
+  const languageOptions = useMemo(
+    () =>
+      languageFilter.size === 0
+        ? availableLanguages
+        : [...new Set([...availableLanguages, ...languageFilter])].sort(),
+    [availableLanguages, languageFilter],
+  )
+  const showTypeGroup = typeOptions.length > 1 || typeFilter.size > 0
+  const showLanguageGroup = languageOptions.length > 1 || languageFilter.size > 0
+
   // Fixed to the `open` view regardless of which tab is actually selected —
   // the headline above the tabs is always "how many things are open," even
   // while looking at Done or Snoozed. Kept separate from `allRowsAnyView`
@@ -969,7 +998,7 @@ export function Inbox({
   // beside it (a release or a draft has no assignee, and grouping releases
   // by type would just be one bucket), so they belong in that column's own
   // header rather than spanning the whole pane above both boxes.
-  const filterBar = (showAssigneeFilter || availableTypes.length > 1) && (
+  const filterBar = (showAssigneeFilter || showTypeGroup || showLanguageGroup) && (
     // `justify="flex-end"`: this cluster sits in the header grid's own
     // 'right' area, whose track can end up wider than this content alone
     // needs — the grid's second row (the Ask input, spanning both columns)
@@ -1110,7 +1139,7 @@ export function Inbox({
         </AvatarStack>
       )}
 
-      {(availableTypes.length > 1 || availableLanguages.length > 1) && (
+      {(showTypeGroup || showLanguageGroup) && (
         <MenuButton
           button={
             <Box style={{position: 'relative'}}>
@@ -1139,14 +1168,14 @@ export function Inbox({
                   row of type chips next to the assignee avatars — one
                   collapsed control instead of two things competing for
                   attention on first glance. */}
-              {availableTypes.length > 1 && (
+              {showTypeGroup && (
                 <>
                   <Box paddingX={3} paddingY={2}>
                     <Text muted size={0} weight="semibold">
                       {t('filter.type')}
                     </Text>
                   </Box>
-                  {availableTypes.map((report) => (
+                  {typeOptions.map((report) => (
                     <MenuItem
                       iconRight={typeFilter.has(report.source.name) ? CheckmarkIcon : undefined}
                       key={report.source.name}
@@ -1162,15 +1191,15 @@ export function Inbox({
                   through a queue. Grouped into this same menu rather than a
                   control of its own, for the same "one collapsed control"
                   reason the type list above is. */}
-              {availableLanguages.length > 1 && (
+              {showLanguageGroup && (
                 <>
-                  {availableTypes.length > 1 && <MenuDivider />}
+                  {showTypeGroup && <MenuDivider />}
                   <Box paddingX={3} paddingY={2}>
                     <Text muted size={0} weight="semibold">
                       {t('filter.language')}
                     </Text>
                   </Box>
-                  {availableLanguages.map((language) => (
+                  {languageOptions.map((language) => (
                     <MenuItem
                       iconRight={languageFilter.has(language) ? CheckmarkIcon : undefined}
                       key={language}

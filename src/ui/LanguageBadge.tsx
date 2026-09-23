@@ -10,11 +10,16 @@ import {COUNT_MONOSPACE_FONT_FAMILY} from './CountBadge'
  * @internal
  */
 export function languageDisplayName(language: string, uiLocale?: string): string {
+  let name: string
   try {
-    return new Intl.DisplayNames(uiLocale ? [uiLocale] : undefined, {type: 'language'}).of(language) ?? language
+    name = new Intl.DisplayNames(uiLocale ? [uiLocale] : undefined, {type: 'language'}).of(language) ?? language
   } catch {
     return language
   }
+  // Several languages write their own names lowercase ("svenska",
+  // "engelska") — correct in running text, odd as a standalone menu label.
+  // Capitalized in the UI locale's own rules, so it isn't naive ASCII.
+  return name.charAt(0).toLocaleUpperCase(uiLocale) + name.slice(1)
 }
 
 /**

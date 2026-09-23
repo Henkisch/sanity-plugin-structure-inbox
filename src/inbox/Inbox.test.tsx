@@ -604,6 +604,39 @@ describe('Inbox tab/filter persistence', () => {
   })
 })
 
+describe('Inbox language filter', () => {
+  const ITEMS_TWO_LANGUAGES = [
+    {id: 'sv-page', title: 'Startsida', language: 'sv'},
+    {id: 'en-page', title: 'Home', language: 'en'},
+  ]
+  const ITEMS_NO_LANGUAGE = [{id: 'cocktail', title: 'Skrea Glubbel'}]
+
+  it('offers a filter for a single source whose rows span two languages', () => {
+    // The filter bar used to render only for several types or assignees, so
+    // a one-source Studio with document-level translation never saw it.
+    const source: InboxSource = {name: 'drafts', title: 'Drafts', useItems: () => ({items: ITEMS_TWO_LANGUAGES})}
+
+    renderWithTheme(<Inbox sources={[source]} />)
+
+    expect(screen.getByRole('button', {name: 'filter.type'})).toBeTruthy()
+  })
+
+  it('keeps a restored language selection clearable when no row carries that language yet', () => {
+    // Reload with `inboxLanguage=en` before (or without) the rows that had
+    // it: the selected option must still be in the menu, or the filter keeps
+    // narrowing the list with nothing on screen able to turn it off.
+    const source: InboxSource = {name: 'drafts', title: 'Drafts', useItems: () => ({items: ITEMS_NO_LANGUAGE})}
+
+    renderWithTheme(<Inbox initialLanguageFilter={new Set(['en'])} sources={[source]} />)
+
+    fireEvent.click(screen.getByRole('button', {name: 'filter.type'}))
+    expect(screen.getByText('filter.language')).toBeTruthy()
+    expect(screen.getByRole('menuitem', {name: 'English'})).toBeTruthy()
+    // Language-neutral work stays visible under the filter.
+    expect(screen.getByText('Skrea Glubbel')).toBeTruthy()
+  })
+})
+
 describe('Inbox runSourceAction', () => {
   // The `action` object is built once, outside `useItems`, and referenced by
   // closure rather than recreated per call — same reasoning as `TODOS_ITEMS`/
