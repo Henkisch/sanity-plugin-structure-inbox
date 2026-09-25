@@ -5,6 +5,13 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.5.1](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v2.5.0...v2.5.1) (2026-09-25)
+
+### Bug Fixes
+
+- **deps:** dedupe @sanity/types to 6.16 in lockfile ([1246ebb](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/1246ebbcfc333ede90be02bbf1a9c8f195eaabb6))
+- **deps:** require sanity >=6.14.1 as peer ([0a0d601](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/0a0d601979b668ab391d349a096209ca87c5874b))
+
 ## [2.5.0](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v2.4.0...v2.5.0) (2026-09-23)
 
 ### Features
