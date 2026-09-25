@@ -88,7 +88,7 @@
     "oxlint-tsgolint": "^7.0.2001",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "sanity": "^6.12.0",
+    "sanity": "^6.16.0",
     "sanity-plugin-link-checker": "^0.4.0",
     "semantic-release": "^25.0.9",
     "styled-components": "^6.5.3",
@@ -111,7 +111,7 @@
     "node": ">=20.19 <22 || >=22.12"
   },
   "inlinedDependencies": {
-    "@sanity/client": "8.6.1",
+    "@sanity/client": "8.7.0",
     "react-rx": "6.1.0",
     "rxjs": "7.8.2",
     "tslib": "2.8.1"
