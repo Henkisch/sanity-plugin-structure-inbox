@@ -48,14 +48,18 @@ const HoverableCard = styled(Card)`
  * "Open link in new tab" all work natively, so an editor can fix something in
  * another tab and come back to the inbox exactly where they left it.
  *
- * Static content paints beneath it (positioned beats non-positioned), so a
- * click anywhere on the row lands here; `RAISED` lifts the row's own
- * controls back above it.
+ * Its own `z-index` puts it above the row's content, and it needs one:
+ * Sanity UI's `Text` is itself `position: relative` (`responsiveFont`), so
+ * without it the title and subtitle painted above the link, and a cmd-click
+ * on the words — the likeliest place to click — reached the card instead and
+ * navigated this tab (found live). `RAISED` lifts the row's own controls
+ * above the link in turn.
  */
 const RowAnchor = styled.a`
   border-radius: inherit;
   inset: 0;
   position: absolute;
+  z-index: 1;
 
   &:focus-visible {
     outline: 2px solid var(--card-focus-ring-color);
@@ -63,7 +67,7 @@ const RowAnchor = styled.a`
   }
 `
 
-const RAISED: CSSProperties = {position: 'relative', zIndex: 1}
+const RAISED: CSSProperties = {position: 'relative', zIndex: 2}
 
 // Mirrors `sanity/router`'s own `useLink`: anything but a plain left click is
 // the browser's to handle (new tab, new window, download), not the router's.
