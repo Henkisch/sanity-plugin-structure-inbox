@@ -5,6 +5,17 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.7.0](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v2.6.0...v2.7.0) (2026-09-28)
+
+### Features
+
+- **inbox:** give asset and task rows their own links ([5f9a4d5](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/5f9a4d567fb1f88545747749ac42387a1f68e779))
+- **inbox:** make document rows real links so cmd+click opens a new tab ([356d3c5](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/356d3c54f9bb837573f21edbd04a76fd4fe795d2))
+
+### Bug Fixes
+
+- **inbox:** keep row text from covering the row link ([f6e0ec5](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/f6e0ec5ece6823b81c79d968b5256f180d616b64))
+
 ## [2.6.0](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v2.5.1...v2.6.0) (2026-09-28)
 
 ### Features
