@@ -6,7 +6,7 @@
 - **Effort**: S
 - **Category**: ux
 - **Depends on**: —
-- **State**: DONE 2026-09-28 (branch `feat/row-links`). Not verified live yet.
+- **State**: DONE 2026-09-28 (branch `feat/row-links`). Verified live on document and missing-alt rows. Asset/task-only links not yet.
 
 ## The finding
 
