@@ -118,6 +118,18 @@ export interface InboxItem {
     params: {id?: string; type?: string; [key: string]: string | undefined}
   }
   /**
+   * A URL for a row with no `intent`, so cmd/ctrl-click, middle-click and
+   * "Open link in new tab" have somewhere to go. An `intent` gets its URL from
+   * the router and ignores this.
+   *
+   * A plain click still calls the source's `openDetail`. A new-tab click
+   * calls it too, with `{newTab: true}`, while the browser opens this URL.
+   * `openDetail` should then do only its side effects (a clipboard copy, say)
+   * and skip navigating. Omit for a row whose click has no URL, like
+   * an integrator callback.
+   */
+  href?: string
+  /**
    * Who this item is assigned to, if anyone — rendered as a small avatar
    * rather than restated in text (a Jira-style issue card, not another line
    * of "Assigned to you" next to text that already said so).
@@ -507,8 +519,11 @@ export interface InboxSourceResult {
    * clicking it opens the task's own detail panel (Sanity's own Tasks UI)
    * instead of doing nothing. A row only ever does one of `intent`/`update`/
    * `openDetail` on click, tried in that order.
+   *
+   * `options.newTab` means the browser is already opening `item.href` in a
+   * new tab: do the side effects, but don't navigate this tab too.
    */
-  openDetail?: (item: InboxItem) => void
+  openDetail?: (item: InboxItem, options?: {newTab?: boolean}) => void
   /**
    * A single, source-level action unrelated to any one item — "Scan for
    * broken links", say.

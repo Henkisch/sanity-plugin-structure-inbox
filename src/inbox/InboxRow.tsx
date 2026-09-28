@@ -118,11 +118,13 @@ interface InboxRowProps {
   /** Called once a proposal has really been written, so the list can confirm it somewhere that outlives this row. */
   onFixApplied?: (item: InboxItem, summary: string) => void
   /**
-   * Opens this one item's edit dialog — only ever set for a row with no
-   * `intent` to navigate to instead (a todo has no document), since a row
-   * only ever does one of the two on click.
+   * Opens this one item's edit dialog, or the source's `openDetail` — only
+   * ever set for a row with no `intent` to navigate to instead (a todo has no
+   * document), since a row only ever does one of the two on click.
+   * `{newTab: true}` when the browser is opening `item.href` in a new tab
+   * instead — see `InboxItem.href`.
    */
-  onEdit?: (item: InboxItem) => void
+  onEdit?: (item: InboxItem, options?: {newTab?: boolean}) => void
   /**
    * Reassigns this one item directly, without a bulk selection — clicking
    * the assignee avatar opens a small picker in place of it. Both this and
@@ -305,29 +307,51 @@ export function InboxRow(props: InboxRowProps) {
   // the checkbox is always still there as a second, explicit way to select.
   //
   // The "somewhere to go" case is normally `RowAnchor`'s, not this handler's:
-  // a row with an intent is covered edge to edge by a real link, and that
-  // link stops its own clicks from reaching the card. `resolveIntentLink`
-  // throws when the router has no route for the intent (a router with no
-  // intent route at all, as in this repo's own tests) — a row must not go
-  // down for want of an `href`, so it falls back to click-only navigation.
+  // a row with a URL is covered edge to edge by a real link, and that link
+  // stops its own clicks from reaching the card. An `intent` gets its URL
+  // from the router; any other row can bring its own (`item.href`).
+  // `resolveIntentLink` throws when the router has no route for the intent
+  // (a router with no intent route at all, as in this repo's own tests) — a
+  // row must not go down for want of an `href`, so it falls back to
+  // click-only navigation.
   const href = useMemo(() => {
-    if (!item.intent) return undefined
+    if (!item.intent) return item.href
     try {
       return resolveIntentLink(item.intent.type, item.intent.params)
     } catch {
       return undefined
     }
-  }, [item.intent, resolveIntentLink])
+  }, [item.intent, item.href, resolveIntentLink])
+
   const handleLinkClick = useCallback(
     (event: MouseEvent) => {
       event.stopPropagation()
-      if (!item.intent || !isPlainLeftClick(event)) return
+      if (!isPlainLeftClick(event)) {
+        // The browser opens the link. An intent needs nothing else; an
+        // `openDetail` row may still have side effects to run.
+        if (!item.intent) onEdit?.(item, {newTab: true})
+        return
+      }
       // The same in-app navigation a row click has always done, not a bare
       // `navigateUrl(href)` — keeps a plain click exactly as it was.
-      event.preventDefault()
-      navigateIntent(item.intent.type, item.intent.params)
+      if (item.intent) {
+        event.preventDefault()
+        navigateIntent(item.intent.type, item.intent.params)
+      } else if (onEdit) {
+        event.preventDefault()
+        onEdit(item)
+      }
     },
-    [item, navigateIntent],
+    [item, navigateIntent, onEdit],
+  )
+
+  // A middle click never fires `click`, only `auxclick`.
+  const handleLinkAuxClick = useCallback(
+    (event: MouseEvent) => {
+      event.stopPropagation()
+      if (event.button === 1 && !item.intent) onEdit?.(item, {newTab: true})
+    },
+    [item, onEdit],
   )
 
   const handleRowClick = useCallback(() => {
@@ -903,6 +927,7 @@ export function InboxRow(props: InboxRowProps) {
           <RowAnchor
             aria-labelledby={labelId}
             href={href}
+            onAuxClick={handleLinkAuxClick}
             onClick={handleLinkClick}
             tabIndex={leaving ? -1 : undefined}
           />
@@ -932,6 +957,7 @@ export function InboxRow(props: InboxRowProps) {
         <RowAnchor
           aria-labelledby={labelId}
           href={href}
+          onAuxClick={handleLinkAuxClick}
           onClick={handleLinkClick}
           tabIndex={leaving ? -1 : undefined}
         />

@@ -985,7 +985,7 @@ export function MergedList(props: MergedListProps) {
             report?.update
               ? () => setEditingKey(row.key)
               : report?.openDetail
-                ? () => report.openDetail?.(row.item)
+                ? (_item: InboxItem, options?: {newTab?: boolean}) => report.openDetail?.(row.item, options)
                 : undefined
           }
           onReassign={

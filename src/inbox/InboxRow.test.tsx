@@ -163,6 +163,37 @@ describe('InboxRow', () => {
     expect(navigateIntent).toHaveBeenCalledWith('edit', {id: '1'})
   })
 
+  describe('a row with its own href instead of an intent', () => {
+    const withHref = item({href: '/default/media'})
+
+    it('links there, and a plain click still goes through onEdit', () => {
+      const onEdit = vi.fn()
+      renderRow(<InboxRow item={withHref} onEdit={onEdit} selected={false} />)
+
+      const link = screen.getByRole('link', {name: 'Row title'})
+      expect(link.getAttribute('href')).toBe('/default/media')
+      expect(fireEvent.click(link)).toBe(false)
+      expect(onEdit).toHaveBeenCalledTimes(1)
+      expect(onEdit).toHaveBeenCalledWith(withHref)
+    })
+
+    it('leaves a cmd-click to the browser and tells onEdit it is a new tab', () => {
+      const onEdit = vi.fn()
+      renderRow(<InboxRow item={withHref} onEdit={onEdit} selected={false} />)
+
+      expect(fireEvent.click(screen.getByRole('link'), {metaKey: true})).toBe(true)
+      expect(onEdit).toHaveBeenCalledWith(withHref, {newTab: true})
+    })
+
+    it('tells onEdit about a middle-click too, which never fires click', () => {
+      const onEdit = vi.fn()
+      renderRow(<InboxRow item={withHref} onEdit={onEdit} selected={false} />)
+
+      fireEvent(screen.getByRole('link'), new MouseEvent('auxclick', {bubbles: true, button: 1}))
+      expect(onEdit).toHaveBeenCalledWith(withHref, {newTab: true})
+    })
+  })
+
   it('renders no link for a row with nowhere to go', () => {
     renderRow(<InboxRow item={item()} onEdit={vi.fn()} selected={false} />)
     expect(screen.queryByRole('link')).toBeNull()

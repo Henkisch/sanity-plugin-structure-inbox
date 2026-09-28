@@ -27,11 +27,20 @@ the inbox where they left it.
   The row then renders no link and keeps click-only navigation instead of
   crashing.
 - Keyboard users can now Tab to a row and press Enter.
+- Rows without an intent can bring their own URL (`InboxItem.href`). A
+  new-tab click calls `openDetail(item, {newTab: true})` so side effects still
+  run while the browser handles the navigation.
+  - Oversized/unused asset rows link to the media tool's root (the filename
+    still goes to the clipboard), or to the file when there's no media tool.
+    No link when the integrator supplies `openAsset`.
+  - Tasks with no target document link to `?sidebar=tasks&viewMode=edit&selectedTask=<id>`,
+    the same URL Sanity's own "Copy link to task" builds.
+  - The media tool path now strips a trailing slash from `basePath`, so a
+    root workspace no longer builds `//media`.
 
 ## Not done
 
-`openDetail` rows (tasks, assets) have no stable URL, so they stay
-click-only.
+Todos open an edit dialog and have no URL, so they stay click-only.
 
 ## Verify live
 

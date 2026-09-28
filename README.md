@@ -218,6 +218,13 @@ The built-in sources do this wherever they can: a broken link opens on the
 link, a missing alt text opens on the alt field, a validation failure opens on
 the first field that failed.
 
+Every row with somewhere to go is a real link, so editors can cmd/ctrl-click or
+middle-click it into a new tab and keep their place in the inbox. An `intent`
+gets its URL from the router. A row that opens through `openDetail` instead can
+set its own `href`. A new-tab click then calls `openDetail(item, {newTab: true})`
+while the browser opens the URL, so run your side effects there, but don't
+navigate.
+
 ### Offering a fix
 
 A source can also return `proposeFix`, which turns a row from a report into something an editor can
