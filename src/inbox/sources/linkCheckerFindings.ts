@@ -31,6 +31,7 @@ import {
   type InboxSourceResult,
 } from '../types'
 import {targetIdFromItemId, useAssignmentCapability} from './assignmentCapability'
+import {usePagedLimit} from './pagedLimit'
 import {SIMPLE_FIELD_PATH} from './simpleFieldPath'
 
 /**
@@ -275,6 +276,15 @@ function toItem(
   }
 }
 
+interface ReportState {
+  report: ScanResult | null
+  loading?: boolean
+  error?: Error
+}
+
+/** Module scope, not inline: an initial value rebuilt per render is the churn AGENTS.md warns about. */
+const INITIAL_REPORT_STATE: ReportState = {report: null, loading: true}
+
 /** Exported only for `linkCheckerFindings.test.ts` — the pure part of this source, same reasoning as `InboxRow.tsx`'s own `initials`. */
 export function toItems(
   report: ScanResult | null,
@@ -448,11 +458,16 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
     report: ScanResult | null
   }
 
-  function useFindingsFetch(): FindingsFetch {
+  /**
+   * `pageLimit` is applied here, after the report arrives, not inside the
+   * subscription: the whole report is already in memory, so "Show more" is
+   * a re-slice, never a resubscribe.
+   */
+  function useFindingsFetch(pageLimit: number): FindingsFetch {
     const client = useClient({apiVersion: API_VERSION})
     const schema = useSchema()
 
-    const fetch$ = useMemo(() => {
+    const reportState$ = useMemo(() => {
       // `observeReport` is a plain subscribe-callback API (not an
       // Observable of its own) - bridged into one here so this source
       // composes with the rest of this codebase's rxjs-based sources the
@@ -465,21 +480,26 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
       )
 
       return report$.pipe(
-        map((report): FindingsFetch => ({
-          report,
-          result: {
-            items: toItems(report, schema, includeUnverifiable, limit),
-            overflow: overflowPastLimit(report, includeUnverifiable, limit),
-          },
-        })),
-        startWith<FindingsFetch>({report: null, result: {items: [], loading: true}}),
-        catchError((error: Error) =>
-          of<FindingsFetch>({report: null, result: {items: [], error}}),
-        ),
+        map((report): ReportState => ({report})),
+        startWith<ReportState>({report: null, loading: true}),
+        catchError((error: Error) => of<ReportState>({report: null, error})),
       )
-    }, [client, schema])
+    }, [client])
 
-    return useObservable(fetch$, {report: null, result: {items: [], loading: true}})
+    const {report, loading, error} = useObservable(reportState$, INITIAL_REPORT_STATE)
+
+    const result = useMemo(
+      (): InboxSourceResult =>
+        loading || error
+          ? {items: [], loading, error}
+          : {
+              items: toItems(report, schema, includeUnverifiable, pageLimit),
+              overflow: overflowPastLimit(report, includeUnverifiable, pageLimit),
+            },
+      [report, loading, error, schema, pageLimit],
+    )
+
+    return useMemo(() => ({result, report}), [result, report])
   }
 
   return {
@@ -496,7 +516,7 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
       now: number,
       dismissals: DismissalState = EMPTY_DISMISSALS,
     ): number | null {
-      const {result} = useFindingsFetch()
+      const {result} = useFindingsFetch(limit)
 
       return useMemo(() => {
         if (result.loading || result.error) return null
@@ -511,7 +531,8 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
     },
 
     useItems(): InboxSourceResult {
-      const {result, report} = useFindingsFetch()
+      const {limit: pageLimit, loadMore} = usePagedLimit(limit)
+      const {result, report} = useFindingsFetch(pageLimit)
       const client = useClient({apiVersion: API_VERSION})
       const agentClient = useAgentClient()
       const schema = useSchema()
@@ -730,6 +751,7 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
         () => ({
           ...result,
           items,
+          loadMore,
           assign,
           assess,
           proposeFix,
@@ -741,7 +763,7 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
             icon: SearchIcon,
           },
         }),
-        [result, items, assign, assess, proposeFix, runFromInbox],
+        [result, items, loadMore, assign, assess, proposeFix, runFromInbox],
       )
     },
   }

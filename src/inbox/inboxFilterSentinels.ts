@@ -11,7 +11,7 @@ import {type InboxItem} from './types'
  */
 export const ASSIGNEE_UNASSIGNED = '__unassigned__'
 
-const NO_FILTER: ReadonlySet<string> = new Set()
+export const NO_FILTER: ReadonlySet<string> = new Set()
 
 /**
  * Whether one row's item survives the current assignee/type filters —

@@ -187,6 +187,10 @@ than you returned. The list stays capped, but the headline and the nav badge cou
 one item takes one off the number instead of letting the next one slide silently into its place.
 Leave it out if you filter after the fetch and can't count exactly.
 
+Return `loadMore` too and the list gets a "Show more" footer: each click should raise your cap by
+a page, typically by keeping the limit in state and rebuilding the query. The plugin keeps the
+rows already on screen while the next page loads, so you don't need to.
+
 ### Landing on the field, not just the document
 
 An `intent` takes more than an id and a type. If your source knows which field

@@ -1264,3 +1264,61 @@ describe('suggested assignee', () => {
     expect(await screen.findByText('assess.error')).toBeTruthy()
   })
 })
+
+describe('MergedList — Show more footer', () => {
+  it('offers Show more under the list and asks every source with more for a page', () => {
+    const assetMore = vi.fn()
+    const draftMore = vi.fn()
+    renderList({
+      reports: {
+        assets: report('assets', 'Assets', {open: [item('a')], overflow: 40, loadMore: assetMore}),
+        drafts: report('drafts', 'Drafts', {open: [item('d')], overflow: 3, loadMore: draftMore}),
+        todos: report('todos', 'Todos', {open: [item('t')]}),
+      },
+      order: ['assets', 'drafts', 'todos'],
+    })
+
+    expect(screen.getByText('inbox.more.count')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', {name: 'inbox.more.show'}))
+    expect(assetMore).toHaveBeenCalledTimes(1)
+    expect(draftMore).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows nothing when every source loaded everything', () => {
+    renderList({
+      reports: {assets: report('assets', 'Assets', {open: [item('a')], overflow: 0, loadMore: vi.fn()})},
+      order: ['assets'],
+    })
+    expect(screen.queryByRole('button', {name: 'inbox.more.show'})).toBeNull()
+  })
+
+  // Every loaded row dismissed or snoozed, but the source has more: saying
+  // "Nothing open." there would be false, and would hide the one way forward.
+  it('replaces the empty state when nothing loaded is open but more exists', () => {
+    renderList({
+      reports: {assets: report('assets', 'Assets', {open: [], overflow: 12, loadMore: vi.fn()})},
+      order: ['assets'],
+    })
+    expect(screen.queryByText('source.empty')).toBeNull()
+    expect(screen.getByRole('button', {name: 'inbox.more.show'})).toBeTruthy()
+  })
+
+  it('keeps the count but drops the button once every source is at its ceiling', () => {
+    renderList({
+      reports: {assets: report('assets', 'Assets', {open: [item('a')], overflow: 12})},
+      order: ['assets'],
+    })
+    expect(screen.getByText(/inbox\.more\.count/)).toBeTruthy()
+    expect(screen.getByText(/inbox\.more\.atLimit/)).toBeTruthy()
+    expect(screen.queryByRole('button', {name: 'inbox.more.show'})).toBeNull()
+  })
+
+  it('is not offered outside the Open view', () => {
+    renderList({
+      reports: {assets: report('assets', 'Assets', {cleared: [item('a')], overflow: 12, loadMore: vi.fn()})},
+      order: ['assets'],
+      view: 'cleared',
+    })
+    expect(screen.queryByRole('button', {name: 'inbox.more.show'})).toBeNull()
+  })
+})

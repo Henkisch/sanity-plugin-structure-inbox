@@ -16,6 +16,7 @@ import {countOpenItems} from '../mergeItems'
 import {type InboxAssessment, type InboxItem, type InboxSource, type InboxSourceResult} from '../types'
 import {optionalHook, useAssignableUsers, useSafely} from './capability'
 import {liveQuery$} from './liveQuery'
+import {usePagedLimit} from './pagedLimit'
 import {useOpenTaskDetail} from './openTaskDetail'
 
 /**
@@ -104,7 +105,7 @@ const QUERY = `{
   "openTotal": count(*[${OPEN_FILTER}]),
   "open": *[
     ${OPEN_FILTER}
-  ] | order(coalesce(dueBy, _updatedAt) asc)[0...$limit]{
+  ] | order(coalesce(dueBy, _updatedAt) asc)[0...$openLimit]{
     _id, _updatedAt, title, dueBy, assignedTo, status,
     "targetId": target.document._ref,
     "targetType": target.documentType
@@ -231,6 +232,9 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
     client: AddonDatasetContextValue['client'],
     ready: boolean,
     userId: string | undefined,
+    // Only the open bucket pages: "Show more" is about what's waiting, and the
+    // recently-closed bucket keeps the configured `limit`.
+    openLimit: number,
   ): RawTaskResult {
     const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
 
@@ -252,7 +256,7 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
       const assignedTo = onlyMine ? (userId ?? null) : null
       // eslint-disable-next-line react/purity -- see `unpublishedDrafts.ts`'s own `before`: read once per recompute, not a live clock.
       const clearedSince = new Date(Date.now() - clearedWithinDays * 24 * 60 * 60 * 1000).toISOString()
-      const params = {assignedTo, limit, clearedSince}
+      const params = {assignedTo, limit, openLimit, clearedSince}
       // The `map` to `RawTaskResult` now lives inside `fetch$` itself, not
       // after `liveQuery$` — so a failed refetch's `onFetchError` value and
       // a successful fetch's mapped value are the same shape by the time
@@ -315,7 +319,7 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
         startWith<RawTaskResult>({items: [], loading: true, rowAssignees: new Map()}),
         catchError((error: Error) => of<RawTaskResult>({items: [], error, rowAssignees: new Map()})),
       )
-    }, [client, ready, userId, t])
+    }, [client, ready, userId, t, openLimit])
 
     return useObservable(result$, {items: [], loading: true, rowAssignees: new Map()})
   }
@@ -345,7 +349,7 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
       // resolved pane tree.
       const {client, ready} = useSafely(useAddonDataset, useUnavailableAddonDataset())
       const userId = useCurrentUser()?.id
-      const result = useTaskFetch(client, ready, userId)
+      const result = useTaskFetch(client, ready, userId, limit)
 
       return useMemo(() => {
         if (result.loading || result.error) return null
@@ -372,7 +376,8 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
       // hook the same way for the same reason.
       const {data: assignable} = useAssignableUsers({documentValue: null, permission: 'update'})
 
-      const result = useTaskFetch(client, ready, userId)
+      const {limit: pageLimit, loadMore} = usePagedLimit(limit)
+      const result = useTaskFetch(client, ready, userId, pageLimit)
 
       // Every assignable project member, keyed by id — same shape and same
       // reasoning as `unpublishedDrafts.ts`'s own `assigneesById`: `assignable`
@@ -430,6 +435,7 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
         () => ({
           items,
           overflow: result.overflow,
+          loadMore,
           loading: result.loading,
           error: result.error,
           assess,
@@ -458,7 +464,7 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
               }
             : undefined,
         }),
-        [items, result.overflow, result.loading, result.error, client, assess, openTaskDetail],
+        [items, result.overflow, loadMore, result.loading, result.error, client, assess, openTaskDetail],
       )
     },
   }

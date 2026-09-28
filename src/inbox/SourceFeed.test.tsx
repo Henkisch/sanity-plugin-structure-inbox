@@ -1,4 +1,4 @@
-import {cleanup, render} from '@testing-library/react'
+import {act, cleanup, render} from '@testing-library/react'
 import {useCallback, useState} from 'react'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
@@ -48,6 +48,7 @@ describe('SourceFeed', () => {
     const run = vi.fn()
     const suggestSnooze = vi.fn()
     const transferToUser = vi.fn()
+    const loadMore = vi.fn()
 
     // Typed as `InboxSourceResult & {[K in CapabilityKey]: unknown}` rather
     // than plain `InboxSourceResult` so that a future capability field is a
@@ -58,6 +59,7 @@ describe('SourceFeed', () => {
     const result: InboxSourceResult & {[K in CapabilityKey]: unknown} = {
       items: [],
       overflow: 7,
+      loadMore,
       resolve,
       reopen,
       create,
@@ -97,6 +99,10 @@ describe('SourceFeed', () => {
     expect(report.suggestSnooze).toBe(suggestSnooze)
     expect(report.transfer?.toUser).toBe(transferToUser)
     expect(report.overflow).toBe(7)
+    // Wrapped (see the hold in `SourceFeed`), so not the same function — but
+    // it must still reach the source's own.
+    act(() => report.loadMore?.())
+    expect(loadMore).toHaveBeenCalledTimes(1)
   })
 
   // `overflow` is data, not a capability, so it is not behind the capability
@@ -249,5 +255,111 @@ describe('SourceFeed with a non-text title', () => {
     const report = onReport.mock.calls.at(-1)?.[1] as SourceReport
     expect(report.open[0]?.title).toBe('Hello')
     warn.mockRestore()
+  })
+})
+
+describe('SourceFeed — Show more', () => {
+  const row = (id: string): InboxItem => ({id, title: id})
+  const page1 = [row('a'), row('b')]
+  const page2 = [row('a'), row('b'), row('c'), row('d')]
+
+  // A source that pages the way the built-ins do: a higher limit rebuilds its
+  // query, which starts over from `{items: [], loading: true}`.
+  function pagingSource() {
+    const state = {phase: 'page1' as 'page1' | 'reloading' | 'page2'}
+    const loadMore = vi.fn(() => {
+      state.phase = 'reloading'
+    })
+    const source: InboxSource = {
+      name: 'paged',
+      title: 'Paged',
+      useItems: () =>
+        state.phase === 'page1'
+          ? {items: page1, overflow: 2, loadMore}
+          : state.phase === 'reloading'
+            ? {items: [], loading: true, overflow: undefined, loadMore}
+            : {items: page2, overflow: 0, loadMore},
+    }
+    return {source, state, loadMore}
+  }
+
+  function renderFeed(source: InboxSource) {
+    const onReport = vi.fn()
+    const view = render(<SourceFeed now={NOW} onReport={onReport} snoozes={fakeSnoozes()} source={source} />)
+    const rerender = () =>
+      view.rerender(<SourceFeed now={NOW} onReport={onReport} snoozes={fakeSnoozes()} source={source} />)
+    const last = () => onReport.mock.calls.at(-1)?.[1] as SourceReport
+    return {rerender, last}
+  }
+
+  it('keeps the rows on screen while the next page loads, instead of collapsing to Loading', () => {
+    const {source, state, loadMore} = pagingSource()
+    const {rerender, last} = renderFeed(source)
+    expect(last().open.map((i) => i.id)).toEqual(['a', 'b'])
+
+    act(() => last().loadMore?.())
+    expect(loadMore).toHaveBeenCalledTimes(1)
+    rerender()
+
+    expect(state.phase).toBe('reloading')
+    expect(last().loading).toBe(false)
+    expect(last().loadingMore).toBe(true)
+    expect(last().open.map((i) => i.id)).toEqual(['a', 'b'])
+
+    state.phase = 'page2'
+    rerender()
+    expect(last().loadingMore).toBe(false)
+    expect(last().open.map((i) => i.id)).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  it('ignores a second click while a page is already on its way', () => {
+    const {source, loadMore} = pagingSource()
+    const {rerender, last} = renderFeed(source)
+    act(() => last().loadMore?.())
+    rerender()
+    act(() => last().loadMore?.())
+    expect(loadMore).toHaveBeenCalledTimes(1)
+  })
+
+  it('settles a source that pages synchronously, with no loading phase at all', () => {
+    let items = page1
+    let overflow = 2
+    const source: InboxSource = {
+      name: 'sync',
+      title: 'Sync',
+      useItems: () => ({
+        items,
+        overflow,
+        loadMore: () => {
+          items = page2
+          overflow = 0
+        },
+      }),
+    }
+    const {rerender, last} = renderFeed(source)
+    act(() => last().loadMore?.())
+    rerender()
+    expect(last().loadingMore).toBe(false)
+    expect(last().open).toHaveLength(4)
+  })
+
+  it('gives up holding after a timeout if nothing ever arrives', () => {
+    vi.useFakeTimers()
+    try {
+      const source: InboxSource = {
+        name: 'stuck',
+        title: 'Stuck',
+        useItems: () => ({items: page1, overflow: 2, loadMore: () => {}}),
+      }
+      const {last} = renderFeed(source)
+      act(() => last().loadMore?.())
+      expect(last().loadingMore).toBe(true)
+      act(() => {
+        vi.advanceTimersByTime(20_000)
+      })
+      expect(last().loadingMore).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

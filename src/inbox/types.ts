@@ -268,6 +268,17 @@ export interface InboxSourceResult {
    * approximate count here is worse than none.
    */
   overflow?: number
+  /**
+   * Raises this source's own cap by one page, so some of `overflow` comes
+   * into the list. Powers the "Show more" footer at the end of the Open view;
+   * the plugin holds the rows already on screen while the next page loads, so
+   * a source may simply rebuild its query with the higher limit.
+   *
+   * Only meaningful alongside `overflow`: the footer is offered while some
+   * source reports `overflow > 0`. Return `undefined` once there is nothing
+   * more this source can load (its own ceiling reached).
+   */
+  loadMore?: () => void
   loading?: boolean
   error?: Error
   /**

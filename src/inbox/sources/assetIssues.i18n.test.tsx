@@ -1,5 +1,5 @@
 import {type SanityClient} from '@sanity/client'
-import {cleanup, renderHook, waitFor} from '@testing-library/react'
+import {act, cleanup, renderHook, waitFor} from '@testing-library/react'
 import {type ReactNode} from 'react'
 import {Subject} from 'rxjs'
 import {afterEach, describe, expect, it, vi} from 'vitest'
@@ -267,5 +267,22 @@ describe('assetIssues — overflow past limit', () => {
       .find((q) => q.startsWith('count(') && q.includes('defined(portrait)'))!
     const filterOf = (q: string) => q.slice(q.indexOf('*[') + 2, q.indexOf(']'))
     expect(filterOf(countQuery)).toBe(filterOf(rowQuery))
+  })
+})
+
+describe('assetIssues — Show more', () => {
+  it('asks every capped query for one more page', async () => {
+    useSchemaWith(personWithAlt(stringType))
+    const {result, fetch} = await render(
+      {limit: 1},
+      {missingAlt: [{_id: 'person-1', title: 'Ada', safeTitle: 'Ada'}], missingAltTotal: 45},
+    )
+    await waitFor(() => expect(result.current.overflow).toBe(44))
+
+    act(() => result.current.loadMore?.())
+
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(expect.stringContaining('"safeTitle"'), expect.objectContaining({limit: 2})),
+    )
   })
 })

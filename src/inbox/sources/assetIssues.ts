@@ -26,6 +26,7 @@ import {
 import {targetIdFromItemId, useAssignmentCapability} from './assignmentCapability'
 import {optionalHook, useSafely} from './capability'
 import {liveQuery$} from './liveQuery'
+import {usePagedLimit} from './pagedLimit'
 import {SIMPLE_FIELD_PATH} from './simpleFieldPath'
 
 /** Real image/file asset documents this project's own dataset holds. */
@@ -474,7 +475,8 @@ const OVERSIZED_CATEGORY: Record<keyof Required<MaxAssetSizes>, string> = {
 // `count(*[references()])` is the exact shape this file's own
 // `UNUSED_ASSET_SCAN_LIMIT` exists to keep off large libraries. It is
 // affordable *here* only because the projection runs after `[0...$limit]`,
-// so it costs at most `limit` (20) reference lookups rather than one per
+// so it costs at most `limit` (20 by default, `MAX_PAGED_LIMIT` after any
+// number of "Show more" clicks) reference lookups rather than one per
 // asset in the dataset. Do not lift this projection onto an unsliced query.
 const OVERSIZED_FILTER = `_type in $assetTypes && (
   (_type == "sanity.imageAsset" && size > $maxImage) ||
@@ -729,6 +731,10 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
     audience: 'everyone',
 
     useItems(): InboxSourceResult {
+      // One page raises every capped check at once — oversized, unused, and
+      // missing/poor alt for every field — since the footer can't say which
+      // of them the editor wants more of.
+      const {limit: pageLimit, loadMore} = usePagedLimit(limit)
       const client = useClient({apiVersion: API_VERSION})
       const schema = useSchema()
       // "Who's fixing this" — a task like any other, delegable even though
@@ -787,7 +793,7 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
       const fetch$ = useMemo(() => {
         const params = {
           assetTypes: ASSET_TYPES,
-          limit,
+          limit: pageLimit,
           maxImage: maxSizes.image,
           maxVideo: maxSizes.video,
           maxAudio: maxSizes.audio,
@@ -806,7 +812,7 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
                   altEligibleFields.map((field) =>
                     client.fetch<MissingAltRow[]>(
                       `*[${missingAltDocFilter(field, altFieldName)}] | order(_updatedAt desc)[0...$limit]{_id, "title": coalesce(title, name, label, _id), "safeTitle": coalesce(title, name, label), "imageUrl": ${field.imagePath}.asset->url, _updatedAt, ${LANGUAGE_PROJECTION}}`,
-                      {type: field.documentType, limit, languageField: languageField?.field ?? null},
+                      {type: field.documentType, limit: pageLimit, languageField: languageField?.field ?? null},
                     ),
                   ),
                 ),
@@ -821,7 +827,7 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
                   altEligibleFields.map((field) =>
                     client.fetch<PoorAltRow[]>(
                       `*[_type == $type && defined(${field.fieldName}.${altFieldName})] | order(_updatedAt desc)[0...$limit]{_id, "title": coalesce(title, name, label, _id), _updatedAt, "alt": ${field.fieldName}.${altFieldName}, "assetFilename": ${field.imagePath}.asset->originalFilename, ${LANGUAGE_PROJECTION}}`,
-                      {type: field.documentType, limit, languageField: languageField?.field ?? null},
+                      {type: field.documentType, limit: pageLimit, languageField: languageField?.field ?? null},
                     ),
                   ),
                 ),
@@ -877,7 +883,7 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
         // `maxSizeBytes: {image: 1e6}` inline in their config cannot cause a
         // refetch loop with a fresh object identity per render (AGENTS.md).
         // eslint-disable-next-line react-hooks/exhaustive-deps -- `altEligibleFields` is a derived, memoized array (schema is stable for this pane's lifetime); re-running this on every render it appears in would defeat the memoization the schema walk is already doing.
-      }, [client, limit, languageField])
+      }, [client, pageLimit, languageField])
 
       const {oversized, unused, missingAlt, poorAlt, overflow, loading, error} = useObservable(fetch$, {
         oversized: [] as AssetRow[],
@@ -1212,8 +1218,8 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
       // reported up to the pane and stored as state, so anything in it that
       // churns identity every render is a render every render (AGENTS.md).
       return useMemo(
-        () => ({items, overflow, loading, error, assign, proposeFix, openDetail}),
-        [items, overflow, loading, error, assign, proposeFix, openDetail],
+        () => ({items, overflow, loadMore, loading, error, assign, proposeFix, openDetail}),
+        [items, overflow, loadMore, loading, error, assign, proposeFix, openDetail],
       )
     },
   }

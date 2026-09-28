@@ -14,6 +14,7 @@ import {type InboxItem, type InboxSource, type InboxSourceResult} from '../types
 import {targetIdFromItemId, useAssignmentCapability} from './assignmentCapability'
 import {optionalHook} from './capability'
 import {liveQuery$} from './liveQuery'
+import {usePagedLimit} from './pagedLimit'
 import {classifyRelease, toneForAttention} from './releaseAttention'
 
 const RELEASE_INTENT = 'release'
@@ -179,6 +180,7 @@ export function needsAttention(options: NeedsAttentionOptions = {}): InboxSource
         [data],
       )
       const counts = useDocumentCounts(client, releaseIds)
+      const {limit: pageLimit, loadMore} = usePagedLimit(limit)
 
       const {items, overflow} = useMemo(() => {
         const now = Date.now()
@@ -227,12 +229,12 @@ export function needsAttention(options: NeedsAttentionOptions = {}): InboxSource
           rows.push(assignee ? {...row, assignee} : row)
         }
 
-        return {items: rows.slice(0, limit), overflow: Math.max(0, rows.length - limit)}
-      }, [data, counts, t, byTarget, assigneesById])
+        return {items: rows.slice(0, pageLimit), overflow: Math.max(0, rows.length - pageLimit)}
+      }, [data, counts, t, byTarget, assigneesById, pageLimit])
 
       if (useReleases === useUnavailableReleases) return RELEASES_UNAVAILABLE
 
-      return {items, overflow, loading, error, assign}
+      return {items, overflow, loadMore, loading, error, assign}
     },
   }
 }
