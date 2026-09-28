@@ -180,7 +180,7 @@ export function needsAttention(options: NeedsAttentionOptions = {}): InboxSource
       )
       const counts = useDocumentCounts(client, releaseIds)
 
-      const items = useMemo(() => {
+      const {items, overflow} = useMemo(() => {
         const now = Date.now()
 
         const rows: InboxItem[] = []
@@ -227,12 +227,12 @@ export function needsAttention(options: NeedsAttentionOptions = {}): InboxSource
           rows.push(assignee ? {...row, assignee} : row)
         }
 
-        return rows.slice(0, limit)
+        return {items: rows.slice(0, limit), overflow: Math.max(0, rows.length - limit)}
       }, [data, counts, t, byTarget, assigneesById])
 
       if (useReleases === useUnavailableReleases) return RELEASES_UNAVAILABLE
 
-      return {items, loading, error, assign}
+      return {items, overflow, loading, error, assign}
     },
   }
 }

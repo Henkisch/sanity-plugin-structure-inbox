@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
 
-import {ASSIGNEE_UNASSIGNED, matchesInboxFilters} from './inboxFilterSentinels'
+import {ASSIGNEE_UNASSIGNED, matchesInboxFilters, overflowMatchingFilters} from './inboxFilterSentinels'
 import {type InboxItem} from './types'
 
 function row(sourceName: string, extra: Partial<InboxItem> = {}): {sourceName: string; item: InboxItem} {
@@ -68,5 +68,33 @@ describe('matchesInboxFilters — language', () => {
     // version of anything — the filter picks between translations, it
     // doesn't hide language-neutral work.
     expect(matchesInboxFilters(row('drafts'), new Set(), new Set(), new Set(['en']))).toBe(true)
+  })
+})
+
+describe('overflowMatchingFilters', () => {
+  const sources = [
+    {sourceName: 'assetIssues', overflow: 40},
+    {sourceName: 'drafts', overflow: 3},
+    {sourceName: 'todos'},
+  ]
+
+  it('adds every source’s overflow with no filter active', () => {
+    expect(overflowMatchingFilters(sources, new Set(), new Set())).toBe(43)
+  })
+
+  it('follows the type filter exactly, since it is by source', () => {
+    expect(overflowMatchingFilters(sources, new Set(), new Set(['drafts']))).toBe(3)
+  })
+
+  it('adds nothing while an assignee filter is active', () => {
+    expect(overflowMatchingFilters(sources, new Set(['ada']), new Set())).toBe(0)
+  })
+
+  it('adds nothing while a language filter is active', () => {
+    expect(overflowMatchingFilters(sources, new Set(), new Set(), new Set(['sv']))).toBe(0)
+  })
+
+  it('ignores a negative overflow rather than subtracting it', () => {
+    expect(overflowMatchingFilters([{sourceName: 'x', overflow: -2}], new Set(), new Set())).toBe(0)
   })
 })

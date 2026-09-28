@@ -284,16 +284,33 @@ export function toItems(
 ): InboxItem[] {
   if (!report) return []
 
+  return problemGroups(report, includeUnverifiable)
+    .slice(0, limit)
+    .map(({finding, occurrences}) => toItem(finding, report.ranAt, schema, occurrences))
+}
+
+/**
+ * How many rows `toItems` left out at `limit` — this source's
+ * `InboxSourceResult.overflow`. Counted from the same grouping, so one dead
+ * URL across five documents is one, exactly as it is one row.
+ */
+export function overflowPastLimit(
+  report: ScanResult | null,
+  includeUnverifiable: boolean,
+  limit: number,
+): number {
+  if (!report) return 0
+  return Math.max(0, problemGroups(report, includeUnverifiable).length - limit)
+}
+
+function problemGroups(report: ScanResult, includeUnverifiable: boolean) {
   // `isProblemFinding` is `sanity-plugin-link-checker`'s own "does this
   // count as a real issue" definition — routed through it rather than
   // re-checking `.kind`/`.result.status` here, so this never quietly
   // drifts from what that package's own CLI gate (`summarizeResult`) means
   // by "broken".
   const findings = report.findings.filter((finding) => isProblemFinding(finding, {includeUnverifiable}))
-
   return groupOccurrences(findings)
-    .slice(0, limit)
-    .map(({finding, occurrences}) => toItem(finding, report.ranAt, schema, occurrences))
 }
 
 /**
@@ -450,7 +467,10 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
       return report$.pipe(
         map((report): FindingsFetch => ({
           report,
-          result: {items: toItems(report, schema, includeUnverifiable, limit)},
+          result: {
+            items: toItems(report, schema, includeUnverifiable, limit),
+            overflow: overflowPastLimit(report, includeUnverifiable, limit),
+          },
         })),
         startWith<FindingsFetch>({report: null, result: {items: [], loading: true}}),
         catchError((error: Error) =>
@@ -486,7 +506,7 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
         // with the headline right beside it. `acknowledgable` left at its
         // default — this source's own `useItems` never sets it, so a
         // dismissal here does clear a row.
-        return countOpenItems(result.items, 'linkCheckerFindings', snoozes, now, dismissals)
+        return countOpenItems(result.items, 'linkCheckerFindings', snoozes, now, dismissals, undefined, result.overflow)
       }, [result, snoozes, now, dismissals])
     },
 

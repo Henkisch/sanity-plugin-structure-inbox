@@ -106,6 +106,10 @@ export function isManuallyCleared(
  * first (real, source-confirmed completion and snoozes, from each item's own
  * data), then the per-editor dismissal axis on top of what survived — exactly
  * `SourceFeed` handing `report.open` to `mergeRows`.
+ *
+ * `overflow` is the source's own count of open items past its `limit`
+ * (`InboxSourceResult.overflow`), added on the same way the pane's unfiltered
+ * headline adds it, so the two still agree.
  */
 export function countOpenItems(
   items: InboxItem[],
@@ -114,12 +118,13 @@ export function countOpenItems(
   now: number,
   dismissals: DismissalState,
   acknowledgable?: boolean,
+  overflow?: number,
 ): number {
   const {open} = splitItems(items, sourceName, snoozes, now)
   return open.reduce(
     (total, item) =>
       isManuallyCleared(dismissals, sourceName, item, acknowledgable) ? total : total + 1,
-    0,
+    overflow && overflow > 0 ? overflow : 0,
   )
 }
 

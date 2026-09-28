@@ -5,7 +5,7 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 import {EMPTY_SNOOZES} from '../store/snoozes'
 import {type Snoozes} from '../store/useSnoozes'
 import {normalizeItemText, SourceFeed, type SourceReport} from './SourceFeed'
-import {type InboxSource, type InboxSourceResult} from './types'
+import {type InboxItem, type InboxSource, type InboxSourceResult} from './types'
 
 afterEach(cleanup)
 
@@ -24,7 +24,7 @@ function fakeSnoozes(): Snoozes {
 // here (confirmed while building this guard: the exact same mapped type,
 // inline vs. aliased, silently stopped catching a removed field). A named
 // alias is the only form that reliably fires.
-type CapabilityKey = keyof Omit<InboxSourceResult, 'items' | 'loading' | 'error'>
+type CapabilityKey = keyof Omit<InboxSourceResult, 'items' | 'overflow' | 'loading' | 'error'>
 
 describe('SourceFeed', () => {
   // One full result exercising every optional `InboxSourceResult` field at
@@ -57,6 +57,7 @@ describe('SourceFeed', () => {
     // `InboxSourceResult` despite this test's own name.
     const result: InboxSourceResult & {[K in CapabilityKey]: unknown} = {
       items: [],
+      overflow: 7,
       resolve,
       reopen,
       create,
@@ -95,6 +96,27 @@ describe('SourceFeed', () => {
     expect(report.acknowledgable).toBe(false)
     expect(report.suggestSnooze).toBe(suggestSnooze)
     expect(report.transfer?.toUser).toBe(transferToUser)
+    expect(report.overflow).toBe(7)
+  })
+
+  // `overflow` is data, not a capability, so it is not behind the capability
+  // fingerprint — but it still has to be in the report effect's own
+  // dependency list, or the headline would keep the count from the first
+  // report: the exact "63 things" that never moved while alt texts were fixed.
+  it('re-reports when only the overflow count changes', () => {
+    let overflow = 5
+    const items: InboxItem[] = []
+    const source: InboxSource = {name: 'capped', title: 'Capped', useItems: () => ({items, overflow})}
+    const onReport = vi.fn()
+
+    const {rerender} = render(
+      <SourceFeed now={NOW} onReport={onReport} snoozes={fakeSnoozes()} source={source} />,
+    )
+    overflow = 4
+    rerender(<SourceFeed now={NOW} onReport={onReport} snoozes={fakeSnoozes()} source={source} />)
+
+    const last = onReport.mock.calls.at(-1)?.[1] as SourceReport
+    expect(last.overflow).toBe(4)
   })
 
   // The test above hands `SourceFeed` one hoisted `result` object, which is

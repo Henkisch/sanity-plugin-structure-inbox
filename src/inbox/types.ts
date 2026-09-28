@@ -255,6 +255,19 @@ export interface InboxSourceResult {
    * off the render path to begin with.
    */
   items: InboxItem[]
+  /**
+   * How many further open items matched but were left out of `items` by this
+   * source's own cap (`limit`). A count, never more rows: the list stays
+   * capped, but the pane's headline and the nav badge add this on, so fixing
+   * one thing visibly takes one off the number even while the next one slides
+   * into the freed slot.
+   *
+   * Only report it when the cap's query counts exactly what the rows are.
+   * Leave it out when a finding is only known after client-side filtering
+   * (a validation run, an `onlyMine` filter applied after the fetch): an
+   * approximate count here is worse than none.
+   */
+  overflow?: number
   loading?: boolean
   error?: Error
   /**

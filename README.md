@@ -182,6 +182,11 @@ need. Return `resolve` to make a tick complete the item for real (see below); re
 offer an "Add" dialog; return `remove` for sources with no `resolve` that still need a way to clear
 an item out for good.
 
+If your query caps what it loads (`[0...$limit]`), also return `overflow`: how many more matched
+than you returned. The list stays capped, but the headline and the nav badge count them, so fixing
+one item takes one off the number instead of letting the next one slide silently into its place.
+Leave it out if you filter after the fetch and can't count exactly.
+
 ### Landing on the field, not just the document
 
 An `intent` takes more than an id and a type. If your source knows which field

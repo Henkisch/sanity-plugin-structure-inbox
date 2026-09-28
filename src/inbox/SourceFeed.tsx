@@ -91,7 +91,7 @@ export function normalizeItemText(
  * every capability on `InboxSourceResult` is optional, so TypeScript accepts a
  * report with any subset of them present.
  */
-type CapabilityKey = keyof Omit<InboxSourceResult, 'items' | 'loading' | 'error'>
+type CapabilityKey = keyof Omit<InboxSourceResult, 'items' | 'overflow' | 'loading' | 'error'>
 
 interface SourceFeedProps {
   source: InboxSource
@@ -137,6 +137,7 @@ export function SourceFeed(props: SourceFeedProps) {
   const {
     loading,
     error,
+    overflow,
     resolve,
     reopen,
     create,
@@ -236,12 +237,13 @@ export function SourceFeed(props: SourceFeedProps) {
   const transferUserCount = transfer?.users.length ?? -1
 
   useEffect(() => {
-    onReport(source.name, {source, loading, error, open, cleared, snoozed, ...capabilities.current})
+    onReport(source.name, {source, loading, error, overflow, open, cleared, snoozed, ...capabilities.current})
   }, [
     onReport,
     source,
     loading,
     error,
+    overflow,
     open,
     cleared,
     snoozed,

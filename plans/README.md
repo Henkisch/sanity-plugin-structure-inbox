@@ -104,6 +104,7 @@ behaviour here, fix the comment in the same commit.
 | 090 | Document-level i18n — a language on every row, and a filter for it | P2 | M | 089 | **DONE 2026-09-23** (same PR as 089). `InboxItem.language` + `i18n.languageField` (auto-detected from schema), `LanguageBadge` on every row, Language group in the filter menu persisted as `inboxLanguage`. Verified live in both states — with i18n and with none (`SANITY_STUDIO_NO_I18N=1`), where it caught a crash on the fieldless `document` base type. |
 | 091 | Row titles from the Studio preview store | P3 | M–L | 089 | DEFERRED — subscription count and identity churn; `resolveTitle` parked here too |
 | 092 | Make `documentValidation` cheap enough not to freeze the Studio | P2 | M | — | TODO — found testing #10 on a real Studio; pre-existing on 2.4.0. Measure first. |
+| 093 | The headline counts past each source's `limit` | P1 | M | — | DONE 2026-09-28 — "63 things" never moved while fixing alt texts: it counted loaded rows, capped per source. New `InboxSourceResult.overflow`; headline + badge add it. Poor alt, validation, `onlyMine` can't count exactly, so they don't report it. Not verified live yet. |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale)

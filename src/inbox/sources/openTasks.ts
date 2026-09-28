@@ -93,12 +93,17 @@ interface TaskRow {
 // closing one live and watching it vanish from both tabs, not from reading
 // the query). Each bucket keeps its own natural order and its own `limit`,
 // so one can never crowd the other out.
-const QUERY = `{
-  "open": *[
-    _type == "tasks.task" &&
+const OPEN_FILTER = `_type == "tasks.task" &&
     defined(title) &&
     ($assignedTo == null || assignedTo == $assignedTo) &&
-    status == "open"
+    status == "open"`
+
+const QUERY = `{
+  // Every open task, uncapped, for \`overflow\` — only the open bucket: the
+  // headline counts what is waiting, and a closed task never is.
+  "openTotal": count(*[${OPEN_FILTER}]),
+  "open": *[
+    ${OPEN_FILTER}
   ] | order(coalesce(dueBy, _updatedAt) asc)[0...$limit]{
     _id, _updatedAt, title, dueBy, assignedTo, status,
     "targetId": target.document._ref,
@@ -118,6 +123,7 @@ const QUERY = `{
 }`
 
 interface TaskQueryResult {
+  openTotal: number
   open: TaskRow[]
   cleared: TaskRow[]
 }
@@ -256,9 +262,10 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
       // instead of an exception escaping the `useMemo`.
       const fetch$ = defer(() =>
         client.observable.fetch<TaskQueryResult>(QUERY, params).pipe(
-          map(({open, cleared}): RawTaskResult => {
+          map(({openTotal, open, cleared}): RawTaskResult => {
             const rows = [...open, ...cleared]
             return {
+              overflow: Math.max(0, openTotal - open.length),
               items: rows.map((row): InboxItem => {
                 const subtitleKey = dueSubtitleKey(row.dueBy)
                 return {
@@ -347,7 +354,7 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
         // counting without them is what made the badge and the headline
         // disagree. `acknowledgable` left at its default — this source's own
         // `useItems` never sets it (only `todos` opts out).
-        return countOpenItems(result.items, 'openTasks', snoozes, now, dismissals)
+        return countOpenItems(result.items, 'openTasks', snoozes, now, dismissals, undefined, result.overflow)
       }, [result, snoozes, now, dismissals])
     },
 
@@ -422,6 +429,7 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
       return useMemo(
         () => ({
           items,
+          overflow: result.overflow,
           loading: result.loading,
           error: result.error,
           assess,
@@ -450,7 +458,7 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
               }
             : undefined,
         }),
-        [items, result.loading, result.error, client, assess, openTaskDetail],
+        [items, result.overflow, result.loading, result.error, client, assess, openTaskDetail],
       )
     },
   }

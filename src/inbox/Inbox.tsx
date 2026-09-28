@@ -40,7 +40,7 @@ import {AddMenu} from './AddMenu'
 import {type AskState} from './AskInbox'
 import {formatContentGapsDigest, surveyContentTypes, type ContentTypeSummary} from './projectDigest'
 import {CreateItemRow} from './CreateItemRow'
-import {ASSIGNEE_UNASSIGNED, matchesInboxFilters} from './inboxFilterSentinels'
+import {ASSIGNEE_UNASSIGNED, matchesInboxFilters, overflowMatchingFilters} from './inboxFilterSentinels'
 import {InboxSection} from './InboxSection'
 import {InboxStats} from './InboxStats'
 import {initials, UnassignedAvatar} from './InboxRow'
@@ -958,11 +958,23 @@ export function Inbox({
   // attention, and folding it in would make the number cry wolf. Filtered by
   // the same assignee/type state as the list below, so the headline never
   // says "8 things" while a filter is only showing 2 of them.
+  //
+  // Plus what each source counted past its own `limit` but never loaded — so
+  // fixing one thing takes one off the number even while the next finding
+  // slides into the freed slot. Without it the headline sat at "63" through
+  // ten fixes on a real Studio. `overflowMatchingFilters` says when the
+  // active filters can honestly include rows nobody has seen.
   const openCount = useMemo(
     () =>
       openRows.filter((row) => matchesInboxFilters(row, assigneeFilter, typeFilter, languageFilter))
-        .length,
-    [openRows, assigneeFilter, typeFilter, languageFilter],
+        .length +
+      overflowMatchingFilters(
+        mainOrder.map((name) => ({sourceName: name, overflow: reports[name]?.overflow})),
+        assigneeFilter,
+        typeFilter,
+        languageFilter,
+      ),
+    [openRows, mainOrder, reports, assigneeFilter, typeFilter, languageFilter],
   )
 
   // Names who the headline is about — a shared team inbox by default (no

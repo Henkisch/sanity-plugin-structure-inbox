@@ -2,7 +2,7 @@ import {type SanityClient} from '@sanity/client'
 import {DocumentsIcon} from '@sanity/icons/Documents'
 import {useMemo} from 'react'
 import {useObservable} from 'react-rx'
-import {from, of} from 'rxjs'
+import {forkJoin, from, of} from 'rxjs'
 import {catchError, map, startWith, switchMap} from 'rxjs/operators'
 import {useClient, useCurrentLocale, useCurrentUser, useSchema} from 'sanity'
 
@@ -95,10 +95,15 @@ export function typeDisplayName(schema: {get: (type: string) => {title?: string}
   return schema.get(type)?.title || type
 }
 
-const QUERY = `*[
-  _id in path("drafts.**") &&
+const DRAFTS_FILTER = `_id in path("drafts.**") &&
   ($types == null || _type in $types) &&
-  _updatedAt < $before
+  _updatedAt < $before`
+
+/** Every draft `QUERY` would return without its `$limit` — for `overflow`. */
+const COUNT_QUERY = `count(*[${DRAFTS_FILTER}])`
+
+const QUERY = `*[
+  ${DRAFTS_FILTER}
 ] | order(_updatedAt desc)[0...$limit]{
   _id, _type, _updatedAt,
   // No \`_id\` in this chain on purpose: falling all the way back to the raw
@@ -265,10 +270,22 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
             }),
           )
         }),
-        map((rows): InboxSourceResult => ({items: rows.map(toItem)})),
       )
 
-      return liveQuery$(client, QUERY, params, fetch$, (error) => ({items: [], error})).pipe(
+      // `onlyMine` filters after the cap, so the dataset can't count what it
+      // would have kept: no `overflow` then, rather than a wrong one.
+      const total$ = onlyMine ? of(undefined) : client.observable.fetch<number>(COUNT_QUERY, params)
+
+      const result$ = forkJoin([fetch$, total$]).pipe(
+        map(
+          ([rows, total]): InboxSourceResult => ({
+            items: rows.map(toItem),
+            ...(total === undefined ? {} : {overflow: Math.max(0, total - rows.length)}),
+          }),
+        ),
+      )
+
+      return liveQuery$(client, QUERY, params, result$, (error) => ({items: [], error})).pipe(
         startWith<InboxSourceResult>({items: [], loading: true}),
         catchError((error: Error) => of<InboxSourceResult>({items: [], error})),
       )
@@ -301,7 +318,7 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
         // its rows ever leaves the pane's Open view (`mergeRows`) — a count
         // that ignored dismissals could therefore never reach zero.
         // `acknowledgable` left at its default: `useItems` never sets it.
-        return countOpenItems(result.items, 'unpublishedDrafts', snoozes, now, dismissals)
+        return countOpenItems(result.items, 'unpublishedDrafts', snoozes, now, dismissals, undefined, result.overflow)
       }, [result, snoozes, now, dismissals])
     },
 
