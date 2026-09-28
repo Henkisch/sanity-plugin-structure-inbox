@@ -11,7 +11,7 @@ import {type InboxItem} from './types'
  */
 export const ASSIGNEE_UNASSIGNED = '__unassigned__'
 
-const NO_FILTER: ReadonlySet<string> = new Set()
+export const NO_FILTER: ReadonlySet<string> = new Set()
 
 /**
  * Whether one row's item survives the current assignee/type filters —
@@ -45,4 +45,30 @@ export function matchesInboxFilters(
     return false
   }
   return true
+}
+
+/**
+ * How many items the headline should add on top of the filtered open rows,
+ * for the ones each source counted but never loaded (`InboxSourceResult.overflow`).
+ *
+ * Only as much as the filters can honestly speak for. The type filter is by
+ * source, so it applies exactly. The assignee and language filters ask about
+ * per-row data an unloaded row doesn't have, so while either is active
+ * nothing is added: the headline then counts loaded rows only, the same number
+ * the filtered list below it shows.
+ */
+export function overflowMatchingFilters(
+  sources: ReadonlyArray<{sourceName: string; overflow?: number}>,
+  assigneeFilter: ReadonlySet<string>,
+  typeFilter: ReadonlySet<string>,
+  languageFilter: ReadonlySet<string> = NO_FILTER,
+): number {
+  if (assigneeFilter.size > 0 || languageFilter.size > 0) return 0
+  return sources.reduce(
+    (total, {sourceName, overflow}) =>
+      overflow && overflow > 0 && (typeFilter.size === 0 || typeFilter.has(sourceName))
+        ? total + overflow
+        : total,
+    0,
+  )
 }

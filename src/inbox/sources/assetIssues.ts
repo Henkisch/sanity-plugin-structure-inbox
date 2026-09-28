@@ -1,7 +1,7 @@
 import {ImageIcon} from '@sanity/icons/Image'
 import {isDocumentSchemaType, isImageSchemaType} from '@sanity/types'
 import {useToast} from '@sanity/ui/toast'
-import {useCallback, useMemo, useRef} from 'react'
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {useObservable} from 'react-rx'
 import {defer, from, of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
@@ -26,6 +26,7 @@ import {
 import {targetIdFromItemId, useAssignmentCapability} from './assignmentCapability'
 import {optionalHook, useSafely} from './capability'
 import {liveQuery$} from './liveQuery'
+import {allocate, MAX_LOADED_ROWS} from './pagedLimit'
 import {SIMPLE_FIELD_PATH} from './simpleFieldPath'
 
 /** Real image/file asset documents this project's own dataset holds. */
@@ -474,18 +475,26 @@ const OVERSIZED_CATEGORY: Record<keyof Required<MaxAssetSizes>, string> = {
 // `count(*[references()])` is the exact shape this file's own
 // `UNUSED_ASSET_SCAN_LIMIT` exists to keep off large libraries. It is
 // affordable *here* only because the projection runs after `[0...$limit]`,
-// so it costs at most `limit` (20) reference lookups rather than one per
+// so it costs at most `limit` (20 by default, `MAX_PAGED_LIMIT` after any
+// number of "Show more" clicks) reference lookups rather than one per
 // asset in the dataset. Do not lift this projection onto an unsliced query.
-const OVERSIZED_QUERY = `*[_type in $assetTypes && (
+const OVERSIZED_FILTER = `_type in $assetTypes && (
   (_type == "sanity.imageAsset" && size > $maxImage) ||
   (_type == "sanity.fileAsset" && mimeType match "video/*" && size > $maxVideo) ||
   (_type == "sanity.fileAsset" && mimeType match "audio/*" && size > $maxAudio) ||
   (_type == "sanity.fileAsset" && mimeType == "application/pdf" && size > $maxPdf) ||
   (_type == "sanity.fileAsset" && !(mimeType match "video/*") && !(mimeType match "audio/*") && mimeType != "application/pdf" && size > $maxOther)
-)] | order(size desc)[0...$limit]{_id, _type, originalFilename, size, url, mimeType, "useCount": count(*[references(^._id)])}`
+)`
+const OVERSIZED_QUERY = `*[${OVERSIZED_FILTER}] | order(size desc)[0...$limit]{_id, _type, originalFilename, size, url, mimeType, "useCount": count(*[references(^._id)])}`
+// Size only, no reference lookups: cheap on any library.
+const OVERSIZED_COUNT_QUERY = `count(*[${OVERSIZED_FILTER}])`
+const UNUSED_FILTER = `_type in $assetTypes && count(*[references(^._id)]) == 0`
 // No `useCount` here: these rows are the ones nothing references, so asking
 // would be paying a second time for an answer the filter already gave.
-const UNUSED_QUERY = `*[_type in $assetTypes && count(*[references(^._id)]) == 0] | order(size desc)[0...$limit]{_id, _type, originalFilename, size, url, mimeType}`
+const UNUSED_QUERY = `*[${UNUSED_FILTER}] | order(size desc)[0...$limit]{_id, _type, originalFilename, size, url, mimeType}`
+// The same reference scan `UNUSED_QUERY`'s filter already pays for, so only
+// ever run under the same `UNUSED_ASSET_SCAN_LIMIT` guard.
+const UNUSED_COUNT_QUERY = `count(*[${UNUSED_FILTER}])`
 const ASSET_COUNT_QUERY = `count(*[_type in $assetTypes])`
 
 interface MissingAltRow {
@@ -537,6 +546,15 @@ function missingAltFilter(field: EligibleImageField, altFieldName: string): stri
     return `(!defined(${path}) || count(${path}[defined(value) && value != ""]) == 0)`
   }
   return `!defined(${path})`
+}
+
+/**
+ * The whole document filter a missing-alt query selects on — one string, so
+ * the capped row query and its uncapped `count()` can never disagree about
+ * what they are counting.
+ */
+function missingAltDocFilter(field: EligibleImageField, altFieldName: string): string {
+  return `_type == $type && defined(${field.fieldName}) && ${missingAltFilter(field, altFieldName)}`
 }
 
 /** Distinct row `category` text per `AltTextIssue` kind — three separate findings, not one vague bucket. */
@@ -610,9 +628,28 @@ interface AssetIssuesFetch {
   unused: AssetRow[]
   missingAlt: MissingAltRow[][]
   poorAlt: PoorAltRow[][]
+  /**
+   * Oversized, unused and missing-alt findings past `limit` — see
+   * `InboxSourceResult.overflow`. Poor alt text is left out: "poor" is judged
+   * here, after the fetch, so the dataset can't count it.
+   */
+  overflow?: number
+  /** `overflow` per check, so `loadMore` can split a page across them. */
+  overflowByCheck?: AssetExtras
   loading?: boolean
   error?: Error
 }
+
+/** One number per counted check: extra rows loaded past `limit`, or rows left out by it. */
+interface AssetExtras {
+  oversized: number
+  unused: number
+  /** Per eligible image field, in `altEligibleFields` order. */
+  missingAlt: readonly number[]
+}
+
+/** Module scope: a fresh object per render would be a new fetch per render. */
+const NO_EXTRAS: AssetExtras = {oversized: 0, unused: 0, missingAlt: []}
 
 /**
  * Unused, oversized, missing-alt-text, and poor-alt-text (filename-like,
@@ -707,6 +744,16 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
     audience: 'everyone',
 
     useItems(): InboxSourceResult {
+      // Each counted check pages on its own — oversized, unused, and missing
+      // alt per field — so a "Show 50 more" loads 50 across them (split by
+      // what each has left), not 50 per check. Poor alt text isn't counted
+      // (see `AssetIssuesFetch.overflow`), so it stays at `limit`.
+      const [extras, setExtras] = useState<AssetExtras>(NO_EXTRAS)
+      const ceiling = Math.max(limit, MAX_LOADED_ROWS)
+      const oversizedLimit = Math.min(limit + extras.oversized, ceiling)
+      const unusedLimit = Math.min(limit + extras.unused, ceiling)
+      // A string, so the fetch below depends on the values, not an array identity.
+      const missingAltLimitsKey = extras.missingAlt.join(',')
       const client = useClient({apiVersion: API_VERSION})
       const schema = useSchema()
       // "Who's fixing this" — a task like any other, delegable even though
@@ -763,9 +810,9 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
       )
 
       const fetch$ = useMemo(() => {
+        const missingAltLimits = missingAltLimitsKey.split(',').map((extra) => Math.min(limit + (Number(extra) || 0), ceiling))
         const params = {
           assetTypes: ASSET_TYPES,
-          limit,
           maxImage: maxSizes.image,
           maxVideo: maxSizes.video,
           maxAudio: maxSizes.audio,
@@ -776,15 +823,23 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
         const read$ = defer(() =>
           from(
             (async () => {
-              const [oversized, assetCount, missingAlt, poorAlt] = await Promise.all([
-                client.fetch<AssetRow[]>(OVERSIZED_QUERY, params),
+              const [oversized, oversizedTotal, assetCount, missingAlt, missingAltTotals, poorAlt] = await Promise.all([
+                client.fetch<AssetRow[]>(OVERSIZED_QUERY, {...params, limit: oversizedLimit}),
+                client.fetch<number>(OVERSIZED_COUNT_QUERY, params),
                 client.fetch<number>(ASSET_COUNT_QUERY, params),
                 Promise.all(
-                  altEligibleFields.map((field) =>
+                  altEligibleFields.map((field, index) =>
                     client.fetch<MissingAltRow[]>(
-                      `*[_type == $type && defined(${field.fieldName}) && ${missingAltFilter(field, altFieldName)}] | order(_updatedAt desc)[0...$limit]{_id, "title": coalesce(title, name, label, _id), "safeTitle": coalesce(title, name, label), "imageUrl": ${field.imagePath}.asset->url, _updatedAt, ${LANGUAGE_PROJECTION}}`,
-                      {type: field.documentType, limit, languageField: languageField?.field ?? null},
+                      `*[${missingAltDocFilter(field, altFieldName)}] | order(_updatedAt desc)[0...$limit]{_id, "title": coalesce(title, name, label, _id), "safeTitle": coalesce(title, name, label), "imageUrl": ${field.imagePath}.asset->url, _updatedAt, ${LANGUAGE_PROJECTION}}`,
+                      {type: field.documentType, limit: missingAltLimits[index] ?? limit, languageField: languageField?.field ?? null},
                     ),
+                  ),
+                ),
+                Promise.all(
+                  altEligibleFields.map((field) =>
+                    client.fetch<number>(`count(*[${missingAltDocFilter(field, altFieldName)}])`, {
+                      type: field.documentType,
+                    }),
                   ),
                 ),
                 Promise.all(
@@ -797,12 +852,26 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
                 ),
               ])
 
-              const unused =
+              const [unused, unusedTotal] =
                 assetCount <= UNUSED_ASSET_SCAN_LIMIT
-                  ? await client.fetch<AssetRow[]>(UNUSED_QUERY, params)
-                  : []
+                  ? await Promise.all([
+                      client.fetch<AssetRow[]>(UNUSED_QUERY, {...params, limit: unusedLimit}),
+                      client.fetch<number>(UNUSED_COUNT_QUERY, params),
+                    ])
+                  : [[], 0]
 
-              return {oversized, unused, missingAlt, poorAlt}
+              const past = (total: number, shown: number) => Math.max(0, total - shown)
+              const overflowByCheck: AssetExtras = {
+                oversized: past(oversizedTotal, oversized.length),
+                unused: past(unusedTotal, unused.length),
+                missingAlt: missingAltTotals.map((total, index) => past(total, missingAlt[index]?.length ?? 0)),
+              }
+              const overflow =
+                overflowByCheck.oversized +
+                overflowByCheck.unused +
+                overflowByCheck.missingAlt.reduce((sum, count) => sum + count, 0)
+
+              return {oversized, unused, missingAlt, poorAlt, overflow, overflowByCheck}
             })(),
           ),
         ).pipe(
@@ -835,15 +904,38 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
         // `maxSizeBytes: {image: 1e6}` inline in their config cannot cause a
         // refetch loop with a fresh object identity per render (AGENTS.md).
         // eslint-disable-next-line react-hooks/exhaustive-deps -- `altEligibleFields` is a derived, memoized array (schema is stable for this pane's lifetime); re-running this on every render it appears in would defeat the memoization the schema walk is already doing.
-      }, [client, limit, languageField])
+      }, [client, oversizedLimit, unusedLimit, missingAltLimitsKey, languageField])
 
-      const {oversized, unused, missingAlt, poorAlt, loading, error} = useObservable(fetch$, {
+      const {oversized, unused, missingAlt, poorAlt, overflow, overflowByCheck, loading, error} = useObservable(fetch$, {
         oversized: [] as AssetRow[],
         unused: [] as AssetRow[],
         missingAlt: [] as MissingAltRow[][],
         poorAlt: [] as PoorAltRow[][],
         loading: true,
       })
+
+      // Read in the handler, not closed over: `loadMore` stays one stable
+      // function however often a refetch changes what's left per check.
+      const latestOverflowByCheck = useRef(overflowByCheck)
+      useEffect(() => {
+        latestOverflowByCheck.current = overflowByCheck
+      })
+      const loadMoreChecks = useCallback((count: number) => {
+        const left = latestOverflowByCheck.current
+        if (!left) return
+        const shares = allocate(count, [left.oversized, left.unused, ...left.missingAlt])
+        setExtras((current) => ({
+          oversized: current.oversized + (shares[0] ?? 0),
+          unused: current.unused + (shares[1] ?? 0),
+          missingAlt: left.missingAlt.map((_, index) => (current.missingAlt[index] ?? 0) + (shares[index + 2] ?? 0)),
+        }))
+      }, [])
+      const atCeiling =
+        oversizedLimit >= ceiling &&
+        unusedLimit >= ceiling &&
+        extras.missingAlt.length === altEligibleFields.length &&
+        extras.missingAlt.every((extra) => limit + extra >= ceiling)
+      const loadMore = atCeiling ? undefined : loadMoreChecks
 
       const withAssignee = (row: InboxItem): InboxItem => {
         const assignedTo = byTarget.get(row.id)
@@ -1170,8 +1262,8 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
       // reported up to the pane and stored as state, so anything in it that
       // churns identity every render is a render every render (AGENTS.md).
       return useMemo(
-        () => ({items, loading, error, assign, proposeFix, openDetail}),
-        [items, loading, error, assign, proposeFix, openDetail],
+        () => ({items, overflow, loadMore, loading, error, assign, proposeFix, openDetail}),
+        [items, overflow, loadMore, loading, error, assign, proposeFix, openDetail],
       )
     },
   }

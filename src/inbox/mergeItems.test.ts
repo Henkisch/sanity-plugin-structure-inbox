@@ -1,7 +1,8 @@
 import {describe, expect, it} from 'vitest'
 
 import {EMPTY_DISMISSALS, withDismissal} from '../store/dismissals'
-import {mergeRows} from './mergeItems'
+import {EMPTY_SNOOZES} from '../store/snoozes'
+import {countOpenItems, mergeRows} from './mergeItems'
 import {type SourceReport} from './SourceFeed'
 import {type InboxItem} from './types'
 
@@ -136,5 +137,17 @@ describe('mergeRows', () => {
 
     expect(mergeRows(reports, ['todos'], 'cleared', dismissals)).toEqual([])
     expect(mergeRows(reports, ['todos'], 'open', dismissals).map((row) => row.item.id)).toEqual(['td1'])
+  })
+})
+
+describe('countOpenItems', () => {
+  it('adds the overflow a source counted past its limit, so the badge matches the headline', () => {
+    const items = [item('a'), item('b')]
+    expect(countOpenItems(items, 'x', EMPTY_SNOOZES, Date.now(), EMPTY_DISMISSALS)).toBe(2)
+    expect(countOpenItems(items, 'x', EMPTY_SNOOZES, Date.now(), EMPTY_DISMISSALS, undefined, 40)).toBe(42)
+  })
+
+  it('never lets a negative overflow subtract loaded rows', () => {
+    expect(countOpenItems([item('a')], 'x', EMPTY_SNOOZES, Date.now(), EMPTY_DISMISSALS, undefined, -3)).toBe(1)
   })
 })

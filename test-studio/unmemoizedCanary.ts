@@ -1,6 +1,6 @@
-import {useClient} from 'sanity'
+import {isDocumentSchemaType, useClient, useSchema} from 'sanity'
 import {type InboxItem, type InboxSource} from 'sanity-plugin-structure-inbox'
-import {useEffect, useState} from 'react'
+import {useEffect, useMemo, useState} from 'react'
 
 /**
  * A source written the way anyone would write one by hand, and the way the
@@ -15,6 +15,32 @@ import {useEffect, useState} from 'react'
  * pane ever crashes that way again, this source is why, and that is the point:
  * nothing else here exercises the unmemoized case.
  */
+/**
+ * The project's own content types: registered, document-shaped, and not
+ * Sanity's or a plugin's bookkeeping. The same rule the plugin's built-in
+ * sources use (`getRealDocumentTypeNames`, not exported), restated here. A
+ * source that lists "the newest documents" with no type filter surfaces
+ * permission groups (`system.group`), assets, and unregistered plugin
+ * documents like `linkCheckerReport` — none of which an editor should meet.
+ */
+const HIDDEN_PREFIXES = ['sanity.', 'system.', 'media.', 'structureInbox.']
+const HIDDEN_NAMES = new Set(['translation.metadata'])
+
+function useContentTypeNames(): string[] {
+  const schema = useSchema()
+  return useMemo(
+    () =>
+      schema
+        .getTypeNames()
+        .filter((name) => !HIDDEN_NAMES.has(name) && !HIDDEN_PREFIXES.some((prefix) => name.startsWith(prefix)))
+        .filter((name) => {
+          const type = schema.get(name)
+          return type !== undefined && isDocumentSchemaType(type)
+        }),
+    [schema],
+  )
+}
+
 export function unmemoizedCanary(): InboxSource {
   return {
     name: 'unmemoizedCanary',
@@ -23,16 +49,16 @@ export function unmemoizedCanary(): InboxSource {
 
     useItems() {
       const client = useClient({apiVersion: '2025-02-19'})
+      const types = useContentTypeNames()
       const [rows, setRows] = useState<{_id: string; _type: string; _updatedAt: string}[]>([])
 
       useEffect(() => {
         let cancelled = false
         client
           .fetch<{_id: string; _type: string; _updatedAt: string}[]>(
-            // Real content only: the plugin's own per-editor store documents
-            // (`structureInbox.*`) are deliberately unregistered types that an
-            // editor should never meet in a list — see AGENTS.md.
-            '*[!(_id in path("drafts.**")) && !(_type match "structureInbox.*")] | order(_updatedAt desc)[0...3]{_id, _type, _updatedAt}',
+            // Real content only: see `useContentTypeNames` above.
+            '*[_type in $types && !(_id in path("drafts.**"))] | order(_updatedAt desc)[0...3]{_id, _type, _updatedAt}',
+            {types},
           )
           .then((next) => {
             if (!cancelled) setRows(next)
@@ -43,7 +69,7 @@ export function unmemoizedCanary(): InboxSource {
         return () => {
           cancelled = true
         }
-      }, [client])
+      }, [client, types])
 
       // Deliberately not memoized — see this source's own doc comment.
       const items: InboxItem[] = rows.map((row) => ({

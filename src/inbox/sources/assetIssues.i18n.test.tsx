@@ -1,5 +1,5 @@
 import {type SanityClient} from '@sanity/client'
-import {cleanup, renderHook, waitFor} from '@testing-library/react'
+import {act, cleanup, renderHook, waitFor} from '@testing-library/react'
 import {type ReactNode} from 'react'
 import {Subject} from 'rxjs'
 import {afterEach, describe, expect, it, vi} from 'vitest'
@@ -69,15 +69,21 @@ const LOCALIZED_TITLE = [
   {_key: 'sv', _type: 'internationalizedArrayStringValue', language: 'sv', value: 'Daniel Vaziri (sv)'},
 ]
 
-function stubClient(rows: {missingAlt?: unknown[]; poorAlt?: unknown[]; currentAlt?: unknown}) {
+function stubClient(rows: {
+  missingAlt?: unknown[]
+  poorAlt?: unknown[]
+  currentAlt?: unknown
+  missingAltTotal?: number
+}) {
   const commit = vi.fn().mockResolvedValue(undefined)
   const set = vi.fn(() => ({commit}))
   const patch = vi.fn(() => ({set}))
 
-  const fetch = vi.fn(async (query: string) => {
+  const fetch = vi.fn(async (query: string, _params?: Record<string, unknown>) => {
     if (query.startsWith('*[_id == $id][0].')) return rows.currentAlt ?? null
     if (query.includes('"safeTitle"')) return rows.missingAlt ?? []
     if (query.includes('"alt":')) return rows.poorAlt ?? []
+    if (query.startsWith('count(') && query.includes('defined(portrait)')) return rows.missingAltTotal ?? 0
     if (query.startsWith('count(')) return 0
     return []
   })
@@ -239,5 +245,49 @@ describe('assetIssues — an internationalized-array alt field', () => {
 
     expect(result.current.items[0]?.category).toBe('Generic alt text')
     expect(result.current.items[0]?.title).toBe('Daniel Vaziri')
+  })
+})
+
+// The "63 things" that never moved: a capped source must say how many
+// findings it left out, counted by the same filter its rows came from.
+describe('assetIssues — overflow past limit', () => {
+  it('reports the missing-alt findings its query left out at limit', async () => {
+    useSchemaWith(personWithAlt(stringType))
+    const {result, fetch} = await render(
+      {limit: 1},
+      {missingAlt: [{_id: 'person-1', title: 'Ada', safeTitle: 'Ada'}], missingAltTotal: 45},
+    )
+
+    await waitFor(() => expect(result.current.overflow).toBe(44))
+
+    // The count must select exactly what the row query selects.
+    const rowQuery = fetch.mock.calls.map(([q]) => q).find((q) => q.includes('"safeTitle"'))!
+    const countQuery = fetch.mock.calls
+      .map(([q]) => q)
+      .find((q) => q.startsWith('count(') && q.includes('defined(portrait)'))!
+    const filterOf = (q: string) => q.slice(q.indexOf('*[') + 2, q.indexOf(']'))
+    expect(filterOf(countQuery)).toBe(filterOf(rowQuery))
+  })
+})
+
+describe('assetIssues — Show more', () => {
+  it('gives each check exactly its share of the page, and no more', async () => {
+    useSchemaWith(personWithAlt(stringType))
+    const {result, fetch} = await render(
+      {limit: 1},
+      {missingAlt: [{_id: 'person-1', title: 'Ada', safeTitle: 'Ada'}], missingAltTotal: 45},
+    )
+    await waitFor(() => expect(result.current.overflow).toBe(44))
+    fetch.mockClear()
+
+    // Only missing alt has anything left, so all of it goes there: 1 + 44.
+    act(() => result.current.loadMore?.(50))
+
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(expect.stringContaining('"safeTitle"'), expect.objectContaining({limit: 45})),
+    )
+    // Oversized had nothing left, so its query did not grow.
+    const oversizedCall = fetch.mock.calls.find(([q]) => q.includes('"useCount"'))
+    expect(oversizedCall?.[1]).toEqual(expect.objectContaining({limit: 1}))
   })
 })

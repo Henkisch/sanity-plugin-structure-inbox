@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useRef} from 'react'
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {useTranslation} from 'sanity'
 
 import {STRUCTURE_INBOX_NAMESPACE} from '../constants'
@@ -14,6 +14,13 @@ import {useStableItems} from './useStableItems'
 export interface SourceReport extends Omit<InboxSourceResult, 'items' | 'loading'> {
   source: InboxSource
   loading?: boolean
+  /**
+   * A `loadMore` page is on its way. The rows already on screen are held
+   * meanwhile (see `SourceFeed`), so `loading` stays false and the list
+   * doesn't collapse to "Loading…"; this is what the footer's own spinner
+   * reads instead.
+   */
+  loadingMore?: boolean
   open: InboxItem[]
   cleared: InboxItem[]
   snoozed: InboxItem[]
@@ -91,7 +98,10 @@ export function normalizeItemText(
  * every capability on `InboxSourceResult` is optional, so TypeScript accepts a
  * report with any subset of them present.
  */
-type CapabilityKey = keyof Omit<InboxSourceResult, 'items' | 'loading' | 'error'>
+type CapabilityKey = keyof Omit<InboxSourceResult, 'items' | 'overflow' | 'loading' | 'error'>
+
+/** See the hold in `SourceFeed` — how long a "Show more" may keep its spinner with nothing arriving. */
+const LOAD_MORE_TIMEOUT_MS = 20_000
 
 interface SourceFeedProps {
   source: InboxSource
@@ -135,8 +145,10 @@ export function SourceFeed(props: SourceFeedProps) {
   )
 
   const {
-    loading,
+    loading: sourceLoading,
     error,
+    overflow,
+    loadMore: sourceLoadMore,
     resolve,
     reopen,
     create,
@@ -153,9 +165,65 @@ export function SourceFeed(props: SourceFeedProps) {
     transfer,
   } = result
 
+  // Holding the rows on screen while a `loadMore` page loads. A source that
+  // pages by rebuilding its query with a higher limit starts that query over
+  // from `{items: [], loading: true}`, and passed straight through, the whole
+  // list would drop to "Loading…" and back on every "Show more" click, losing
+  // the editor's place. So between the click and the next settled result,
+  // the last settled rows stand in for the source's empty loading ones.
+  //
+  // "Settled" is whichever comes first: the source loaded (seen loading, then
+  // not), its rows or its overflow changed (a source that pages
+  // synchronously never reports loading at all), or `LOAD_MORE_TIMEOUT_MS`
+  // passed, so a source that pages to no visible change can't pin the
+  // spinner forever.
+  // The last settled result, for the click handler to snapshot — written in
+  // an effect and read only in handlers/effects, never during render.
+  const settled = useRef<{items: InboxItem[]; overflow: number | undefined}>({items: [], overflow: undefined})
+  const sawLoading = useRef(false)
+  // The rows standing in while a page loads, captured at click time. Its
+  // presence *is* "a page is on its way".
+  const [held, setHeld] = useState<{items: InboxItem[]; overflow: number | undefined} | null>(null)
+
+  const loadingMore = held !== null
+  const holding = held !== null && sourceLoading === true
+  const shownItems = holding ? held.items : items
+  const loading = holding ? false : sourceLoading
+
+  useEffect(() => {
+    if (!sourceLoading) settled.current = {items, overflow}
+    if (!held) return
+    if (sourceLoading) sawLoading.current = true
+    else if (sawLoading.current || items !== held.items || overflow !== held.overflow) setHeld(null)
+  }, [sourceLoading, items, overflow, held])
+
+  useEffect(() => {
+    if (!held) return undefined
+    const timer = setTimeout(() => setHeld(null), LOAD_MORE_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [held])
+
+  // Stable, and always calls the source's *latest* `loadMore` — same
+  // capability-ref reasoning as the rest below.
+  const latestLoadMore = useRef(sourceLoadMore)
+  const heldRef = useRef(held)
+  useEffect(() => {
+    latestLoadMore.current = sourceLoadMore
+    heldRef.current = held
+  })
+  const loadMoreHeld = useCallback((count: number) => {
+    const call = latestLoadMore.current
+    if (!call || heldRef.current) return
+    sawLoading.current = false
+    heldRef.current = settled.current
+    setHeld(settled.current)
+    call(count)
+  }, [])
+  const loadMore = sourceLoadMore ? loadMoreHeld : undefined
+
   const {open, cleared, snoozed} = useMemo(
-    () => splitItems(items, source.name, snoozes.state, now),
-    [items, source.name, snoozes.state, now],
+    () => splitItems(shownItems, source.name, snoozes.state, now),
+    [shownItems, source.name, snoozes.state, now],
   )
 
   // This destructure is a hardcoded allowlist, not `...rest` — every new
@@ -186,6 +254,7 @@ export function SourceFeed(props: SourceFeedProps) {
   // declared first) always runs before this one in the same commit, so a
   // firing report always reads the latest ones.
   const capabilities = useRef<{[K in CapabilityKey]: InboxSourceResult[K]}>({
+    loadMore,
     resolve,
     reopen,
     create,
@@ -203,6 +272,7 @@ export function SourceFeed(props: SourceFeedProps) {
   })
   useEffect(() => {
     capabilities.current = {
+      loadMore,
       resolve,
       reopen,
       create,
@@ -220,6 +290,7 @@ export function SourceFeed(props: SourceFeedProps) {
     }
   })
 
+  const hasLoadMore = Boolean(sourceLoadMore)
   const hasResolve = Boolean(resolve)
   const hasReopen = Boolean(reopen)
   const hasCreate = Boolean(create)
@@ -236,15 +307,28 @@ export function SourceFeed(props: SourceFeedProps) {
   const transferUserCount = transfer?.users.length ?? -1
 
   useEffect(() => {
-    onReport(source.name, {source, loading, error, open, cleared, snoozed, ...capabilities.current})
+    onReport(source.name, {
+      source,
+      loading,
+      loadingMore,
+      error,
+      overflow,
+      open,
+      cleared,
+      snoozed,
+      ...capabilities.current,
+    })
   }, [
     onReport,
     source,
     loading,
+    loadingMore,
     error,
+    overflow,
     open,
     cleared,
     snoozed,
+    hasLoadMore,
     hasResolve,
     hasReopen,
     hasCreate,

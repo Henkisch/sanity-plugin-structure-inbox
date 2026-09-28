@@ -14,8 +14,9 @@ import {type Snoozes} from '../store/useSnoozes'
 import {CountBadge} from '../ui/CountBadge'
 import {AskInbox, type AskState} from './AskInbox'
 import {CreateItemRow} from './CreateItemRow'
-import {matchesInboxFilters} from './inboxFilterSentinels'
+import {matchesInboxFilters, NO_FILTER} from './inboxFilterSentinels'
 import {InboxRow} from './InboxRow'
+import {LoadMoreFooter, summarizeMore} from './LoadMoreFooter'
 import {mergeRows, type MergedRow} from './mergeItems'
 import {RowBoundary} from './RowBoundary'
 import {type ContentTypeSummary} from './projectDigest'
@@ -791,6 +792,16 @@ export function MergedList(props: MergedListProps) {
   const anyLoading = order.some((name) => !reports[name] || reports[name]?.loading)
   const isEmpty = rows.length === 0
 
+  // Open view only: `overflow` counts open items, and nothing pages the
+  // Cleared or Snoozed views.
+  const more = useMemo(
+    () =>
+      view === 'open'
+        ? summarizeMore(reports, order, assigneeFilter, typeFilter, languageFilter ?? NO_FILTER)
+        : undefined,
+    [view, reports, order, assigneeFilter, typeFilter, languageFilter],
+  )
+
   const describeSource = useCallback(
     (report: SourceReport | undefined, item: InboxItem): string | undefined => {
       if (!report) return undefined
@@ -1314,6 +1325,10 @@ export function MergedList(props: MergedListProps) {
               {t('source.loading')}
             </Text>
           </Box>
+        ) : isEmpty && more && more.hidden > 0 ? (
+          // Every loaded row is dismissed, snoozed, filtered out or fixed, but
+          // the sources have more: "Nothing open." would be false here.
+          <LoadMoreFooter shown={0} summary={more} />
         ) : isEmpty ? (
           <Box padding={3}>
             <Text muted size={1}>
@@ -1354,6 +1369,7 @@ export function MergedList(props: MergedListProps) {
                 ) : (
                   rows.map(renderRow)
                 )}
+                {more && <LoadMoreFooter shown={rows.length} summary={more} />}
               </Stack>
             </Box>
           </Stack>

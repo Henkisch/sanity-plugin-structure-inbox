@@ -2,7 +2,7 @@ import {type SanityClient} from '@sanity/client'
 import {DocumentsIcon} from '@sanity/icons/Documents'
 import {useMemo} from 'react'
 import {useObservable} from 'react-rx'
-import {from, of} from 'rxjs'
+import {forkJoin, from, of} from 'rxjs'
 import {catchError, map, startWith, switchMap} from 'rxjs/operators'
 import {useClient, useCurrentLocale, useCurrentUser, useSchema} from 'sanity'
 
@@ -26,6 +26,7 @@ import {type InboxAssessment, type InboxItem, type InboxSource, type InboxSource
 import {targetIdFromIntentParamsId, useAssignmentCapability} from './assignmentCapability'
 import {fetchDocumentAuthors, filterAuthoredBy} from './authoredBy'
 import {liveQuery$} from './liveQuery'
+import {usePagedLimit} from './pagedLimit'
 
 /**
  * @public
@@ -95,10 +96,15 @@ export function typeDisplayName(schema: {get: (type: string) => {title?: string}
   return schema.get(type)?.title || type
 }
 
-const QUERY = `*[
-  _id in path("drafts.**") &&
+const DRAFTS_FILTER = `_id in path("drafts.**") &&
   ($types == null || _type in $types) &&
-  _updatedAt < $before
+  _updatedAt < $before`
+
+/** Every draft `QUERY` would return without its `$limit` — for `overflow`. */
+const COUNT_QUERY = `count(*[${DRAFTS_FILTER}])`
+
+const QUERY = `*[
+  ${DRAFTS_FILTER}
 ] | order(_updatedAt desc)[0...$limit]{
   _id, _type, _updatedAt,
   // No \`_id\` in this chain on purpose: falling all the way back to the raw
@@ -184,6 +190,7 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
     client: SanityClient,
     schema: ReturnType<typeof useSchema>,
     userId: string | undefined,
+    pageLimit: number,
   ): InboxSourceResult {
     const languages = useContentLanguages()
     const languageField = useDocumentLanguageField()
@@ -193,7 +200,7 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
       // — not a live clock, just this fetch's own "as of now" cutoff.
       // eslint-disable-next-line react/purity -- see comment above
       const before = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString()
-      const rawLimit = onlyMine ? limit * ONLY_MINE_OVERFETCH_MULTIPLIER : limit
+      const rawLimit = onlyMine ? pageLimit * ONLY_MINE_OVERFETCH_MULTIPLIER : pageLimit
       // Without an explicit `types`, only the project's own content types —
       // not `null` (every type), which let through drafts of system types
       // (`sanity.previewUrlSecret`), of plugin bookkeeping
@@ -246,7 +253,7 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
               userId,
             ),
           ).pipe(
-            map((mine) => rows.filter((row) => mine.has(row._id)).slice(0, limit)),
+            map((mine) => rows.filter((row) => mine.has(row._id)).slice(0, pageLimit)),
             catchError((error: unknown) => {
               // The source's own posture, two branches up: listing everything
               // beats listing nothing. A failed history read should cost the
@@ -261,18 +268,30 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
               // The over-fetch (`ONLY_MINE_OVERFETCH_MULTIPLIER`) exists only
               // because the filter is expected to remove rows — without this
               // cap, a failure would show up to 5x the requested count.
-              return of(rows.slice(0, limit))
+              return of(rows.slice(0, pageLimit))
             }),
           )
         }),
-        map((rows): InboxSourceResult => ({items: rows.map(toItem)})),
       )
 
-      return liveQuery$(client, QUERY, params, fetch$, (error) => ({items: [], error})).pipe(
+      // `onlyMine` filters after the cap, so the dataset can't count what it
+      // would have kept: no `overflow` then, rather than a wrong one.
+      const total$ = onlyMine ? of(undefined) : client.observable.fetch<number>(COUNT_QUERY, params)
+
+      const result$ = forkJoin([fetch$, total$]).pipe(
+        map(
+          ([rows, total]): InboxSourceResult => ({
+            items: rows.map(toItem),
+            ...(total === undefined ? {} : {overflow: Math.max(0, total - rows.length)}),
+          }),
+        ),
+      )
+
+      return liveQuery$(client, QUERY, params, result$, (error) => ({items: [], error})).pipe(
         startWith<InboxSourceResult>({items: [], loading: true}),
         catchError((error: Error) => of<InboxSourceResult>({items: [], error})),
       )
-    }, [client, schema, userId, languages, languageField])
+    }, [client, schema, userId, languages, languageField, pageLimit])
 
     return useObservable(result$, {items: [], loading: true})
   }
@@ -292,7 +311,7 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
       const client = useClient({apiVersion: API_VERSION})
       const schema = useSchema()
       const userId = useCurrentUser()?.id
-      const result = useDraftFetch(client, schema, userId)
+      const result = useDraftFetch(client, schema, userId, limit)
 
       return useMemo(() => {
         if (result.loading || result.error) return null
@@ -301,7 +320,7 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
         // its rows ever leaves the pane's Open view (`mergeRows`) — a count
         // that ignored dismissals could therefore never reach zero.
         // `acknowledgable` left at its default: `useItems` never sets it.
-        return countOpenItems(result.items, 'unpublishedDrafts', snoozes, now, dismissals)
+        return countOpenItems(result.items, 'unpublishedDrafts', snoozes, now, dismissals, undefined, result.overflow)
       }, [result, snoozes, now, dismissals])
     },
 
@@ -310,7 +329,11 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
       const schema = useSchema()
       const currentUser = useCurrentUser()
       const userId = currentUser?.id
-      const result = useDraftFetch(client, schema, userId)
+      // `onlyMine` can't count past its cap (no `overflow`), so it gets no
+      // "Show more" either — the footer only offers what it can count.
+      const {limit: pageLimit, loadMore: pageMore} = usePagedLimit(limit)
+      const loadMore = onlyMine ? undefined : pageMore
+      const result = useDraftFetch(client, schema, userId, pageLimit)
       // `null` documentValue: not scoped to one draft, since any of them
       // could be assigned — every project member able to update documents is
       // a sensible assignee. `item.intent.params.id` (the canonical,
@@ -421,8 +444,8 @@ export function unpublishedDrafts(options: UnpublishedDraftsOptions = {}): Inbox
       }, [baseAssign, assignable, client])
 
       return useMemo(
-        () => ({...result, items, assess, suggestSnooze, assign}),
-        [result, items, assess, suggestSnooze, assign],
+        () => ({...result, items, loadMore, assess, suggestSnooze, assign}),
+        [result, items, loadMore, assess, suggestSnooze, assign],
       )
     },
   }

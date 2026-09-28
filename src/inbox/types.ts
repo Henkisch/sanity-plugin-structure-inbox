@@ -255,6 +255,32 @@ export interface InboxSourceResult {
    * off the render path to begin with.
    */
   items: InboxItem[]
+  /**
+   * How many further open items matched but were left out of `items` by this
+   * source's own cap (`limit`). A count, never more rows: the list stays
+   * capped, but the pane's headline and the nav badge add this on, so fixing
+   * one thing visibly takes one off the number even while the next one slides
+   * into the freed slot.
+   *
+   * Only report it when the cap's query counts exactly what the rows are.
+   * Leave it out when a finding is only known after client-side filtering
+   * (a validation run, an `onlyMine` filter applied after the fetch): an
+   * approximate count here is worse than none.
+   */
+  overflow?: number
+  /**
+   * Loads up to `count` more of this source's open items (never more than its
+   * `overflow`), by raising its own cap. Powers the "Show more" footer at the
+   * end of the Open view, which decides `count`: its button promises an exact
+   * number ("Show 50 more", "Show all 44"), split across sources, so a source
+   * should add what it's asked for, not a page of its own choosing. The
+   * plugin holds the rows already on screen while the next page loads, so a
+   * source may simply rebuild its query with the higher limit.
+   *
+   * Only meaningful alongside `overflow`. Return `undefined` once there is
+   * nothing more this source can load (its own ceiling reached).
+   */
+  loadMore?: (count: number) => void
   loading?: boolean
   error?: Error
   /**
