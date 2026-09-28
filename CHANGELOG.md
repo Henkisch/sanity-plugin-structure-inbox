@@ -5,6 +5,14 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.6.0](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v2.5.1...v2.6.0) (2026-09-28)
+
+### Features
+
+- **inbox:** count findings past each source's limit in the headline ([ffa6865](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/ffa68655655b8da9706703d167aaf365a238b924))
+- **inbox:** page "Show more" by 50 across the list, within a row budget ([e33fb48](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/e33fb4861d275aa3d29b266d9e94a64a63bc7e5c))
+- **inbox:** show more items past each source's limit ([fb96c60](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/fb96c6067ca2504505e0d03cd71be12e886fd5ee))
+
 ## [2.5.1](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v2.5.0...v2.5.1) (2026-09-25)
 
 ### Bug Fixes
