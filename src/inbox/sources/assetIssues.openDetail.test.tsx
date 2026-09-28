@@ -349,6 +349,43 @@ describe('assetIssues openDetail', () => {
     expect(result.current.items[0].category).toBe('Unused asset')
   })
 
+  describe('href, for opening in a new tab', () => {
+    it('links to the file itself when the Studio has no media tool', async () => {
+      const result = await renderSource()
+      expect(result.current.items[0].href).toBe(ORPHAN.url)
+    })
+
+    it('links to the media tool when one is registered', async () => {
+      toolsMock.mockReturnValue(WITH_MEDIA_TOOL)
+      const result = await renderSource()
+      expect(result.current.items[0].href).toBe('/default/media')
+    })
+
+    it('has no link when the integrator supplies openAsset — a callback is not a URL', async () => {
+      toolsMock.mockReturnValue(WITH_MEDIA_TOOL)
+      const result = await renderSource({openAsset: vi.fn()})
+      expect(result.current.items[0].href).toBeUndefined()
+    })
+
+    it('still copies the filename on a new-tab click, but leaves navigating to the browser', async () => {
+      toolsMock.mockReturnValue(WITH_MEDIA_TOOL)
+      const writeText = stubClipboard(() => Promise.resolve())
+      const result = await renderSource()
+
+      result.current.openDetail!(result.current.items[0], {newTab: true})
+      await waitFor(() => expect(pushToastMock).toHaveBeenCalled())
+
+      expect(writeText).toHaveBeenCalledWith(ORPHAN.originalFilename)
+      expect(navigateUrl).not.toHaveBeenCalled()
+    })
+
+    it('does not open the file a second time on a new-tab click', async () => {
+      const result = await renderSource()
+      result.current.openDetail!(result.current.items[0], {newTab: true})
+      expect(openSpy).not.toHaveBeenCalled()
+    })
+  })
+
   it('does nothing for a row it has no asset for, rather than throwing', async () => {
     const result = await renderSource()
 

@@ -5,7 +5,7 @@ import {CheckmarkCircleIcon} from '@sanity/icons/CheckmarkCircle'
 import {UserIcon} from '@sanity/icons/User'
 import {Avatar, Box, Button, Card, Checkbox, Flex, Stack, Text} from '@sanity/ui'
 import {Menu, MenuButton, MenuDivider, MenuItem} from '@sanity/ui/menu'
-import {type CSSProperties, type MouseEvent, useCallback, useId, useRef, useState} from 'react'
+import {type CSSProperties, type MouseEvent, useCallback, useId, useMemo, useRef, useState} from 'react'
 import {useCurrentUser, useTranslation} from 'sanity'
 import {useRouter} from 'sanity/router'
 import {styled} from 'styled-components'
@@ -32,10 +32,48 @@ import {type FixProposal, type InboxAssessment, type InboxItem} from './types'
  * just applied through `:hover` instead of a component prop.
  */
 const HoverableCard = styled(Card)`
+  position: relative;
+
   &:hover {
     background-color: var(--card-muted-bg-color);
   }
 `
+
+/**
+ * The row's destination as a real link, laid over the whole card rather than
+ * wrapping it: the row already holds its own `<button>`s (checkbox, assignee
+ * picker, three-dot menu, fix Apply/Dismiss), and an `<a>` around those is
+ * the same invalid nesting `HoverableCard` above avoids. Being a genuine
+ * `href` is the point — cmd/ctrl-click, middle-click, and the context menu's
+ * "Open link in new tab" all work natively, so an editor can fix something in
+ * another tab and come back to the inbox exactly where they left it.
+ *
+ * Its own `z-index` puts it above the row's content, and it needs one:
+ * Sanity UI's `Text` is itself `position: relative` (`responsiveFont`), so
+ * without it the title and subtitle painted above the link, and a cmd-click
+ * on the words — the likeliest place to click — reached the card instead and
+ * navigated this tab (found live). `RAISED` lifts the row's own controls
+ * above the link in turn.
+ */
+const RowAnchor = styled.a`
+  border-radius: inherit;
+  inset: 0;
+  position: absolute;
+  z-index: 1;
+
+  &:focus-visible {
+    outline: 2px solid var(--card-focus-ring-color);
+    outline-offset: -2px;
+  }
+`
+
+const RAISED: CSSProperties = {position: 'relative', zIndex: 2}
+
+// Mirrors `sanity/router`'s own `useLink`: anything but a plain left click is
+// the browser's to handle (new tab, new window, download), not the router's.
+function isPlainLeftClick(event: MouseEvent) {
+  return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey
+}
 
 interface InboxRowProps {
   item: InboxItem
@@ -84,11 +122,13 @@ interface InboxRowProps {
   /** Called once a proposal has really been written, so the list can confirm it somewhere that outlives this row. */
   onFixApplied?: (item: InboxItem, summary: string) => void
   /**
-   * Opens this one item's edit dialog — only ever set for a row with no
-   * `intent` to navigate to instead (a todo has no document), since a row
-   * only ever does one of the two on click.
+   * Opens this one item's edit dialog, or the source's `openDetail` — only
+   * ever set for a row with no `intent` to navigate to instead (a todo has no
+   * document), since a row only ever does one of the two on click.
+   * `{newTab: true}` when the browser is opening `item.href` in a new tab
+   * instead — see `InboxItem.href`.
    */
-  onEdit?: (item: InboxItem) => void
+  onEdit?: (item: InboxItem, options?: {newTab?: boolean}) => void
   /**
    * Reassigns this one item directly, without a bulk selection — clicking
    * the assignee avatar opens a small picker in place of it. Both this and
@@ -244,7 +284,7 @@ export function InboxRow(props: InboxRowProps) {
   } = props
   const {t} = useTranslation(STRUCTURE_INBOX_NAMESPACE)
   const currentUser = useCurrentUser()
-  const {navigateIntent} = useRouter()
+  const {navigateIntent, resolveIntentLink} = useRouter()
   const labelId = useId()
   // A cache hit renders instantly and silently — no click, no badge saying
   // "cached", no timestamp: the invalidation is exact (see `readAssessment`'s
@@ -269,6 +309,55 @@ export function InboxRow(props: InboxRowProps) {
   // when it doesn't (a todo) rather than doing nothing. Only when it has
   // neither does clicking it fall back to the old select-on-click behaviour;
   // the checkbox is always still there as a second, explicit way to select.
+  //
+  // The "somewhere to go" case is normally `RowAnchor`'s, not this handler's:
+  // a row with a URL is covered edge to edge by a real link, and that link
+  // stops its own clicks from reaching the card. An `intent` gets its URL
+  // from the router; any other row can bring its own (`item.href`).
+  // `resolveIntentLink` throws when the router has no route for the intent
+  // (a router with no intent route at all, as in this repo's own tests) — a
+  // row must not go down for want of an `href`, so it falls back to
+  // click-only navigation.
+  const href = useMemo(() => {
+    if (!item.intent) return item.href
+    try {
+      return resolveIntentLink(item.intent.type, item.intent.params)
+    } catch {
+      return undefined
+    }
+  }, [item.intent, item.href, resolveIntentLink])
+
+  const handleLinkClick = useCallback(
+    (event: MouseEvent) => {
+      event.stopPropagation()
+      if (!isPlainLeftClick(event)) {
+        // The browser opens the link. An intent needs nothing else; an
+        // `openDetail` row may still have side effects to run.
+        if (!item.intent) onEdit?.(item, {newTab: true})
+        return
+      }
+      // The same in-app navigation a row click has always done, not a bare
+      // `navigateUrl(href)` — keeps a plain click exactly as it was.
+      if (item.intent) {
+        event.preventDefault()
+        navigateIntent(item.intent.type, item.intent.params)
+      } else if (onEdit) {
+        event.preventDefault()
+        onEdit(item)
+      }
+    },
+    [item, navigateIntent, onEdit],
+  )
+
+  // A middle click never fires `click`, only `auxclick`.
+  const handleLinkAuxClick = useCallback(
+    (event: MouseEvent) => {
+      event.stopPropagation()
+      if (event.button === 1 && !item.intent) onEdit?.(item, {newTab: true})
+    },
+    [item, onEdit],
+  )
+
   const handleRowClick = useCallback(() => {
     if (item.intent) {
       navigateIntent(item.intent.type, item.intent.params)
@@ -467,6 +556,7 @@ export function InboxRow(props: InboxRowProps) {
       // without this, `flex-start` puts the checkbox's own top edge level
       // with the title's top edge, not its centre.
       paddingTop={1}
+      style={RAISED}
     >
       <Checkbox
         aria-labelledby={labelId}
@@ -525,7 +615,7 @@ export function InboxRow(props: InboxRowProps) {
   // change the document — nothing here writes anything until Apply is
   // clicked.
   const fixRow = onProposeFix && fix.status !== 'idle' && (
-    <Flex align="center" gap={2} onClick={stopPropagation} wrap="wrap">
+    <Flex align="center" gap={2} onClick={stopPropagation} style={RAISED} wrap="wrap">
       {!fixApplied && (
         <Text muted size={0}>
           {item.quickFixable ? <BoltIcon /> : <SparklesIcon />}
@@ -662,7 +752,7 @@ export function InboxRow(props: InboxRowProps) {
     )
 
     return (
-      <Box onClick={stopPropagation}>
+      <Box onClick={stopPropagation} style={RAISED}>
         {canReassign ? (
           <MenuButton
             button={avatar}
@@ -747,7 +837,7 @@ export function InboxRow(props: InboxRowProps) {
   // path the avatar's own reassign picker already established for `assign`.
   // eslint-disable-next-line refs -- false positive: `allMenuActions` embeds `handleAssess`/`handleProposeFix` by reference (for a `MenuItem`'s `onClick`, called later at click time), and those two read `assessRequestRef.current`/`proposeFixRequestRef.current` — but only from inside their own callback bodies, never during this render. The rule's taint tracking can't tell "a ref-touching function is referenced here" from "a ref is read here", and flags this `.length` check (and the `.map()` below) as if it depended on the ref's current value, which it does not.
   const menuButton = allMenuActions.length > 0 && (
-    <Box onClick={stopPropagation}>
+    <Box onClick={stopPropagation} style={RAISED}>
       <MenuButton
         button={
           <Button
@@ -837,6 +927,15 @@ export function InboxRow(props: InboxRowProps) {
         style={exitStyle}
         tone={selected ? 'primary' : tone}
       >
+        {href && (
+          <RowAnchor
+            aria-labelledby={labelId}
+            href={href}
+            onAuxClick={handleLinkAuxClick}
+            onClick={handleLinkClick}
+            tabIndex={leaving ? -1 : undefined}
+          />
+        )}
         <Flex align="center" gap={2}>
           {checkbox}
           <Box flex={1} style={{minWidth: 0}}>
@@ -858,6 +957,15 @@ export function InboxRow(props: InboxRowProps) {
       style={exitStyle}
       tone={selected ? 'primary' : tone}
     >
+      {href && (
+        <RowAnchor
+          aria-labelledby={labelId}
+          href={href}
+          onAuxClick={handleLinkAuxClick}
+          onClick={handleLinkClick}
+          tabIndex={leaving ? -1 : undefined}
+        />
+      )}
       {/* Always `flex-start`, never centered against the whole row: a
           vertically-centered checkbox sits between the title and subtitle
           lines rather than against the title itself, which reads as

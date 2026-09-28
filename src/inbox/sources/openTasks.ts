@@ -17,7 +17,7 @@ import {type InboxAssessment, type InboxItem, type InboxSource, type InboxSource
 import {optionalHook, useAssignableUsers, useSafely} from './capability'
 import {liveQuery$} from './liveQuery'
 import {usePagedLimit} from './pagedLimit'
-import {useOpenTaskDetail} from './openTaskDetail'
+import {taskDetailHref, useOpenTaskDetail} from './openTaskDetail'
 
 /**
  * Stands in for `useAddonDataset` when Sanity does not export it. A hook in
@@ -287,6 +287,9 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
                     row.targetId && row.targetType
                       ? {type: 'edit', params: {id: row.targetId, type: row.targetType}}
                       : undefined,
+                  // Nothing to open but the task itself, which has a URL of
+                  // its own — see `taskDetailHref`.
+                  ...(row.targetId && row.targetType ? {} : {href: taskDetailHref(row._id)}),
                   // Real, Sanity-confirmed evidence, not a dismissal — see `cleared`
                   // on `InboxItem`. This is the one source that can set it at all.
                   cleared: row.status === 'closed',
@@ -443,7 +446,9 @@ export function openTasks(options: OpenTasksOptions = {}): InboxSource {
           // `intent` (opens the target document instead), tried first. See
           // `openDetail`'s own doc comment on `InboxSourceResult`, and
           // `openTaskDetail.ts` for the stability trade-off this makes.
-          openDetail: (item: InboxItem) => openTaskDetail(item.id),
+          openDetail: (item: InboxItem, options?: {newTab?: boolean}) => {
+            if (!options?.newTab) openTaskDetail(item.id)
+          },
           // Real assignee, deliberately read-only here — see this source's
           // own doc comment on why `assign` itself is never offered, and
           // `assigneeReadOnly`'s own doc comment for what this actually

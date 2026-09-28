@@ -44,3 +44,14 @@ export function useOpenTaskDetail(): (taskId: string) => void {
     [navigation],
   )
 }
+
+/**
+ * A task's own URL: the same search params Sanity's own "Copy link to task"
+ * writes (`sidebar`, `viewMode`, `selectedTask`), which its Tasks layout
+ * reads on load to open that task. Query-only, so it resolves against
+ * whatever page the row is on — the new tab opens the same Studio view with
+ * the task panel open over it.
+ */
+export function taskDetailHref(taskId: string): string {
+  return `?${new URLSearchParams({sidebar: 'tasks', viewMode: 'edit', selectedTask: taskId}).toString()}`
+}

@@ -12,6 +12,12 @@ import {type InboxItem} from './types'
 afterEach(cleanup)
 
 const navigateIntent = vi.fn()
+const resolveIntentLink = vi.fn(
+  (intent: string, params: Record<string, string>) =>
+    `/intent/${intent}/${Object.entries(params)
+      .map(([key, value]) => `${key}=${value}`)
+      .join(';')}`,
+)
 
 // `renderWithTheme` wires the real router, whose `navigateIntent` throws for
 // any route this test suite hasn't registered — exactly what earlier tests
@@ -20,7 +26,7 @@ const navigateIntent = vi.fn()
 // resolve it against.
 vi.mock('sanity/router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('sanity/router')>()
-  return {...actual, useRouter: () => ({navigateIntent})}
+  return {...actual, useRouter: () => ({navigateIntent, resolveIntentLink})}
 })
 
 // `useCurrentUser` (for the "(You)" tooltip suffix) needs a full Studio
@@ -92,10 +98,105 @@ describe('InboxRow', () => {
       />,
     )
 
-    fireEvent.click(screen.getByText('Row title'))
+    fireEvent.click(screen.getByRole('link', {name: 'Row title'}))
 
+    expect(navigateIntent).toHaveBeenCalledTimes(1)
     expect(navigateIntent).toHaveBeenCalledWith('edit', {id: '1', type: 'post'})
     expect(onSelectedChange).not.toHaveBeenCalled()
+  })
+
+  // The whole point of the link: an editor cmd+clicks a row, fixes it in a
+  // new tab, closes that tab, and is back in the inbox where they left it.
+  it('is a real link to the document, so the browser can open it in a new tab', () => {
+    navigateIntent.mockClear()
+    const onSelectedChange = vi.fn()
+    renderRow(
+      <InboxRow
+        item={item({intent: {type: 'edit', params: {id: '1', type: 'post'}}})}
+        onSelectedChange={onSelectedChange}
+        selected={false}
+      />,
+    )
+
+    const link = screen.getByRole('link', {name: 'Row title'})
+    expect(link.getAttribute('href')).toBe('/intent/edit/id=1;type=post')
+
+    for (const modifier of [{metaKey: true}, {ctrlKey: true}, {shiftKey: true}]) {
+      // `fireEvent` returns false only when the default was prevented.
+      expect(fireEvent.click(link, modifier)).toBe(true)
+    }
+    expect(navigateIntent).not.toHaveBeenCalled()
+    expect(onSelectedChange).not.toHaveBeenCalled()
+  })
+
+  it('keeps the row controls out of the link', () => {
+    navigateIntent.mockClear()
+    const onSelectedChange = vi.fn()
+    renderRow(
+      <InboxRow
+        item={item({intent: {type: 'edit', params: {id: '1', type: 'post'}}})}
+        onSelectedChange={onSelectedChange}
+        selected={false}
+      />,
+    )
+
+    const link = screen.getByRole('link', {name: 'Row title'})
+    const checkbox = screen.getByRole('checkbox')
+    expect(link.contains(checkbox)).toBe(false)
+
+    fireEvent.click(checkbox)
+    expect(onSelectedChange).toHaveBeenCalledWith(expect.anything(), true)
+    expect(navigateIntent).not.toHaveBeenCalled()
+  })
+
+  it('still opens on click when the router cannot build a link for the intent', () => {
+    navigateIntent.mockClear()
+    resolveIntentLink.mockImplementationOnce(() => {
+      throw new Error('Unable to find matching route for state')
+    })
+    renderRow(
+      <InboxRow item={item({intent: {type: 'edit', params: {id: '1'}}})} selected={false} />,
+    )
+
+    expect(screen.queryByRole('link')).toBeNull()
+    fireEvent.click(screen.getByText('Row title'))
+    expect(navigateIntent).toHaveBeenCalledWith('edit', {id: '1'})
+  })
+
+  describe('a row with its own href instead of an intent', () => {
+    const withHref = item({href: '/default/media'})
+
+    it('links there, and a plain click still goes through onEdit', () => {
+      const onEdit = vi.fn()
+      renderRow(<InboxRow item={withHref} onEdit={onEdit} selected={false} />)
+
+      const link = screen.getByRole('link', {name: 'Row title'})
+      expect(link.getAttribute('href')).toBe('/default/media')
+      expect(fireEvent.click(link)).toBe(false)
+      expect(onEdit).toHaveBeenCalledTimes(1)
+      expect(onEdit).toHaveBeenCalledWith(withHref)
+    })
+
+    it('leaves a cmd-click to the browser and tells onEdit it is a new tab', () => {
+      const onEdit = vi.fn()
+      renderRow(<InboxRow item={withHref} onEdit={onEdit} selected={false} />)
+
+      expect(fireEvent.click(screen.getByRole('link'), {metaKey: true})).toBe(true)
+      expect(onEdit).toHaveBeenCalledWith(withHref, {newTab: true})
+    })
+
+    it('tells onEdit about a middle-click too, which never fires click', () => {
+      const onEdit = vi.fn()
+      renderRow(<InboxRow item={withHref} onEdit={onEdit} selected={false} />)
+
+      fireEvent(screen.getByRole('link'), new MouseEvent('auxclick', {bubbles: true, button: 1}))
+      expect(onEdit).toHaveBeenCalledWith(withHref, {newTab: true})
+    })
+  })
+
+  it('renders no link for a row with nowhere to go', () => {
+    renderRow(<InboxRow item={item()} onEdit={vi.fn()} selected={false} />)
+    expect(screen.queryByRole('link')).toBeNull()
   })
 
   it('opens an edit dialog on click when the item has no intent but the source offers one', () => {

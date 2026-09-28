@@ -808,6 +808,15 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
         () => tools.find((tool) => MEDIA_TOOL_NAMES.has(tool.name))?.name,
         [tools],
       )
+      // A workspace at the root has `basePath` `'/'`, and `'//media'` as an
+      // `href` is a protocol-relative URL to a host called "media".
+      const mediaToolPath = mediaToolName ? `${basePath.replace(/\/+$/, '')}/${mediaToolName}` : undefined
+
+      // Where `openDetail` below goes for an unreferenced asset, as a URL the
+      // browser can open in a new tab — the same ladder, minus the rung that
+      // has none (an integrator's `openAsset` is a callback, not a place).
+      const assetHref = (asset: AssetTarget): string | undefined =>
+        openAsset ? undefined : (mediaToolPath ?? asset.url)
 
       const fetch$ = useMemo(() => {
         const missingAltLimits = missingAltLimitsKey.split(',').map((extra) => Math.min(limit + (Number(extra) || 0), ceiling))
@@ -954,10 +963,13 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
 
         for (const asset of oversized) {
           const id = `oversized:${asset._id}`
-          assets.set(id, toAssetTarget(asset))
+          const target = toAssetTarget(asset)
+          assets.set(id, target)
+          const href = assetHref(target)
           rows.push(
             withAssignee({
               id,
+              ...(href ? {href} : {}),
               title: asset.originalFilename || asset._id,
               subtitle: `${formatAssetSize(asset.size)} · ${describeUsage(asset.useCount)}`,
               category: OVERSIZED_CATEGORY[assetKind(asset._type, asset.mimeType)],
@@ -968,10 +980,13 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
 
         for (const asset of unused) {
           const id = `unused:${asset._id}`
-          assets.set(id, toAssetTarget(asset))
+          const target = toAssetTarget(asset)
+          assets.set(id, target)
+          const href = assetHref(target)
           rows.push(
             withAssignee({
               id,
+              ...(href ? {href} : {}),
               title: asset.originalFilename || asset._id,
               subtitle: formatAssetSize(asset.size),
               category: 'Unused asset',
@@ -1101,6 +1116,7 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
         languages,
         writeLanguage,
         languageField,
+        mediaToolPath,
       ])
 
       // Where an asset row goes when no document uses it — a ladder, because a
@@ -1125,7 +1141,7 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
       // rows anyway, which have no document to jump to. See `plans/060` for
       // why field-level navigation was already tried and removed once.)
       const openDetail = useCallback(
-        (item: InboxItem) => {
+        (item: InboxItem, options?: {newTab?: boolean}) => {
           const asset = assetsById.get(item.id)
           if (!asset) return
           if (openAsset) {
@@ -1134,8 +1150,10 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
             openAsset(asset)
             return
           }
-          if (mediaToolName && navigateUrlRef.current) {
-            navigateUrlRef.current({path: `${basePath}/${mediaToolName}`})
+          if (mediaToolPath && navigateUrlRef.current) {
+            // A new-tab click already has the browser opening the tool; the
+            // filename still goes to the clipboard for that tab's search.
+            if (!options?.newTab) navigateUrlRef.current({path: mediaToolPath})
 
             const kind = assetRowKind(item.id) ?? 'oversized'
             const identifier = asset.filename || asset.id
@@ -1175,10 +1193,10 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
           // dressed up as a working one. No clipboard/toast on this rung
           // either — there is no media-tool search box to point the copied
           // text at, so it would have nothing concrete to say.
-          if (asset.url) window.open(asset.url, '_blank', 'noopener,noreferrer')
+          if (asset.url && !options?.newTab) window.open(asset.url, '_blank', 'noopener,noreferrer')
         },
         // `openAsset` is this source's own option, fixed for the source's lifetime, so it is deliberately not a dependency.
-        [assetsById, mediaToolName, basePath, toast, t],
+        [assetsById, mediaToolPath, toast, t],
       )
 
       const proposeFix = useCallback(

@@ -107,6 +107,7 @@ behaviour here, fix the comment in the same commit.
 | 093 | The headline counts past each source's `limit` | P1 | M | — | DONE 2026-09-28 — "63 things" never moved while fixing alt texts: it counted loaded rows, capped per source. New `InboxSourceResult.overflow`; headline + badge add it. Poor alt, validation, `onlyMine` can't count exactly, so they don't report it. Not verified live yet. |
 | 094 | "Show more" past each source's `limit` | P2 | M | 093 | DONE 2026-09-28, revised after research: list-wide step of 50 split by what's left, "Show all" at ≤100, "Showing X of Y", 200-row list budget (rows unmemoized, measured). Not verified live yet. |
 | 095 | Memoize inbox rows so the list can hold more | P2 | M | 094 | TODO — ~1.3 ms/row per list render in jsdom; every row re-renders on every report. Measure in a real browser first. |
+| 096 | Rows as real links, so cmd+click opens a new tab | P2 | S | — | DONE 2026-09-28 (`feat/row-links`): `<a href>` laid over the card, row controls raised above it; plain click unchanged; falls back to click-only if the intent can't resolve. Follow-up: `InboxItem.href` + `openDetail(item, {newTab})` give asset and task-only rows links too; only todos stay click-only. Verified live on document + missing-alt rows (after f6e0ec5: Sanity UI `Text` is `position: relative` and covered the link); asset/task-only links not yet. |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale)
