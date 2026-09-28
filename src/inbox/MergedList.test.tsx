@@ -1266,7 +1266,7 @@ describe('suggested assignee', () => {
 })
 
 describe('MergedList — Show more footer', () => {
-  it('offers Show more under the list and asks every source with more for a page', () => {
+  it('shows progress and loads exactly what the button says', () => {
     const assetMore = vi.fn()
     const draftMore = vi.fn()
     renderList({
@@ -1278,10 +1278,10 @@ describe('MergedList — Show more footer', () => {
       order: ['assets', 'drafts', 'todos'],
     })
 
-    expect(screen.getByText('inbox.more.count')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', {name: 'inbox.more.show'}))
-    expect(assetMore).toHaveBeenCalledTimes(1)
-    expect(draftMore).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('inbox.more.progress')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', {name: 'inbox.more.showAll'}))
+    expect(assetMore).toHaveBeenCalledWith(40)
+    expect(draftMore).toHaveBeenCalledWith(3)
   })
 
   it('shows nothing when every source loaded everything', () => {
@@ -1289,7 +1289,7 @@ describe('MergedList — Show more footer', () => {
       reports: {assets: report('assets', 'Assets', {open: [item('a')], overflow: 0, loadMore: vi.fn()})},
       order: ['assets'],
     })
-    expect(screen.queryByRole('button', {name: 'inbox.more.show'})).toBeNull()
+    expect(screen.queryByText('inbox.more.progress')).toBeNull()
   })
 
   // Every loaded row dismissed or snoozed, but the source has more: saying
@@ -1300,17 +1300,17 @@ describe('MergedList — Show more footer', () => {
       order: ['assets'],
     })
     expect(screen.queryByText('source.empty')).toBeNull()
-    expect(screen.getByRole('button', {name: 'inbox.more.show'})).toBeTruthy()
+    expect(screen.getByRole('button', {name: 'inbox.more.showAll'})).toBeTruthy()
   })
 
-  it('keeps the count but drops the button once every source is at its ceiling', () => {
+  it('keeps the progress but drops the button when nothing more can load', () => {
     renderList({
       reports: {assets: report('assets', 'Assets', {open: [item('a')], overflow: 12})},
       order: ['assets'],
     })
-    expect(screen.getByText(/inbox\.more\.count/)).toBeTruthy()
+    expect(screen.getByText(/inbox\.more\.progress/)).toBeTruthy()
     expect(screen.getByText(/inbox\.more\.atLimit/)).toBeTruthy()
-    expect(screen.queryByRole('button', {name: 'inbox.more.show'})).toBeNull()
+    expect(screen.queryByRole('button', {name: /inbox\.more\.show/})).toBeNull()
   })
 
   it('is not offered outside the Open view', () => {
@@ -1319,6 +1319,6 @@ describe('MergedList — Show more footer', () => {
       order: ['assets'],
       view: 'cleared',
     })
-    expect(screen.queryByRole('button', {name: 'inbox.more.show'})).toBeNull()
+    expect(screen.queryByRole('button', {name: /inbox\.more\.show/})).toBeNull()
   })
 })

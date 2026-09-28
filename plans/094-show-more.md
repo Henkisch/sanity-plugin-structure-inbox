@@ -6,7 +6,7 @@
 - **Effort**: M
 - **Category**: feature
 - **Depends on**: 093 (`overflow`)
-- **State**: DONE 2026-09-28 (branch `feat/load-more`, stacked on 093).
+- **State**: DONE 2026-09-28 (branch `feat/load-more`, stacked on 093), revised the same day (see the end of this file).
 
 ## Why
 
@@ -63,3 +63,32 @@ Unit coverage: `usePagedLimit`; `summarizeMore`; the footer in `MergedList`
 ceiling, Open view only); `SourceFeed` hold, double click, sync source and timeout. The hold test was
 proven to fail with the hold removed. `assetIssues` re-queries at `limit: 2`
 after one click. **Not verified live**: the browser extension was not connected.
+
+## Revision 2026-09-28: page size from research, and a row budget
+
+The first version paged by each source's own `limit` (10 for tasks, 20 per
+asset check), so clearing a real backlog took many clicks, and one click
+could add 10 rows or 100+. Reworked after reading the research:
+
+- **Baymard** (product lists): pages much smaller than 50 slowed scanning with
+  repeated loads, and the desktop sweet spot was 50–150.
+  https://baymard.com/blog/number-of-items-loaded-by-default
+- **NN/g**: show total, loaded and remaining ("Viewing 40 of 333"), and replace
+  the button with the total once everything is loaded.
+  https://www.nngroup.com/articles/alternatives-pagination-listing-pages/ ;
+  goal-driven lists need a visible end:
+  https://www.nngroup.com/articles/infinite-scrolling/
+
+Neither studies a work queue, and neither gives a per-click number, so the
+constants are judgement calls, one line each in `sources/pagedLimit.ts`:
+
+- `PAGE_SIZE = 50`: one list-wide step, split across sources in proportion to
+  what each has left (`allocate`, largest remainder), so the button's number
+  is exactly what loads. `loadMore(count)` now takes that count.
+  `assetIssues` splits its own share across its checks the same way.
+- `SHOW_ALL_THRESHOLD = 100`: "Show all 44" when that's everything left.
+- `MAX_LOADED_ROWS = 200` across the whole list, which is also the per-query
+  ceiling. Rows aren't memoized, so every loaded row re-renders on every list
+  render. Measured in jsdom: ~1.3 ms per row (45 ms at 20, 387 ms at 300).
+  200 is close to what a default config can already load on first open.
+- Footer reads "Showing 19 of 63" and the button says what it does.

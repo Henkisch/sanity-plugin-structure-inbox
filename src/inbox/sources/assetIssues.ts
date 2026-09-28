@@ -1,7 +1,7 @@
 import {ImageIcon} from '@sanity/icons/Image'
 import {isDocumentSchemaType, isImageSchemaType} from '@sanity/types'
 import {useToast} from '@sanity/ui/toast'
-import {useCallback, useMemo, useRef} from 'react'
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {useObservable} from 'react-rx'
 import {defer, from, of} from 'rxjs'
 import {catchError, map, startWith} from 'rxjs/operators'
@@ -26,7 +26,7 @@ import {
 import {targetIdFromItemId, useAssignmentCapability} from './assignmentCapability'
 import {optionalHook, useSafely} from './capability'
 import {liveQuery$} from './liveQuery'
-import {usePagedLimit} from './pagedLimit'
+import {allocate, MAX_LOADED_ROWS} from './pagedLimit'
 import {SIMPLE_FIELD_PATH} from './simpleFieldPath'
 
 /** Real image/file asset documents this project's own dataset holds. */
@@ -634,9 +634,22 @@ interface AssetIssuesFetch {
    * here, after the fetch, so the dataset can't count it.
    */
   overflow?: number
+  /** `overflow` per check, so `loadMore` can split a page across them. */
+  overflowByCheck?: AssetExtras
   loading?: boolean
   error?: Error
 }
+
+/** One number per counted check: extra rows loaded past `limit`, or rows left out by it. */
+interface AssetExtras {
+  oversized: number
+  unused: number
+  /** Per eligible image field, in `altEligibleFields` order. */
+  missingAlt: readonly number[]
+}
+
+/** Module scope: a fresh object per render would be a new fetch per render. */
+const NO_EXTRAS: AssetExtras = {oversized: 0, unused: 0, missingAlt: []}
 
 /**
  * Unused, oversized, missing-alt-text, and poor-alt-text (filename-like,
@@ -731,10 +744,16 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
     audience: 'everyone',
 
     useItems(): InboxSourceResult {
-      // One page raises every capped check at once — oversized, unused, and
-      // missing/poor alt for every field — since the footer can't say which
-      // of them the editor wants more of.
-      const {limit: pageLimit, loadMore} = usePagedLimit(limit)
+      // Each counted check pages on its own — oversized, unused, and missing
+      // alt per field — so a "Show 50 more" loads 50 across them (split by
+      // what each has left), not 50 per check. Poor alt text isn't counted
+      // (see `AssetIssuesFetch.overflow`), so it stays at `limit`.
+      const [extras, setExtras] = useState<AssetExtras>(NO_EXTRAS)
+      const ceiling = Math.max(limit, MAX_LOADED_ROWS)
+      const oversizedLimit = Math.min(limit + extras.oversized, ceiling)
+      const unusedLimit = Math.min(limit + extras.unused, ceiling)
+      // A string, so the fetch below depends on the values, not an array identity.
+      const missingAltLimitsKey = extras.missingAlt.join(',')
       const client = useClient({apiVersion: API_VERSION})
       const schema = useSchema()
       // "Who's fixing this" — a task like any other, delegable even though
@@ -791,9 +810,9 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
       )
 
       const fetch$ = useMemo(() => {
+        const missingAltLimits = missingAltLimitsKey.split(',').map((extra) => Math.min(limit + (Number(extra) || 0), ceiling))
         const params = {
           assetTypes: ASSET_TYPES,
-          limit: pageLimit,
           maxImage: maxSizes.image,
           maxVideo: maxSizes.video,
           maxAudio: maxSizes.audio,
@@ -805,14 +824,14 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
           from(
             (async () => {
               const [oversized, oversizedTotal, assetCount, missingAlt, missingAltTotals, poorAlt] = await Promise.all([
-                client.fetch<AssetRow[]>(OVERSIZED_QUERY, params),
+                client.fetch<AssetRow[]>(OVERSIZED_QUERY, {...params, limit: oversizedLimit}),
                 client.fetch<number>(OVERSIZED_COUNT_QUERY, params),
                 client.fetch<number>(ASSET_COUNT_QUERY, params),
                 Promise.all(
-                  altEligibleFields.map((field) =>
+                  altEligibleFields.map((field, index) =>
                     client.fetch<MissingAltRow[]>(
                       `*[${missingAltDocFilter(field, altFieldName)}] | order(_updatedAt desc)[0...$limit]{_id, "title": coalesce(title, name, label, _id), "safeTitle": coalesce(title, name, label), "imageUrl": ${field.imagePath}.asset->url, _updatedAt, ${LANGUAGE_PROJECTION}}`,
-                      {type: field.documentType, limit: pageLimit, languageField: languageField?.field ?? null},
+                      {type: field.documentType, limit: missingAltLimits[index] ?? limit, languageField: languageField?.field ?? null},
                     ),
                   ),
                 ),
@@ -827,7 +846,7 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
                   altEligibleFields.map((field) =>
                     client.fetch<PoorAltRow[]>(
                       `*[_type == $type && defined(${field.fieldName}.${altFieldName})] | order(_updatedAt desc)[0...$limit]{_id, "title": coalesce(title, name, label, _id), _updatedAt, "alt": ${field.fieldName}.${altFieldName}, "assetFilename": ${field.imagePath}.asset->originalFilename, ${LANGUAGE_PROJECTION}}`,
-                      {type: field.documentType, limit: pageLimit, languageField: languageField?.field ?? null},
+                      {type: field.documentType, limit, languageField: languageField?.field ?? null},
                     ),
                   ),
                 ),
@@ -836,21 +855,23 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
               const [unused, unusedTotal] =
                 assetCount <= UNUSED_ASSET_SCAN_LIMIT
                   ? await Promise.all([
-                      client.fetch<AssetRow[]>(UNUSED_QUERY, params),
+                      client.fetch<AssetRow[]>(UNUSED_QUERY, {...params, limit: unusedLimit}),
                       client.fetch<number>(UNUSED_COUNT_QUERY, params),
                     ])
                   : [[], 0]
 
               const past = (total: number, shown: number) => Math.max(0, total - shown)
+              const overflowByCheck: AssetExtras = {
+                oversized: past(oversizedTotal, oversized.length),
+                unused: past(unusedTotal, unused.length),
+                missingAlt: missingAltTotals.map((total, index) => past(total, missingAlt[index]?.length ?? 0)),
+              }
               const overflow =
-                past(oversizedTotal, oversized.length) +
-                past(unusedTotal, unused.length) +
-                missingAltTotals.reduce(
-                  (sum, total, index) => sum + past(total, missingAlt[index]?.length ?? 0),
-                  0,
-                )
+                overflowByCheck.oversized +
+                overflowByCheck.unused +
+                overflowByCheck.missingAlt.reduce((sum, count) => sum + count, 0)
 
-              return {oversized, unused, missingAlt, poorAlt, overflow}
+              return {oversized, unused, missingAlt, poorAlt, overflow, overflowByCheck}
             })(),
           ),
         ).pipe(
@@ -883,15 +904,38 @@ export function assetIssues(options: AssetIssuesOptions = {}): InboxSource {
         // `maxSizeBytes: {image: 1e6}` inline in their config cannot cause a
         // refetch loop with a fresh object identity per render (AGENTS.md).
         // eslint-disable-next-line react-hooks/exhaustive-deps -- `altEligibleFields` is a derived, memoized array (schema is stable for this pane's lifetime); re-running this on every render it appears in would defeat the memoization the schema walk is already doing.
-      }, [client, pageLimit, languageField])
+      }, [client, oversizedLimit, unusedLimit, missingAltLimitsKey, languageField])
 
-      const {oversized, unused, missingAlt, poorAlt, overflow, loading, error} = useObservable(fetch$, {
+      const {oversized, unused, missingAlt, poorAlt, overflow, overflowByCheck, loading, error} = useObservable(fetch$, {
         oversized: [] as AssetRow[],
         unused: [] as AssetRow[],
         missingAlt: [] as MissingAltRow[][],
         poorAlt: [] as PoorAltRow[][],
         loading: true,
       })
+
+      // Read in the handler, not closed over: `loadMore` stays one stable
+      // function however often a refetch changes what's left per check.
+      const latestOverflowByCheck = useRef(overflowByCheck)
+      useEffect(() => {
+        latestOverflowByCheck.current = overflowByCheck
+      })
+      const loadMoreChecks = useCallback((count: number) => {
+        const left = latestOverflowByCheck.current
+        if (!left) return
+        const shares = allocate(count, [left.oversized, left.unused, ...left.missingAlt])
+        setExtras((current) => ({
+          oversized: current.oversized + (shares[0] ?? 0),
+          unused: current.unused + (shares[1] ?? 0),
+          missingAlt: left.missingAlt.map((_, index) => (current.missingAlt[index] ?? 0) + (shares[index + 2] ?? 0)),
+        }))
+      }, [])
+      const atCeiling =
+        oversizedLimit >= ceiling &&
+        unusedLimit >= ceiling &&
+        extras.missingAlt.length === altEligibleFields.length &&
+        extras.missingAlt.every((extra) => limit + extra >= ceiling)
+      const loadMore = atCeiling ? undefined : loadMoreChecks
 
       const withAssignee = (row: InboxItem): InboxItem => {
         const assignedTo = byTarget.get(row.id)

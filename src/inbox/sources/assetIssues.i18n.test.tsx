@@ -79,7 +79,7 @@ function stubClient(rows: {
   const set = vi.fn(() => ({commit}))
   const patch = vi.fn(() => ({set}))
 
-  const fetch = vi.fn(async (query: string) => {
+  const fetch = vi.fn(async (query: string, _params?: Record<string, unknown>) => {
     if (query.startsWith('*[_id == $id][0].')) return rows.currentAlt ?? null
     if (query.includes('"safeTitle"')) return rows.missingAlt ?? []
     if (query.includes('"alt":')) return rows.poorAlt ?? []
@@ -271,18 +271,23 @@ describe('assetIssues — overflow past limit', () => {
 })
 
 describe('assetIssues — Show more', () => {
-  it('asks every capped query for one more page', async () => {
+  it('gives each check exactly its share of the page, and no more', async () => {
     useSchemaWith(personWithAlt(stringType))
     const {result, fetch} = await render(
       {limit: 1},
       {missingAlt: [{_id: 'person-1', title: 'Ada', safeTitle: 'Ada'}], missingAltTotal: 45},
     )
     await waitFor(() => expect(result.current.overflow).toBe(44))
+    fetch.mockClear()
 
-    act(() => result.current.loadMore?.())
+    // Only missing alt has anything left, so all of it goes there: 1 + 44.
+    act(() => result.current.loadMore?.(50))
 
     await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(expect.stringContaining('"safeTitle"'), expect.objectContaining({limit: 2})),
+      expect(fetch).toHaveBeenCalledWith(expect.stringContaining('"safeTitle"'), expect.objectContaining({limit: 45})),
     )
+    // Oversized had nothing left, so its query did not grow.
+    const oversizedCall = fetch.mock.calls.find(([q]) => q.includes('"useCount"'))
+    expect(oversizedCall?.[1]).toEqual(expect.objectContaining({limit: 1}))
   })
 })

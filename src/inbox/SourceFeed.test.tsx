@@ -101,7 +101,7 @@ describe('SourceFeed', () => {
     expect(report.overflow).toBe(7)
     // Wrapped (see the hold in `SourceFeed`), so not the same function — but
     // it must still reach the source's own.
-    act(() => report.loadMore?.())
+    act(() => report.loadMore?.(5))
     expect(loadMore).toHaveBeenCalledTimes(1)
   })
 
@@ -297,7 +297,7 @@ describe('SourceFeed — Show more', () => {
     const {rerender, last} = renderFeed(source)
     expect(last().open.map((i) => i.id)).toEqual(['a', 'b'])
 
-    act(() => last().loadMore?.())
+    act(() => last().loadMore?.(2))
     expect(loadMore).toHaveBeenCalledTimes(1)
     rerender()
 
@@ -315,9 +315,9 @@ describe('SourceFeed — Show more', () => {
   it('ignores a second click while a page is already on its way', () => {
     const {source, loadMore} = pagingSource()
     const {rerender, last} = renderFeed(source)
-    act(() => last().loadMore?.())
+    act(() => last().loadMore?.(2))
     rerender()
-    act(() => last().loadMore?.())
+    act(() => last().loadMore?.(2))
     expect(loadMore).toHaveBeenCalledTimes(1)
   })
 
@@ -337,7 +337,7 @@ describe('SourceFeed — Show more', () => {
       }),
     }
     const {rerender, last} = renderFeed(source)
-    act(() => last().loadMore?.())
+    act(() => last().loadMore?.(2))
     rerender()
     expect(last().loadingMore).toBe(false)
     expect(last().open).toHaveLength(4)
@@ -352,7 +352,7 @@ describe('SourceFeed — Show more', () => {
         useItems: () => ({items: page1, overflow: 2, loadMore: () => {}}),
       }
       const {last} = renderFeed(source)
-      act(() => last().loadMore?.())
+      act(() => last().loadMore?.(2))
       expect(last().loadingMore).toBe(true)
       act(() => {
         vi.advanceTimersByTime(20_000)

@@ -211,13 +211,13 @@ export function SourceFeed(props: SourceFeedProps) {
     latestLoadMore.current = sourceLoadMore
     heldRef.current = held
   })
-  const loadMoreHeld = useCallback(() => {
+  const loadMoreHeld = useCallback((count: number) => {
     const call = latestLoadMore.current
     if (!call || heldRef.current) return
     sawLoading.current = false
     heldRef.current = settled.current
     setHeld(settled.current)
-    call()
+    call(count)
   }, [])
   const loadMore = sourceLoadMore ? loadMoreHeld : undefined
 

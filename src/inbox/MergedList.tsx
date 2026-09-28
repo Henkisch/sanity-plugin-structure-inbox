@@ -1328,7 +1328,7 @@ export function MergedList(props: MergedListProps) {
         ) : isEmpty && more && more.hidden > 0 ? (
           // Every loaded row is dismissed, snoozed, filtered out or fixed, but
           // the sources have more: "Nothing open." would be false here.
-          <LoadMoreFooter summary={more} />
+          <LoadMoreFooter shown={0} summary={more} />
         ) : isEmpty ? (
           <Box padding={3}>
             <Text muted size={1}>
@@ -1369,7 +1369,7 @@ export function MergedList(props: MergedListProps) {
                 ) : (
                   rows.map(renderRow)
                 )}
-                {more && <LoadMoreFooter summary={more} />}
+                {more && <LoadMoreFooter shown={rows.length} summary={more} />}
               </Stack>
             </Box>
           </Stack>

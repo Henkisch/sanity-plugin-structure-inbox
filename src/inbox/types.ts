@@ -269,16 +269,18 @@ export interface InboxSourceResult {
    */
   overflow?: number
   /**
-   * Raises this source's own cap by one page, so some of `overflow` comes
-   * into the list. Powers the "Show more" footer at the end of the Open view;
-   * the plugin holds the rows already on screen while the next page loads, so
-   * a source may simply rebuild its query with the higher limit.
+   * Loads up to `count` more of this source's open items (never more than its
+   * `overflow`), by raising its own cap. Powers the "Show more" footer at the
+   * end of the Open view, which decides `count`: its button promises an exact
+   * number ("Show 50 more", "Show all 44"), split across sources, so a source
+   * should add what it's asked for, not a page of its own choosing. The
+   * plugin holds the rows already on screen while the next page loads, so a
+   * source may simply rebuild its query with the higher limit.
    *
-   * Only meaningful alongside `overflow`: the footer is offered while some
-   * source reports `overflow > 0`. Return `undefined` once there is nothing
-   * more this source can load (its own ceiling reached).
+   * Only meaningful alongside `overflow`. Return `undefined` once there is
+   * nothing more this source can load (its own ceiling reached).
    */
-  loadMore?: () => void
+  loadMore?: (count: number) => void
   loading?: boolean
   error?: Error
   /**

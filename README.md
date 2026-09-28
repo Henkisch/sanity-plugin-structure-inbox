@@ -187,9 +187,10 @@ than you returned. The list stays capped, but the headline and the nav badge cou
 one item takes one off the number instead of letting the next one slide silently into its place.
 Leave it out if you filter after the fetch and can't count exactly.
 
-Return `loadMore` too and the list gets a "Show more" footer: each click should raise your cap by
-a page, typically by keeping the limit in state and rebuilding the query. The plugin keeps the
-rows already on screen while the next page loads, so you don't need to.
+Return `loadMore(count)` too and the list gets a "Show more" footer. The footer decides `count` (a
+share of 50 rows per click, or everything left once it's 100 or fewer, with at most 200 rows in the
+whole list), so add exactly that many, typically by keeping the limit in state and rebuilding the
+query. The plugin keeps the rows already on screen while the next page loads.
 
 ### Landing on the field, not just the document
 
