@@ -108,7 +108,15 @@ function stubClient(options: {
     : vi.fn().mockResolvedValue(options.agentAnswer ?? '{"id": null}')
 
   const fetch = vi.fn(async (query: string) => {
-    // `observeReport`'s own `readReport` query.
+    // `observeLiveReport`'s live check: every finding's document still
+    // exists, untouched since the scan, so nothing is pruned.
+    if (query.includes('"versions"')) {
+      return {
+        versions: options.report.findings.map((f) => ({_id: f.fromId, _updatedAt: '2000-01-01T00:00:00Z'})),
+        existingIds: [],
+      }
+    }
+    // `observeLiveReport`'s own `readReport` query.
     if (query.includes('ranAt, findings')) return options.report
     // The reference-retargeting candidates fetch.
     if (query.includes('[0...20]')) return options.candidates ?? []
