@@ -8,7 +8,7 @@ import {useClient, useSchema} from 'sanity'
 import {
   getFindingKey,
   isProblemFinding,
-  observeReport,
+  observeLiveReport,
   runScan,
   summarizeResult,
   type LinkCheckerPluginConfig,
@@ -430,10 +430,12 @@ export function groupOccurrences(
  * `runScan` already produced.
  *
  * Live rather than fetched once: `sanity-plugin-link-checker`'s own
- * `observeReport` (its report is one always-overwritten document) re-emits
+ * `observeLiveReport` (its report is one always-overwritten document) re-emits
  * whenever a re-scan writes a fresher one — run by anyone, the in-Studio
  * tool, the CLI, or the Document Function — so this updates without the
- * editor navigating away and back.
+ * editor navigating away and back. It also drops findings fixed since that
+ * scan (link removed, document deleted, reference target restored), so a row
+ * an editor just fixed goes away without a rescan.
  *
  * @public
  */
@@ -468,15 +470,16 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
     const schema = useSchema()
 
     const reportState$ = useMemo(() => {
-      // `observeReport` is a plain subscribe-callback API (not an
+      // `observeLiveReport` is a plain subscribe-callback API (not an
       // Observable of its own) - bridged into one here so this source
       // composes with the rest of this codebase's rxjs-based sources the
       // same way. Its own return value is already the teardown/unsubscribe
       // function `Observable`'s subscriber callback expects. Re-emits
-      // whenever a re-scan writes a fresher report — run by anyone, the
-      // in-Studio tool, the CLI, or the Document Function.
+      // whenever a re-scan writes a fresher report, and whenever one of its
+      // findings' documents changes - minus whatever that change fixed. Not
+      // `observeReport`: a removed link stayed listed until someone rescanned.
       const report$ = new Observable<ScanResult | null>((subscriber) =>
-        observeReport(client, (report) => subscriber.next(report)),
+        observeLiveReport(client, (report) => subscriber.next(report)),
       )
 
       return report$.pipe(
@@ -549,7 +552,7 @@ export function linkCheckerFindings(options: LinkCheckerFindingsOptions = {}): I
       // plugin's own "Run scan" button and CLI call) and persists it
       // (`writeReport`) — both exported from that plugin's headless `core`
       // for exactly this. The freshly-written report reaches this source
-      // through the live `observeReport`-equivalent listen above like any
+      // through the live `observeLiveReport` listen above like any
       // other re-scan would (the CLI's, another editor's, a deployed
       // Document Function's) — nothing here refreshes `items` directly.
       // Returns a one-line summary — the same distinct-problem counts

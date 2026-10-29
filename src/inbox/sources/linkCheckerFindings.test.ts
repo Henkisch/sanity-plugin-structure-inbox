@@ -443,7 +443,15 @@ describe('proposeFix — reference retargeting', () => {
     const prompt = vi.fn().mockResolvedValue(options.agentAnswer)
 
     const fetch = vi.fn(async (query: string) => {
-      // `observeReport`'s own `readReport` query, for the live report this
+      // `observeLiveReport`'s live check: every finding's document still
+      // exists, untouched since the scan, so nothing is pruned.
+      if (query.includes('"versions"')) {
+        return {
+          versions: options.report.findings.map((f) => ({_id: f.fromId, _updatedAt: '2000-01-01T00:00:00Z'})),
+          existingIds: [],
+        }
+      }
+      // `observeLiveReport`'s own `readReport` query, for the live report this
       // source reads its findings from.
       if (query.includes('ranAt, findings')) return options.report
       // The candidates fetch this plan adds — the same query/params the
