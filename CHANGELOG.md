@@ -5,6 +5,12 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [2.7.1](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v2.7.0...v2.7.1) (2026-10-29)
+
+### Bug Fixes
+
+- **inbox:** clear link rows once the link is fixed, without a rescan ([b78fa65](https://github.com/Henkisch/sanity-plugin-structure-inbox/commit/b78fa6532072d0281f4d05112dd579648e115476))
+
 ## [2.7.0](https://github.com/Henkisch/sanity-plugin-structure-inbox/compare/v2.6.0...v2.7.0) (2026-09-28)
 
 ### Features
